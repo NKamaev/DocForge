@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://postgres:5432/docforge
+    username: docforge
+    password: docforge
+
+  data:
+    mongodb:
+      uri: mongodb://docforge:docforge@mongo:27017/docforge?authSource=admin
+    redis:
+      host: redis
+      port: 6379
+
+logging:
+  level:
+    com.docforge: INFO

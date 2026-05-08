@@ -1,0 +1,171 @@
+/* A4-like page wrapper — dimensions driven by CSS variables set in TemplateDesigner */
+.tiptap-page {
+  --page-width: 210mm;
+  --page-min-height: 297mm;
+  --margin-top: 20mm;
+  --margin-right: 15mm;
+  --margin-bottom: 20mm;
+  --margin-left: 30mm;
+  --default-font: "Times New Roman", serif;
+  --default-font-size: 14pt;
+  --default-line-height: 1.5;
+
+  background: #fff;
+  min-height: var(--page-min-height);
+  width: var(--page-width);
+  margin: 0 auto;
+  padding: var(--margin-top) var(--margin-right) var(--margin-bottom) var(--margin-left);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* Editor focus */
+.tiptap-page .ProseMirror {
+  outline: none;
+  min-height: 200px;
+  font-family: var(--default-font);
+  font-size: var(--default-font-size);
+  line-height: var(--default-line-height);
+}
+
+/* Paragraph defaults via CSS variables — overridden by inline styles from ParagraphSpacingExtension */
+.tiptap-page .ProseMirror p,
+.tiptap-page .ProseMirror h1,
+.tiptap-page .ProseMirror h2,
+.tiptap-page .ProseMirror h3 {
+  margin-top: var(--default-space-before, 0);
+  margin-bottom: var(--default-space-after, 0);
+  margin-left: var(--default-margin-left, 0);
+  margin-right: var(--default-margin-right, 0);
+  text-indent: var(--default-first-line-indent, 0);
+}
+
+/* Numbered clause: the marker is floated left; subsequent lines wrap to the wrapper's
+   left edge (= clause marginLeft). Reset page-level paragraph defaults on the inner <p>
+   so --default-margin-left and --default-first-line-indent don't cascade here —
+   spacing is controlled at the wrapper level via ParagraphSpacingExtension attrs. */
+.tiptap-page .ProseMirror .node-numberedClause p {
+  margin-left: 0;
+  margin-right: 0;
+  text-indent: 0;
+}
+
+/* Headings */
+.tiptap-page .ProseMirror h1 { font-size: 18pt; font-weight: bold; }
+.tiptap-page .ProseMirror h2 { font-size: 16pt; font-weight: bold; }
+.tiptap-page .ProseMirror h3 { font-size: 14pt; font-weight: bold; }
+
+/* Table styles */
+.tiptap-page .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+
+.tiptap-page .ProseMirror th,
+.tiptap-page .ProseMirror td {
+  border: 1px solid #d9d9d9;
+  padding: 6px 10px;
+  min-width: 60px;
+  /* height в table-layout работает как min-height и обеспечивает пространство
+     для vertical-align. Ячейки вырастают при большем содержимом. */
+  height: 60px;
+  vertical-align: top;
+  position: relative; /* нужно для позиционирования .column-resize-handle */
+}
+
+.tiptap-page .ProseMirror th {
+  background: #fafafa;
+  font-weight: 600;
+}
+
+/* Selected cell */
+.tiptap-page .ProseMirror .selectedCell {
+  background: #e6f4ff;
+}
+
+/* Column resize handle — показывает вертикальный разделитель при наведении */
+.tiptap-page .ProseMirror .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -1px;
+  width: 4px;
+  background-color: #1677ff;
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* Курсор изменяется при наведении на границу колонки */
+.tiptap-page .ProseMirror.resize-cursor,
+.tiptap-page .ProseMirror.resize-cursor * {
+  cursor: col-resize !important;
+}
+
+/* Подсветка ячейки во время перетаскивания */
+.tiptap-page .ProseMirror .column-resize-dragging {
+  background: #bae0ff !important;
+}
+
+/* Page break node */
+.tiptap-page .ProseMirror .page-break-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  color: #8c8c8c;
+  font-size: 11px;
+  user-select: none;
+  cursor: default;
+}
+
+.tiptap-page .ProseMirror .page-break-node::before,
+.tiptap-page .ProseMirror .page-break-node::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed #bfbfbf;
+}
+
+.tiptap-page .ProseMirror .page-break-node::before {
+  content: '── Разрыв страницы ──';
+  flex: none;
+  border: none;
+  display: block;
+  width: 100%;
+  text-align: center;
+  border-top: 1px dashed #bfbfbf;
+  padding-top: 4px;
+}
+
+@media print {
+  .tiptap-page .ProseMirror .page-break-node {
+    page-break-before: always;
+    border: none;
+    height: 0;
+    margin: 0;
+    overflow: hidden;
+    color: transparent;
+  }
+}
+
+/* Text orientation via data-attribute (fallback for browsers that need explicit writing-mode) */
+.tiptap-page table td[style*="writing-mode: vertical-rl"],
+.tiptap-page table th[style*="writing-mode: vertical-rl"] {
+  min-width: 28px;
+}
+
+.tiptap-page table td[style*="writing-mode: vertical-lr"],
+.tiptap-page table th[style*="writing-mode: vertical-lr"] {
+  min-width: 28px;
+}
+
+/* Search & Replace highlights */
+.tiptap-page .ProseMirror .search-match {
+  background: #ffe58f;
+  border-radius: 2px;
+}
+
+.tiptap-page .ProseMirror .search-match-current {
+  background: #ffa940;
+  border-radius: 2px;
+  outline: 2px solid #d46b08;
+}
