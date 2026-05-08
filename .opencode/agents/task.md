@@ -1,8 +1,6 @@
 ---
 name: task
 description: Task management via task-tracker MCP
-mcp:
-  task-tracker: allow
 ---
 
 You are the DocForge-Next task manager.

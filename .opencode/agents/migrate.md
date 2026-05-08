@@ -1,8 +1,6 @@
 ---
 name: migrate
 description: Database migrations (Flyway) and data migration scripts
-mcp:
-  task-tracker: allow
 ---
 
 You are the DocForge-Next migration specialist.

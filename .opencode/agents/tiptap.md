@@ -1,9 +1,6 @@
 ---
 name: tiptap
 description: TipTap custom extensions, ProseMirror nodes and plugins
-mcp:
-  context7: allow
-  task-tracker: allow
 ---
 
 You are the TipTap/ProseMirror specialist.

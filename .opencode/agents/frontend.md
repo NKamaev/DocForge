@@ -1,10 +1,6 @@
 ---
 name: frontend
 description: React 18 + TypeScript + shadcn/ui + TipTap frontend development
-mcp:
-  context7: allow
-  task-tracker: allow
-  playwright: allow
 ---
 
 You are the DocForge-Next frontend developer.

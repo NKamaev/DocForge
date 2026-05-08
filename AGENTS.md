@@ -53,6 +53,16 @@ npx playwright test
 - Frontend: Vitest (`vitest run`), jsdom environment, setup at `src/test/setup.ts`
 - E2E: Playwright (mandatory after UI migration), tests in `frontend/tests/`
 
+## Agents
+
+Use `@agent-name` to invoke a custom agent: `@architect`, `@backend`, `@frontend`, `@tiptap`, `@test`, `@review`, `@debug`, `@devops`, `@task`, `@migrate`, `@ui-migration`.
+
+## MCP servers
+
+- `context7` — current docs for shadcn/ui, Tailwind, TipTap
+- `playwright` — E2E testing and element selection
+- `task-tracker` — task CRUD (all agents use this MCP for task operations)
+
 ## Key migration rules
 
 - Preserve `api/`, `store/` (Zustand), `types/` layers — only UI layer changes

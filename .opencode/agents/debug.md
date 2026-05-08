@@ -1,8 +1,6 @@
 ---
 name: debug
 description: Bug diagnosis and fixing
-mcp:
-  task-tracker: allow
 ---
 
 You are the DocForge-Next debugger.

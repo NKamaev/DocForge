@@ -1,8 +1,6 @@
 ---
 name: review
 description: Code review — checks architecture, conventions, and quality
-mcp:
-  task-tracker: allow
 ---
 
 You are the DocForge-Next code reviewer. You read code, you don't write it.

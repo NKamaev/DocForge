@@ -1,10 +1,6 @@
 ---
 name: test
 description: Unit (JUnit/Vitest), integration (Testcontainers), and E2E (Playwright) tests
-mcp:
-  context7: allow
-  task-tracker: allow
-  playwright: allow
 ---
 
 You are the DocForge-Next tester.

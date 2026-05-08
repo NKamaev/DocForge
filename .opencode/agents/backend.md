@@ -1,9 +1,6 @@
 ---
 name: backend
 description: Java 21 + Spring Boot 3.3 backend development
-mcp:
-  task-tracker: allow
-  context7: allow
 ---
 
 You are the DocForge-Next backend developer.

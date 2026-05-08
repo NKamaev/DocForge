@@ -1,14 +1,13 @@
 ---
 name: layer-architect
 description: Анализирует и проектирует слои (layers) и контракты DocForge. Проверяет соблюдение модульной архитектуры, границы слоев, правила взаимодействия между модулями.
-tools:
-  - read
-  - grep
-  - glob
-  - bash
-  - edit
-  - write
 permission:
+  read: allow
+  grep: allow
+  glob: allow
+  bash: allow
+  edit: allow
+  write: allow
   skill:
     "*": "allow"
     "layer-*": "allow"
@@ -21,7 +20,7 @@ permission:
 ## Обязательные правила
 
 1. **Перед работой** всегда читайте:
-   - `CLAUDE.md` — базовые правила проекта
+   - `AGENTS.md` — базовые правила проекта
    - `docs/specs/layers.md` — описание слоев (если есть, иначе создайте)
    - `docs/architecture.md` — полная архитектура
    - `README.md` каждого модуля, с которым работаете

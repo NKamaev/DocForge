@@ -1,6 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "project": "DocForge-Next",
   "instructions": [
     "AGENTS.md",
     "docs/specs/layers.md",
@@ -9,90 +8,118 @@
   "mcp": {
     "context7": {
       "type": "local",
-      "command": ["npx", "-y", "@upstash/context7-mcp"],
-      "description": "Current docs for shadcn/ui, Tailwind, TipTap"
+      "command": ["npx", "-y", "@upstash/context7-mcp"]
     },
     "playwright": {
       "type": "local",
-      "command": ["npx", "@playwright/mcp@latest"],
-      "description": "E2E testing and UI element selection"
+      "command": ["npx", "@playwright/mcp@latest"]
     },
     "task-tracker": {
       "type": "local",
-      "command": "java",
-      "args": ["-jar", "/home/nkamaev/.tasktracker/bin/task-tracker-mcp.jar"],
-      "env": {
+      "command": ["java", "-jar", "/home/nkamaev/.tasktracker/bin/task-tracker-mcp.jar"],
+      "environment": {
         "TASKTRACKER_BASE_URL": "http://localhost:8765/api/v1",
         "TASKTRACKER_ACTOR": "mcp:claude-code"
-      },
-      "description": "Self-hosted Java task tracker — create/read/update tasks"
+      }
     }
   },
   "agent": {
     "plan": {
-      "tools": { "bash": false, "write": false, "edit": false },
-      "mcp": { "task-tracker": "allow", "context7": "allow" }
+      "description": "Analyze and plan changes without modifying files",
+      "mode": "primary",
+      "permission": {
+        "write": "deny",
+        "edit": "deny"
+      }
     },
     "build": {
-      "tools": { "all": true },
-      "mcp": { "task-tracker": "allow", "context7": "allow", "playwright": "deny" }
+      "description": "Full development with all tools enabled",
+      "mode": "primary"
     },
     "architect": {
-      "tools": { "read": true, "grep": true, "glob": true, "bash": true, "edit": true, "write": true },
-      "mcp": { "task-tracker": "allow", "context7": "allow" },
-      "description": "Architecture planning, module structure, data models, Flyway migrations"
+      "description": "Architecture planning, module structure, data models, Flyway migrations",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow",
+        "context7_*": "allow"
+      }
     },
     "backend": {
-      "tools": { "read": true, "write": true, "edit": true, "bash": true },
-      "mcp": { "task-tracker": "allow", "context7": "allow" },
-      "description": "Java 21 + Spring Boot 3.3 backend development"
+      "description": "Java 21 + Spring Boot 3.3 backend development",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow",
+        "context7_*": "allow"
+      }
     },
     "frontend": {
-      "tools": { "read": true, "write": true, "edit": true, "bash": true },
-      "mcp": { "context7": "allow", "task-tracker": "allow", "playwright": "allow" },
-      "description": "React 18 + TypeScript + shadcn/ui + TipTap frontend development"
+      "description": "React 18 + TypeScript + shadcn/ui + TipTap frontend development",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow",
+        "context7_*": "allow",
+        "playwright_*": "allow"
+      }
     },
     "tiptap": {
-      "tools": { "read": true, "write": true, "edit": true, "bash": true },
-      "mcp": { "context7": "allow", "task-tracker": "allow" },
-      "description": "TipTap custom extensions, ProseMirror nodes and plugins"
+      "description": "TipTap custom extensions, ProseMirror nodes and plugins",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow",
+        "context7_*": "allow"
+      }
     },
     "test": {
-      "tools": { "read": true, "write": true, "edit": true, "bash": true },
-      "mcp": { "context7": "allow", "task-tracker": "allow", "playwright": "allow" },
-      "description": "Unit (JUnit/Vitest), integration (Testcontainers), and E2E (Playwright) tests"
+      "description": "Unit (JUnit/Vitest), integration (Testcontainers), and E2E (Playwright) tests",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow",
+        "context7_*": "allow",
+        "playwright_*": "allow"
+      }
     },
     "review": {
       "description": "Code review — checks architecture, conventions, and quality",
-      "mcp": { "task-tracker": "allow" }
+      "mode": "subagent",
+      "permission": {
+        "edit": "deny",
+        "write": "deny",
+        "task-tracker_*": "allow"
+      }
     },
     "debug": {
-      "tools": { "read": true, "write": true, "edit": true, "bash": true },
-      "mcp": { "task-tracker": "allow" },
-      "description": "Bug diagnosis and fixing"
+      "description": "Bug diagnosis and fixing",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow"
+      }
     },
     "devops": {
-      "tools": { "read": true, "write": true, "edit": true, "bash": true },
-      "description": "Docker, CI/CD, infrastructure config"
+      "description": "Docker, CI/CD, infrastructure config",
+      "mode": "subagent"
     },
     "ui-migration": {
-      "tools": { "read": true, "write": true, "edit": true, "bash": true },
-      "mcp": { "context7": "allow", "playwright": "allow", "task-tracker": "allow" },
-      "description": "Migrate Ant Design → shadcn/ui + Tailwind"
+      "description": "Migrate Ant Design → shadcn/ui + Tailwind",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow",
+        "context7_*": "allow",
+        "playwright_*": "allow"
+      }
     },
     "task": {
-      "tools": { "read": true, "bash": true },
-      "mcp": { "task-tracker": "allow" },
-      "description": "Task management via task-tracker MCP"
+      "description": "Task management via task-tracker MCP",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow"
+      }
     },
     "migrate": {
-      "tools": { "read": true, "write": true, "edit": true, "bash": true },
-      "mcp": { "task-tracker": "allow" },
-      "description": "Database migrations (Flyway) and data migration scripts"
+      "description": "Database migrations (Flyway) and data migration scripts",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow"
+      }
     }
-  },
-  "permission": {
-    "tool": { "webfetch": "ask", "websearch": "allow" },
-    "skill": { "*": "allow", "experimental-*": "deny" }
   }
 }

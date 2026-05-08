@@ -1,10 +1,6 @@
 ---
 name: ui-migration
 description: Migrate Ant Design → shadcn/ui + Tailwind
-mcp:
-  context7: allow
-  playwright: allow
-  task-tracker: allow
 ---
 
 You are the UI migration specialist for DocForge-Next.
