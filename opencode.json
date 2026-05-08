@@ -1,0 +1,98 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "project": "DocForge-Next",
+  "instructions": [
+    "AGENTS.md",
+    "docs/specs/layers.md",
+    "docs/architecture.md"
+  ],
+  "mcp": {
+    "context7": {
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp"],
+      "description": "Current docs for shadcn/ui, Tailwind, TipTap"
+    },
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "@playwright/mcp@latest"],
+      "description": "E2E testing and UI element selection"
+    },
+    "task-tracker": {
+      "type": "local",
+      "command": "java",
+      "args": ["-jar", "/home/nkamaev/.tasktracker/bin/task-tracker-mcp.jar"],
+      "env": {
+        "TASKTRACKER_BASE_URL": "http://localhost:8765/api/v1",
+        "TASKTRACKER_ACTOR": "mcp:claude-code"
+      },
+      "description": "Self-hosted Java task tracker — create/read/update tasks"
+    }
+  },
+  "agent": {
+    "plan": {
+      "tools": { "bash": false, "write": false, "edit": false },
+      "mcp": { "task-tracker": "allow", "context7": "allow" }
+    },
+    "build": {
+      "tools": { "all": true },
+      "mcp": { "task-tracker": "allow", "context7": "allow", "playwright": "deny" }
+    },
+    "architect": {
+      "tools": { "read": true, "grep": true, "glob": true, "bash": true, "edit": true, "write": true },
+      "mcp": { "task-tracker": "allow", "context7": "allow" },
+      "description": "Architecture planning, module structure, data models, Flyway migrations"
+    },
+    "backend": {
+      "tools": { "read": true, "write": true, "edit": true, "bash": true },
+      "mcp": { "task-tracker": "allow", "context7": "allow" },
+      "description": "Java 21 + Spring Boot 3.3 backend development"
+    },
+    "frontend": {
+      "tools": { "read": true, "write": true, "edit": true, "bash": true },
+      "mcp": { "context7": "allow", "task-tracker": "allow", "playwright": "allow" },
+      "description": "React 18 + TypeScript + shadcn/ui + TipTap frontend development"
+    },
+    "tiptap": {
+      "tools": { "read": true, "write": true, "edit": true, "bash": true },
+      "mcp": { "context7": "allow", "task-tracker": "allow" },
+      "description": "TipTap custom extensions, ProseMirror nodes and plugins"
+    },
+    "test": {
+      "tools": { "read": true, "write": true, "edit": true, "bash": true },
+      "mcp": { "context7": "allow", "task-tracker": "allow", "playwright": "allow" },
+      "description": "Unit (JUnit/Vitest), integration (Testcontainers), and E2E (Playwright) tests"
+    },
+    "review": {
+      "description": "Code review — checks architecture, conventions, and quality",
+      "mcp": { "task-tracker": "allow" }
+    },
+    "debug": {
+      "tools": { "read": true, "write": true, "edit": true, "bash": true },
+      "mcp": { "task-tracker": "allow" },
+      "description": "Bug diagnosis and fixing"
+    },
+    "devops": {
+      "tools": { "read": true, "write": true, "edit": true, "bash": true },
+      "description": "Docker, CI/CD, infrastructure config"
+    },
+    "ui-migration": {
+      "tools": { "read": true, "write": true, "edit": true, "bash": true },
+      "mcp": { "context7": "allow", "playwright": "allow", "task-tracker": "allow" },
+      "description": "Migrate Ant Design → shadcn/ui + Tailwind"
+    },
+    "task": {
+      "tools": { "read": true, "bash": true },
+      "mcp": { "task-tracker": "allow" },
+      "description": "Task management via task-tracker MCP"
+    },
+    "migrate": {
+      "tools": { "read": true, "write": true, "edit": true, "bash": true },
+      "mcp": { "task-tracker": "allow" },
+      "description": "Database migrations (Flyway) and data migration scripts"
+    }
+  },
+  "permission": {
+    "tool": { "webfetch": "ask", "websearch": "allow" },
+    "skill": { "*": "allow", "experimental-*": "deny" }
+  }
+}
