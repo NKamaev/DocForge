@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, Space, Tooltip } from 'antd'
+import { Button } from '@/components/ui/button'
 import {
-  NumberOutlined,
-  OrderedListOutlined,
-  PlusSquareOutlined,
-  TableOutlined,
-  UnorderedListOutlined,
-} from '@ant-design/icons'
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { List, ListOrdered, Table, Plus, Hash } from 'lucide-react'
 import type { Editor } from '@tiptap/react'
 import { FloatingMenuPlugin } from '@tiptap/extension-floating-menu'
 import { PluginKey } from '@tiptap/pm/state'
@@ -62,66 +61,106 @@ export default function FloatingInsertMenu({ editor, parameters = [] }: Props) {
   const firstParam = parameters[0]
 
   const menu = (
-    <Space size={2} style={{ userSelect: 'none' }}>
-      <span style={{ fontSize: 11, color: '#bfbfbf', marginRight: 4 }}>Вставить:</span>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        background: '#fff',
+        border: '1px solid #d9d9d9',
+        borderRadius: 6,
+        padding: '2px 4px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        userSelect: 'none',
+      }}
+    >
+      <span
+        style={{
+          fontSize: 12.5,
+          color: '#999',
+          marginRight: 2,
+          marginLeft: 2,
+        }}
+      >
+        Вставить:
+      </span>
 
-      <Tooltip title="Маркированный список">
-        <Button
-          size="small"
-          type="text"
-          icon={<UnorderedListOutlined />}
-          onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run() }}
-        />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run() }}
+          >
+            <List className="size-2.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Маркированный список</TooltipContent>
       </Tooltip>
 
-      <Tooltip title="Нумерованный список">
-        <Button
-          size="small"
-          type="text"
-          icon={<OrderedListOutlined />}
-          onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run() }}
-        />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run() }}
+          >
+            <ListOrdered className="size-2.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Нумерованный список</TooltipContent>
       </Tooltip>
 
-      <Tooltip title="Нумерованный пункт (§)">
-        <Button
-          size="small"
-          type="text"
-          icon={<NumberOutlined style={{ color: '#0958D9' }} />}
-          onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().insertNumberedClause(1).run() }}
-        />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().insertNumberedClause(1).run() }}
+          >
+            <Hash className="size-2.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Нумерованный пункт (§)</TooltipContent>
       </Tooltip>
 
-      <Tooltip title="Таблица">
-        <Button
-          size="small"
-          type="text"
-          icon={<TableOutlined />}
-          onMouseDown={(e) => {
-            e.preventDefault()
-            editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run()
-          }}
-        />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run()
+            }}
+          >
+            <Table className="size-2.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Таблица</TooltipContent>
       </Tooltip>
 
       {firstParam && (
-        <Tooltip title={`Параметр: ${firstParam.label}`}>
-          <Button
-            size="small"
-            type="text"
-            icon={<PlusSquareOutlined />}
-            onMouseDown={(e) => {
-              e.preventDefault()
-              editor.chain().focus().insertParameterField({
-                parameterCode: firstParam.code,
-                display: firstParam.label,
-              }).run()
-            }}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                editor.chain().focus().insertParameterField({
+                  parameterCode: firstParam.code,
+                  display: firstParam.label,
+                }).run()
+              }}
+            >
+            <Plus className="size-2.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Параметр: {firstParam.label}</TooltipContent>
         </Tooltip>
       )}
-
-    </Space>
+    </div>
   )
 
   return createPortal(menu, containerRef.current)
