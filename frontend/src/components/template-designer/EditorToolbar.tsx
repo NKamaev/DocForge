@@ -1,23 +1,40 @@
 import { useEffect, useReducer, useState } from 'react'
-import { Button, ColorPicker, Divider, Dropdown, InputNumber, Select, Space, Tooltip } from 'antd'
-import type { MenuProps } from 'antd'
+import {
+  Button,
+  Input,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  MultiSelect,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui'
+import { ColorPicker } from '@/components/ui/color-picker'
 import type { Editor } from '@tiptap/react'
 import {
-  AlignCenterOutlined,
-  AlignLeftOutlined,
-  AlignRightOutlined,
-  BarsOutlined,
-  BoldOutlined,
-  ItalicOutlined,
-  LineOutlined,
-  LinkOutlined,
-  PictureOutlined,
-  OrderedListOutlined,
-  StrikethroughOutlined,
-  TableOutlined,
-  UnderlineOutlined,
-  UnorderedListOutlined,
-} from '@ant-design/icons'
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Menu,
+  Bold,
+  Italic,
+  Minus,
+  Link,
+  Image,
+  ListOrdered,
+  Strikethrough,
+  Table,
+  Underline,
+  List,
+} from 'lucide-react'
 import { Icon } from '../Icon'
 import type { DocumentFormatting, Parameter, Phrasing } from '../../types/template'
 import { autoNumberingPluginKey } from './extensions/NumberedClauseNode'
@@ -45,21 +62,51 @@ function ToolBtn({
   children: React.ReactNode
 }) {
   return (
-    <Tooltip title={title}>
-      <Button
-        size="small"
-        type={active ? 'primary' : 'default'}
-        onClick={onClick}
-        disabled={disabled}
-        style={{ minWidth: 32 }}
-      >
-        {children}
-      </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          className={'tb-btn' + (active ? ' active' : '')}
+          onClick={onClick}
+          disabled={disabled}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
     </Tooltip>
   )
 }
 
-// Fallback parameters shown when the template has none defined yet
+function TbSelect({
+  value,
+  onChange,
+  options,
+  style,
+  placeholder,
+}: {
+  value?: string
+  onChange: (v: string) => void
+  options: { value: string; label: string }[]
+  style?: React.CSSProperties
+  placeholder?: string
+}) {
+  return (
+    <div className="tb-select-wrap" style={style}>
+      <select
+        className="tb-select"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {placeholder && <option value="" disabled>{placeholder}</option>}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      <Icon name="chev-down" size={14} className="tb-select-chevron" />
+    </div>
+  )
+}
+
 const PLACEHOLDER_PARAMS: Parameter[] = [
   { code: 'client_name', label: 'ФИО клиента', type: 'FIO', required: true },
   { code: 'contract_date', label: 'Дата договора', type: 'DATE', required: true },
@@ -101,8 +148,9 @@ const LINE_SPACINGS = [
 export default function EditorToolbar({ editor, parameters, phrasings = [], onImageClick, formatting }: Props) {
   const [linkUrl, setLinkUrl] = useState('')
   const [paragraphPanelOpen, setParagraphPanelOpen] = useState(false)
+  const [paramMultiOpen, setParamMultiOpen] = useState(false)
+  const [selectedParams, setSelectedParams] = useState<string[]>([])
 
-  // Rerender on every selection change / transaction so all derived values stay current
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0)
   useEffect(() => {
     editor.on('selectionUpdate', forceUpdate)
@@ -119,87 +167,21 @@ export default function EditorToolbar({ editor, parameters, phrasings = [], onIm
   const insertHorizontalRule = () =>
     editor.chain().focus().setHorizontalRule().run()
 
+  useEffect(() => {
+    if (!paramMultiOpen) setSelectedParams([])
+  }, [paramMultiOpen])
+
   const visibleParams = (parameters && parameters.length > 0) ? parameters : PLACEHOLDER_PARAMS
 
-  // Expand DIRECTORY parameters into sub-field entries
-  const paramMenuItems: MenuProps['items'] = visibleParams.flatMap((p) => {
-    if (p.type === 'DIRECTORY' && p.directoryFields && p.directoryFields.length > 0) {
-      return p.directoryFields.map((fieldKey) => ({
-        key: `${p.code}__${fieldKey}`,
-        label: (
-          <span>
-            <span style={{ fontWeight: 500 }}>{p.label} → {fieldKey}</span>
-            <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>{p.code}__{fieldKey}</span>
-          </span>
-        ),
-        onClick: () => {
-          editor.chain().focus().insertParameterField({
-            parameterCode: `${p.code}__${fieldKey}`,
-            display: `${p.label} → ${fieldKey}`,
-          }).run()
-        },
-      }))
-    }
-    return [{
-      key: p.code,
-      label: (
-        <span>
-          <span style={{ fontWeight: 500 }}>{p.label}</span>
-          <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>{p.code}</span>
-        </span>
-      ),
-      onClick: () => {
-        editor.chain().focus().insertParameterField({ parameterCode: p.code, display: p.label }).run()
-      },
-    }]
-  })
-
-  // Build clause menu: insert levels + style change + listStart toggle
   const isListStart = editor.isActive('numberedClause', { listStart: true })
-  const clauseMenuItems: MenuProps['items'] = [
-    {
-      key: 'insert-header',
-      type: 'group',
-      label: 'Вставить пункт',
-      children: ([1, 2, 3, 4, 5] as const).map((level) => ({
-        key: `insert-${level}`,
-        label: LEVEL_LABELS[level],
-        onClick: () => editor.chain().focus().insertNumberedClause(level).run(),
-      })),
-    },
-    { type: 'divider' },
-    {
-      key: 'style-header',
-      type: 'group',
-      label: 'Стиль нумерации (текущий пункт)',
-      children: (['decimal', 'alpha-ru', 'alpha-en'] as NumberingStyle[]).map((style) => ({
-        key: `style-${style}`,
-        label: STYLE_LABELS[style],
-        disabled: !editor.isActive('numberedClause'),
-        onClick: () => editor.chain().focus().setClauseNumberingStyle(style).run(),
-      })),
-    },
-    { type: 'divider' },
-    {
-      key: 'list-start',
-      label: (
-        <span>
-          {isListStart ? '✓ ' : ''}Начать новый список
-        </span>
-      ),
-      disabled: !editor.isActive('numberedClause'),
-      onClick: () => editor.chain().focus().toggleClauseListStart().run(),
-    },
-  ]
 
-  // Build clause-ref dropdown from current plugin state
-  const buildClauseRefItems = (): MenuProps['items'] => {
+  const buildClauseRefItems = () => {
     const state = autoNumberingPluginKey.getState(editor.view.state)
     if (!state?.byId.size) {
-      return [{ key: 'no-clauses', label: 'Нет нумерованных пунктов', disabled: true }]
+      return [{ label: 'Нет нумерованных пунктов', disabled: true, onClick: () => {} }]
     }
 
-    const items: MenuProps['items'] = []
+    const items: { label: string; disabled?: boolean; onClick: () => void }[] = []
     editor.view.state.doc.descendants((node, _pos) => {
       if (node.type.name !== 'numberedClause') return
       const id = node.attrs.id as string | null
@@ -215,45 +197,32 @@ export default function EditorToolbar({ editor, parameters, phrasings = [], onIm
       const preview = text.trim() || '(пустой пункт)'
 
       items.push({
-        key: id,
-        label: (
-          <span>
-            <span style={{ fontWeight: 600, color: '#0958D9', marginRight: 8 }}>{label}</span>
-            <span style={{ color: '#595959' }}>{preview}</span>
-          </span>
-        ),
+        label: `${label} — ${preview}`,
         onClick: () => editor.chain().focus().insertClauseRef(id).run(),
       })
     })
 
-    return items.length ? items : [{ key: 'no-clauses', label: 'Нет нумерованных пунктов', disabled: true }]
+    return items.length ? items : [{ label: 'Нет нумерованных пунктов', disabled: true, onClick: () => {} }]
   }
 
-  // Get current font family value for the Select; fall back to document default
   const currentFontFamily =
     (editor.getAttributes('textStyle').fontFamily as string | undefined) ??
     formatting?.defaultFont
 
-  // Get current font size value for the Select; fall back to document default
   const currentFontSize = (() => {
     const fs = editor.getAttributes('textStyle').fontSize as string | undefined
     if (fs) return fs.replace('pt', '')
     return formatting?.defaultFontSize != null ? String(formatting.defaultFontSize) : undefined
   })()
 
-  // Get current line spacing for the Select; fall back to document default
   const currentLineSpacing = (() => {
-    for (const type of ['paragraph', 'heading', 'numberedClause']) {
+    for (const type of ['paragraph', 'heading', 'numberedClause'] as const) {
       const attrs = editor.getAttributes(type)
       if (attrs.lineSpacing) return attrs.lineSpacing as string
     }
     return formatting?.lineSpacing != null ? String(formatting.lineSpacing) : undefined
   })()
 
-  // Current block type + paragraph spacing attributes.
-  // numberedClause must be checked BEFORE paragraph — when the cursor is inside
-  // a clause, editor.isActive('paragraph') is also true (inner <p>), but spacing
-  // attrs live on the numberedClause node, not on its children.
   const currentBlockType = (['numberedClause', 'paragraph', 'heading'] as const).find(
     (t) => editor.isActive(t),
   ) ?? null
@@ -271,7 +240,6 @@ export default function EditorToolbar({ editor, parameters, phrasings = [], onIm
     }).run()
   }
 
-  // Insert/update link
   const insertLink = (url: string) => {
     if (!url) {
       editor.chain().focus().unsetLink().run()
@@ -281,178 +249,108 @@ export default function EditorToolbar({ editor, parameters, phrasings = [], onIm
     editor.chain().focus().setLink({ href, target: '_blank' }).run()
   }
 
-  const linkMenuItems: MenuProps['items'] = [
-    {
-      key: 'link-input',
-      label: (
-        <div style={{ display: 'flex', gap: 8, padding: '4px 0' }} onClick={(e) => e.stopPropagation()}>
-          <input
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
-            placeholder="https://..."
-            style={{ flex: 1, border: '1px solid #d9d9d9', borderRadius: 4, padding: '2px 8px', outline: 'none' }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                insertLink(linkUrl)
-                setLinkUrl('')
-              }
-            }}
-          />
-          <Button size="small" type="primary" onClick={() => { insertLink(linkUrl); setLinkUrl('') }}>
-            Вставить
-          </Button>
-        </div>
-      ),
-    },
-    ...(editor.isActive('link') ? [{
-      key: 'remove-link',
-      label: 'Удалить ссылку',
-      danger: true,
-      onClick: () => editor.chain().focus().unsetLink().run(),
-    }] : []),
-  ]
-
   return (
-    <div style={{ borderBottom: '1px solid #d9d9d9', background: '#fafafa' }}>
-      {/* ── Main toolbar row ──────────────────────────────────── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 4,
-          padding: '6px 12px',
-        }}
-      >
-      {/* ── Fonts ─────────────────────────────────────────────── */}
-      <Space size={4}>
-        <Select
-          size="small"
-          style={{ width: 160 }}
-          placeholder="Шрифт"
+    <div className="toolbar">
+      {/* Fonts */}
+      <div className="flex items-center gap-[1px]">
+        <TbSelect
           value={currentFontFamily}
           onChange={(v) => editor.chain().focus().setFontFamily(v).run()}
-          options={FONT_FAMILIES.map((f) => ({ value: f.value, label: f.label }))}
-          allowClear
-          onClear={() => editor.chain().focus().unsetFontFamily().run()}
+          options={FONT_FAMILIES}
+          style={{ width: 145 }}
         />
-        <Select
-          size="small"
-          style={{ width: 68 }}
-          placeholder="Размер"
+        <TbSelect
           value={currentFontSize}
           onChange={(v) => editor.chain().focus().setFontSize(`${v}pt`).run()}
           options={FONT_SIZES.map((s) => ({ value: s, label: s }))}
-          allowClear
-          onClear={() => editor.chain().focus().unsetFontSize().run()}
+          style={{ width: 60 }}
+          placeholder="Размер"
         />
-        <Select
-          size="small"
-          style={{ width: 72 }}
-          placeholder="Интерл."
+        <TbSelect
           value={currentLineSpacing}
           onChange={(v) => editor.chain().focus().setLineSpacing(v).run()}
-          options={LINE_SPACINGS.map((s) => ({ value: s.value, label: s.label }))}
+          options={LINE_SPACINGS}
+          style={{ width: 60 }}
         />
-      </Space>
+      </div>
 
-      <Divider type="vertical" style={{ margin: '0 4px' }} />
+      <div className="sep" />
 
-      {/* ── Paragraph panel toggle ────────────────────────────── */}
-      <Tooltip title="Настройки абзаца">
-        <Button
-          size="small"
-          icon={<BarsOutlined />}
-          type={paragraphPanelOpen ? 'primary' : 'default'}
-          onClick={() => setParagraphPanelOpen((v) => !v)}
-        >
-          Абзац
-        </Button>
+      {/* Paragraph panel toggle */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className={'tb-btn-lbl' + (paragraphPanelOpen ? ' active' : '')}
+            onClick={() => setParagraphPanelOpen((v) => !v)}
+          >
+            <Menu size={14} />
+            Абзац
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Настройки абзаца</TooltipContent>
       </Tooltip>
 
-      <Divider type="vertical" style={{ margin: '0 4px' }} />
+      <div className="sep" />
 
-      {/* ── Basic formatting ──────────────────────────────────── */}
-      <Space size={4}>
-        <ToolBtn
-          title="Жирный (Ctrl+B)"
-          active={editor.isActive('bold')}
-          onClick={() => editor.chain().focus().toggleBold().run()}
-        >
-          <BoldOutlined />
+      {/* Basic formatting */}
+      <div className="flex items-center gap-[1px]">
+        <ToolBtn title="Жирный (Ctrl+B)" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}>
+          <Bold size={14} />
         </ToolBtn>
-
-        <ToolBtn
-          title="Курсив (Ctrl+I)"
-          active={editor.isActive('italic')}
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-        >
-          <ItalicOutlined />
+        <ToolBtn title="Курсив (Ctrl+I)" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}>
+          <Italic size={14} />
         </ToolBtn>
-
-        <ToolBtn
-          title="Подчёркнутый (Ctrl+U)"
-          active={editor.isActive('underline')}
-          onClick={() => editor.chain().focus().toggleUnderline().run()}
-        >
-          <UnderlineOutlined />
+        <ToolBtn title="Подчёркнутый (Ctrl+U)" active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()}>
+          <Underline size={14} />
         </ToolBtn>
-
-        <ToolBtn
-          title="Зачёркнутый"
-          active={editor.isActive('strike')}
-          onClick={() => editor.chain().focus().toggleStrike().run()}
-        >
-          <StrikethroughOutlined />
+        <ToolBtn title="Зачёркнутый" active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()}>
+          <Strikethrough size={14} />
         </ToolBtn>
-
-        <ToolBtn
-          title="Надстрочный"
-          active={editor.isActive('superscript')}
-          onClick={() => editor.chain().focus().toggleSuperscript().run()}
-        >
+        <ToolBtn title="Надстрочный" active={editor.isActive('superscript')} onClick={() => editor.chain().focus().toggleSuperscript().run()}>
           x²
         </ToolBtn>
-
-        <ToolBtn
-          title="Подстрочный"
-          active={editor.isActive('subscript')}
-          onClick={() => editor.chain().focus().toggleSubscript().run()}
-        >
+        <ToolBtn title="Подстрочный" active={editor.isActive('subscript')} onClick={() => editor.chain().focus().toggleSubscript().run()}>
           x₂
         </ToolBtn>
-      </Space>
+      </div>
 
-      <Divider type="vertical" style={{ margin: '0 4px' }} />
+      <div className="sep" />
 
-      {/* ── Color pickers ────────────────────────────────────── */}
-      <Space size={4}>
-        <Tooltip title="Цвет текста">
-          <ColorPicker
-            size="small"
-            value={editor.getAttributes('textStyle').color as string | undefined}
-            onChange={(color) => editor.chain().focus().setColor(color.toHexString()).run()}
-            onClear={() => editor.chain().focus().unsetColor().run()}
-            allowClear
-          />
+      {/* Color pickers */}
+      <div className="flex items-center gap-[1px]">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div>
+              <ColorPicker
+                value={editor.getAttributes('textStyle').color as string | undefined}
+                onChange={(color) => editor.chain().focus().setColor(color).run()}
+                onClear={() => editor.chain().focus().unsetColor().run()}
+                allowClear
+              />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>Цвет текста</TooltipContent>
         </Tooltip>
-        <Tooltip title="Цвет фона">
-          <ColorPicker
-            size="small"
-            value={editor.getAttributes('highlight').color as string | undefined}
-            onChange={(color) =>
-              editor.chain().focus().setHighlight({ color: color.toHexString() }).run()
-            }
-            onClear={() => editor.chain().focus().unsetHighlight().run()}
-            allowClear
-          />
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div>
+              <ColorPicker
+                value={editor.getAttributes('highlight').color as string | undefined}
+                onChange={(color) => editor.chain().focus().setHighlight({ color: color }).run()}
+                onClear={() => editor.chain().focus().unsetHighlight().run()}
+                allowClear
+              />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>Цвет фона</TooltipContent>
         </Tooltip>
-      </Space>
+      </div>
 
-      <Divider type="vertical" style={{ margin: '0 4px' }} />
+      <div className="sep" />
 
-      {/* ── Headings ─────────────────────────────────────────── */}
-      <Space size={4}>
+      {/* Headings */}
+      <div className="flex items-center gap-[1px]">
         {([1, 2, 3] as const).map((level) => (
           <ToolBtn
             key={level}
@@ -463,296 +361,327 @@ export default function EditorToolbar({ editor, parameters, phrasings = [], onIm
             H{level}
           </ToolBtn>
         ))}
-      </Space>
+      </div>
 
-      <Divider type="vertical" style={{ margin: '0 4px' }} />
+      <div className="sep" />
 
-      {/* ── Alignment ────────────────────────────────────────── */}
-      <Space size={4}>
-        <ToolBtn
-          title="По левому краю"
-          active={editor.isActive({ textAlign: 'left' })}
-          onClick={() => editor.chain().focus().setTextAlign('left').run()}
-        >
-          <AlignLeftOutlined />
+      {/* Alignment */}
+      <div className="flex items-center gap-[1px]">
+        <ToolBtn title="По левому краю" active={editor.isActive({ textAlign: 'left' })} onClick={() => editor.chain().focus().setTextAlign('left').run()}>
+          <AlignLeft size={14} />
         </ToolBtn>
-        <ToolBtn
-          title="По центру"
-          active={editor.isActive({ textAlign: 'center' })}
-          onClick={() => editor.chain().focus().setTextAlign('center').run()}
-        >
-          <AlignCenterOutlined />
+        <ToolBtn title="По центру" active={editor.isActive({ textAlign: 'center' })} onClick={() => editor.chain().focus().setTextAlign('center').run()}>
+          <AlignCenter size={14} />
         </ToolBtn>
-        <ToolBtn
-          title="По правому краю"
-          active={editor.isActive({ textAlign: 'right' })}
-          onClick={() => editor.chain().focus().setTextAlign('right').run()}
-        >
-          <AlignRightOutlined />
+        <ToolBtn title="По правому краю" active={editor.isActive({ textAlign: 'right' })} onClick={() => editor.chain().focus().setTextAlign('right').run()}>
+          <AlignRight size={14} />
         </ToolBtn>
-        <ToolBtn
-          title="По ширине"
-          active={editor.isActive({ textAlign: 'justify' })}
-          onClick={() => editor.chain().focus().setTextAlign('justify').run()}
-        >
-          ≡
+        <ToolBtn title="По ширине" active={editor.isActive({ textAlign: 'justify' })} onClick={() => editor.chain().focus().setTextAlign('justify').run()}>
+          <span style={{ fontWeight: 700 }}>≡</span>
         </ToolBtn>
-      </Space>
+      </div>
 
-      <Divider type="vertical" style={{ margin: '0 4px' }} />
+      <div className="sep" />
 
-      {/* ── Indent ───────────────────────────────────────────── */}
-      <Space size={4}>
-        <ToolBtn
-          title="Увеличить отступ (Tab)"
-          onClick={() => editor.chain().focus().indent().run()}
-        >
-          <Icon name="indent-r" size={14}/>
+      {/* Indent */}
+      <div className="flex items-center gap-[1px]">
+        <ToolBtn title="Увеличить отступ (Tab)" onClick={() => editor.chain().focus().indent().run()}>
+          <Icon name="indent-r" size={14} />
         </ToolBtn>
-        <ToolBtn
-          title="Уменьшить отступ (Shift+Tab)"
-          onClick={() => editor.chain().focus().outdent().run()}
-        >
-          <Icon name="indent-l" size={14}/>
+        <ToolBtn title="Уменьшить отступ (Shift+Tab)" onClick={() => editor.chain().focus().outdent().run()}>
+          <Icon name="indent-l" size={14} />
         </ToolBtn>
-      </Space>
+      </div>
 
-      <Divider type="vertical" style={{ margin: '0 4px' }} />
+      <div className="sep" />
 
-      {/* ── Lists ────────────────────────────────────────────── */}
-      <Space size={4}>
-        <ToolBtn
-          title="Маркированный список"
-          active={editor.isActive('bulletList')}
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-        >
-          <UnorderedListOutlined />
+      {/* Lists */}
+      <div className="flex items-center gap-[1px]">
+        <ToolBtn title="Маркированный список" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>
+          <List size={14} />
         </ToolBtn>
-
-        <ToolBtn
-          title="Нумерованный список"
-          active={editor.isActive('orderedList')}
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-        >
-          <OrderedListOutlined />
+        <ToolBtn title="Нумерованный список" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
+          <ListOrdered size={14} />
         </ToolBtn>
-      </Space>
+      </div>
 
-      <Divider type="vertical" style={{ margin: '0 4px' }} />
+      <div className="sep" />
 
-      {/* ── Insert ───────────────────────────────────────────── */}
-      <Space size={4}>
+      {/* Insert */}
+      <div className="flex items-center gap-[1px]">
         <ToolBtn title="Вставить таблицу" onClick={insertTable}>
-          <TableOutlined />
+          <Table size={14} />
         </ToolBtn>
-
         <ToolBtn title="Горизонтальная линия" onClick={insertHorizontalRule}>
-          <LineOutlined />
+          <Minus size={14} />
         </ToolBtn>
-
         <ToolBtn title="Разрыв страницы (Ctrl+Enter)" onClick={() => editor.chain().focus().insertPageBreak().run()}>
-          <Icon name="page-break" size={14}/>
+          <Icon name="page-break" size={14} />
         </ToolBtn>
-
         <ToolBtn title="Вставить изображение" onClick={() => onImageClick?.()}>
-          <PictureOutlined />
+          <Image size={14} />
         </ToolBtn>
 
-        <Dropdown
-          menu={{ items: linkMenuItems }}
-          trigger={['click']}
-          placement="bottomLeft"
-        >
-          <Button
-            size="small"
-            icon={<LinkOutlined />}
-            type={editor.isActive('link') ? 'primary' : 'default'}
-            style={{ minWidth: 32 }}
-          />
-        </Dropdown>
-      </Space>
+        {/* Link dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className={'tb-btn' + (editor.isActive('link') ? ' active' : '')}>
+              <Link size={14} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-80 p-2" align="start">
+            <div className="flex items-center gap-2 mb-2">
+              <Input
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                placeholder="https://..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { insertLink(linkUrl); setLinkUrl('') }
+                }}
+              />
+              <Button size="sm" onClick={() => { insertLink(linkUrl); setLinkUrl('') }}>
+                Вставить
+              </Button>
+            </div>
+            {editor.isActive('link') && (
+              <DropdownMenuItem variant="destructive" onClick={() => editor.chain().focus().unsetLink().run()}>
+                Удалить ссылку
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
-      <Divider type="vertical" style={{ margin: '0 4px' }} />
+      <div className="sep" />
 
-      {/* ── Template-specific ────────────────────────────────── */}
-      <div style={{ background: '#f0f5ff', borderRadius: 4, padding: '2px 6px', display: 'flex', alignItems: 'center' }}>
-        <Space size={4}>
-          <Dropdown menu={{ items: paramMenuItems }} trigger={['click']} placement="bottomLeft">
-            <Button size="small" icon={<Icon name="param" size={14}/>} type="dashed">
+      {/* Template-specific */}
+      <div className="flex items-center gap-[1px]">
+        {/* Parameters dropdown with multi-select */}
+        <Popover open={paramMultiOpen} onOpenChange={setParamMultiOpen}>
+          <PopoverTrigger asChild>
+            <button className="tb-btn-lbl">
+              <Icon name="param" size={14} />
               Параметр
-            </Button>
-          </Dropdown>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-3" align="start">
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                Выберите параметры для вставки
+              </p>
+              <MultiSelect
+                options={visibleParams.flatMap((p) => {
+                  if (p.type === 'DIRECTORY' && p.directoryFields && p.directoryFields.length > 0) {
+                    return p.directoryFields.map((fieldKey) => ({
+                      value: `${p.code}__${fieldKey}`,
+                      label: `${p.label} → ${fieldKey}`,
+                      description: p.code,
+                    }))
+                  }
+                  return [{
+                    value: p.code,
+                    label: p.label,
+                    description: p.code,
+                  }]
+                })}
+                selected={selectedParams}
+                onChange={setSelectedParams}
+                placeholder="Выберите параметры..."
+                searchPlaceholder="Поиск параметра..."
+                emptyText="Нет параметров"
+                maxDisplay={10}
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setParamMultiOpen(false)}
+                >
+                  Отмена
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const chain = editor.chain().focus()
+                    selectedParams.forEach((code) => {
+                      const p = visibleParams.find((par) => par.code === code || code.startsWith(par.code + '__'))
+                      if (p) {
+                        if (code.includes('__')) {
+                          chain.insertParameterField({
+                            parameterCode: code,
+                            display: code,
+                          })
+                        } else {
+                          chain.insertParameterField({
+                            parameterCode: p.code,
+                            display: p.label,
+                          })
+                        }
+                      } else {
+                        chain.insertParameterField({
+                          parameterCode: code,
+                          display: code,
+                        })
+                      }
+                    })
+                    chain.run()
+                    setParamMultiOpen(false)
+                  }}
+                  disabled={selectedParams.length === 0}
+                >
+                  Вставить ({selectedParams.length})
+                </Button>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
 
-          <Dropdown
-            menu={{ items: clauseMenuItems }}
-            trigger={['click']}
-            placement="bottomLeft"
-          >
-            <Button
-              size="small"
-              icon={<Icon name="hash" size={14}/>}
-              type="dashed"
-              style={
-                editor.isActive('numberedClause')
-                  ? { borderColor: '#91CAFF', color: '#0958D9' }
-                  : undefined
-              }
-            >
+        {/* Clause dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className={'tb-btn-lbl' + (editor.isActive('numberedClause') ? ' active' : '')}>
+              <Icon name="hash" size={14} />
               Пункт
-            </Button>
-          </Dropdown>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Вставить пункт</DropdownMenuLabel>
+              {([1, 2, 3, 4, 5] as const).map((level) => (
+                <DropdownMenuItem key={`insert-${level}`} onClick={() => editor.chain().focus().insertNumberedClause(level).run()}>
+                  {LEVEL_LABELS[level]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Стиль нумерации (текущий пункт)</DropdownMenuLabel>
+              {(['decimal', 'alpha-ru', 'alpha-en'] as NumberingStyle[]).map((style) => (
+                <DropdownMenuItem
+                  key={`style-${style}`}
+                  disabled={!editor.isActive('numberedClause')}
+                  onClick={() => editor.chain().focus().setClauseNumberingStyle(style).run()}
+                >
+                  {STYLE_LABELS[style]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={!editor.isActive('numberedClause')} onClick={() => editor.chain().focus().toggleClauseListStart().run()}>
+              {isListStart ? '✓ ' : ''}Начать новый список
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-          <Tooltip title={editor.state.selection.empty ? 'Выделите текст для обёртки в условие' : 'Обернуть выделение в условный текст'}>
-            <Button
-              size="small"
-              icon={<Icon name="branch" size={14}/>}
-              type="dashed"
-              style={{ borderColor: '#FFD591', color: '#D46B08' }}
+        {/* Conditional inline button */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="tb-btn-lbl"
               disabled={editor.state.selection.empty}
-              onClick={() =>
-                editor
-                  .chain()
-                  .focus()
-                  .wrapInConditionalInline({ label: 'Условный текст', condition: { type: 'simple', expression: '' } })
-                  .run()
-              }
+              onClick={() => editor.chain().focus().wrapInConditionalInline({ label: 'Условный текст', condition: { type: 'simple', expression: '' } }).run()}
             >
+              <Icon name="branch" size={14} />
               Условный текст
-            </Button>
-          </Tooltip>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {editor.state.selection.empty ? 'Выделите текст для обёртки в условие' : 'Обернуть выделение в условный текст'}
+          </TooltipContent>
+        </Tooltip>
 
-          <Dropdown
-            menu={{ items: buildClauseRefItems() }}
-            trigger={['click']}
-            placement="bottomLeft"
-          >
-            <Button
-              size="small"
-              icon={<Icon name="link" size={14}/>}
-              type="dashed"
-              style={{ borderColor: '#91CAFF', color: '#0958D9' }}
-            >
+        {/* Clause ref dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="tb-btn-lbl">
+              <Icon name="link" size={14} />
               Ссылка на пункт
-            </Button>
-          </Dropdown>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {buildClauseRefItems().map((item, idx) => (
+              <DropdownMenuItem key={idx} disabled={item.disabled} onClick={item.onClick}>{item.label}</DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-          <Dropdown
-            menu={{
-              items: phrasings.length === 0
-                ? [{ key: 'empty', label: 'Нет формулировок (создайте в панели «Формулировки»)', disabled: true }]
-                : phrasings.map(p => ({
-                    key: p.id,
-                    label: (
-                      <span>
-                        <span style={{ fontWeight: 500 }}>📝 {p.name}</span>
-                        <span style={{ color: '#999', fontSize: 11, marginLeft: 8 }}>
-                          {p.variants.length} вар.
-                        </span>
-                      </span>
-                    ),
-                    onClick: () => editor.chain().focus().insertPhrasingsRef({ phrasingsIds: [p.id], displayNames: [p.name], separator: ', ' }).run(),
-                  })),
-            }}
-            trigger={['click']}
-            placement="bottomLeft"
-          >
-            <Button
-              size="small"
-              type="dashed"
-              style={{ borderColor: '#B7EB8F', color: '#389E0D' }}
-            >
+        {/* Phrasings dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="tb-btn-lbl">
               📝 Формулировки
-            </Button>
-          </Dropdown>
-        </Space>
-      </div>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {phrasings.length === 0 ? (
+              <DropdownMenuItem disabled>Нет формулировок (создайте в панели «Формулировки»)</DropdownMenuItem>
+            ) : (
+              phrasings.map(p => (
+                <DropdownMenuItem
+                  key={p.id}
+                  onClick={() => editor.chain().focus().insertPhrasingsRef({ phrasingsIds: [p.id], displayNames: [p.name], separator: ', ' }).run()}
+                >
+                  <span className="font-medium">📝 {p.name}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{p.variants.length} вар.</span>
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {/* ── Paragraph spacing panel (collapsible) ─────────────── */}
+      {/* Paragraph spacing panel (collapsible) */}
       {paragraphPanelOpen && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 8,
-            padding: '6px 12px',
-            borderTop: '1px solid #f0f0f0',
-          }}
-        >
-          <span style={{ fontSize: 12, color: '#888' }}>Интервалы:</span>
-          <Tooltip title="Интервал перед абзацем (пт)">
-            <InputNumber
-              size="small"
-              min={0}
-              max={200}
-              style={{ width: 90 }}
-              placeholder="Перед"
-              addonAfter="пт"
-              value={parseUnit(blockAttrs.spaceBefore)}
-              onChange={(v) => applySpacing('spaceBefore', v, 'pt')}
-              disabled={!currentBlockType}
-            />
+        <div className="flex items-center flex-wrap gap-2 p-1.5 px-3 border-t border-muted" style={{ width: '100%' }}>
+          <span className="text-xs text-muted-foreground">Интервалы:</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center">
+                <Input type="number" min={0} max={200} className="w-20 h-7 text-xs" placeholder="Перед" value={parseUnit(blockAttrs.spaceBefore) ?? ''} onChange={(e) => { const v = e.target.value ? parseFloat(e.target.value) : null; applySpacing('spaceBefore', v, 'pt') }} disabled={!currentBlockType} />
+                <span className="ml-1 text-xs text-muted-foreground">пт</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Интервал перед абзацем (пт)</TooltipContent>
           </Tooltip>
-          <Tooltip title="Интервал после абзаца (пт)">
-            <InputNumber
-              size="small"
-              min={0}
-              max={200}
-              style={{ width: 90 }}
-              placeholder="После"
-              addonAfter="пт"
-              value={parseUnit(blockAttrs.spaceAfter)}
-              onChange={(v) => applySpacing('spaceAfter', v, 'pt')}
-              disabled={!currentBlockType}
-            />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center">
+                <Input type="number" min={0} max={200} className="w-20 h-7 text-xs" placeholder="После" value={parseUnit(blockAttrs.spaceAfter) ?? ''} onChange={(e) => { const v = e.target.value ? parseFloat(e.target.value) : null; applySpacing('spaceAfter', v, 'pt') }} disabled={!currentBlockType} />
+                <span className="ml-1 text-xs text-muted-foreground">пт</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Интервал после абзаца (пт)</TooltipContent>
           </Tooltip>
-
-          <Divider type="vertical" />
-
-          <span style={{ fontSize: 12, color: '#888' }}>Отступы:</span>
-          <Tooltip title="Отступ слева (мм)">
-            <InputNumber
-              size="small"
-              min={0}
-              max={200}
-              style={{ width: 90 }}
-              placeholder="Слева"
-              addonAfter="мм"
-              value={parseUnit(blockAttrs.marginLeft)}
-              onChange={(v) => applySpacing('marginLeft', v, 'mm')}
-              disabled={!currentBlockType}
-            />
+          <div className="sep" />
+          <span className="text-xs text-muted-foreground">Отступы:</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center">
+                <Input type="number" min={0} max={200} className="w-20 h-7 text-xs" placeholder="Слева" value={parseUnit(blockAttrs.marginLeft) ?? ''} onChange={(e) => { const v = e.target.value ? parseFloat(e.target.value) : null; applySpacing('marginLeft', v, 'mm') }} disabled={!currentBlockType} />
+                <span className="ml-1 text-xs text-muted-foreground">мм</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Отступ слева (мм)</TooltipContent>
           </Tooltip>
-          <Tooltip title="Отступ справа (мм)">
-            <InputNumber
-              size="small"
-              min={0}
-              max={200}
-              style={{ width: 90 }}
-              placeholder="Справа"
-              addonAfter="мм"
-              value={parseUnit(blockAttrs.marginRight)}
-              onChange={(v) => applySpacing('marginRight', v, 'mm')}
-              disabled={!currentBlockType}
-            />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center">
+                <Input type="number" min={0} max={200} className="w-20 h-7 text-xs" placeholder="Справа" value={parseUnit(blockAttrs.marginRight) ?? ''} onChange={(e) => { const v = e.target.value ? parseFloat(e.target.value) : null; applySpacing('marginRight', v, 'mm') }} disabled={!currentBlockType} />
+                <span className="ml-1 text-xs text-muted-foreground">мм</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Отступ справа (мм)</TooltipContent>
           </Tooltip>
-
-          <Divider type="vertical" />
-
-          <span style={{ fontSize: 12, color: '#888' }}>Первая строка:</span>
-          <Tooltip title="Отступ первой строки (мм)">
-            <InputNumber
-              size="small"
-              min={0}
-              max={100}
-              style={{ width: 90 }}
-              placeholder="1-я стр."
-              addonAfter="мм"
-              value={parseUnit(blockAttrs.firstLineIndent)}
-              onChange={(v) => applySpacing('firstLineIndent', v, 'mm')}
-              disabled={!currentBlockType}
-            />
+          <div className="sep" />
+          <span className="text-xs text-muted-foreground">Первая строка:</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center">
+                <Input type="number" min={0} max={100} className="w-20 h-7 text-xs" placeholder="1-я стр." value={parseUnit(blockAttrs.firstLineIndent) ?? ''} onChange={(e) => { const v = e.target.value ? parseFloat(e.target.value) : null; applySpacing('firstLineIndent', v, 'mm') }} disabled={!currentBlockType} />
+                <span className="ml-1 text-xs text-muted-foreground">мм</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Отступ первой строки (мм)</TooltipContent>
           </Tooltip>
         </div>
       )}

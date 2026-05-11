@@ -158,6 +158,93 @@
   min-width: 28px;
 }
 
+/* ─── Toolbar (matches handoff design) ──────────────── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-wrap: wrap;
+  padding: 6px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.toolbar .sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+.tb-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.tb-select-wrap:hover .tb-select {
+  background: var(--bg-soft);
+}
+.tb-select {
+  height: 28px;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0 22px 0 6px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink-1);
+  border-radius: 4px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.tb-select:focus { outline: none; border-color: var(--brand); }
+.tb-select-chevron {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+.tb-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+.tb-btn:hover { background: var(--bg-soft); color: var(--ink-1); }
+.tb-btn:active { background: var(--brand-soft); color: var(--brand-ink); }
+.tb-btn.active { background: var(--brand-soft); color: var(--brand-ink); }
+.tb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.tb-btn:disabled:hover { background: transparent; color: var(--ink-2); }
+.tb-btn-lbl {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  gap: 4px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-family: inherit;
+}
+.tb-btn-lbl:hover { background: var(--bg-soft); color: var(--ink-1); }
+.tb-btn-lbl.active { background: var(--brand-soft); color: var(--brand-ink); }
+.tb-btn-lbl:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* Search & Replace highlights */
 .tiptap-page .ProseMirror .search-match {
   background: #ffe58f;
