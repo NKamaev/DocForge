@@ -1,7 +1,29 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Dropdown, Input, Modal, Popconfirm, Tag, notification } from 'antd'
-import type { MenuProps } from 'antd'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Badge,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Input,
+} from '@/components/ui'
+import { Edit, Trash2, Share2 } from 'lucide-react'
 import { documentsApi } from '../api/documentsApi'
 import { foldersApi } from '../api/foldersApi'
 import type { DocumentListItem } from '../types/document'
@@ -12,6 +34,13 @@ import { useMyFolderRole } from '../hooks/useMyRole'
 import CreateDocumentModal from '../components/document-list/CreateDocumentModal'
 import ShareDialog from '../components/ShareDialog'
 import { Icon } from '../components/Icon'
+
+function showNotification(type: 'success' | 'error' | 'warning', message: string) {
+  console.log(`[${type.toUpperCase()}]`, message)
+  if (type === 'error') {
+    alert(message)
+  }
+}
 
 // ── Color presets ─────────────────────────────────────────────────────────────
 
@@ -24,13 +53,17 @@ const PRESET_COLORS = [
 
 function RoleBadge({ role }: { role: MemberRole | null }) {
   if (!role || role === 'OWNER') return null
-  const config: Record<string, { color: string; label: string }> = {
-    VIEWER: { color: 'blue', label: 'Просмотр' },
-    EDITOR: { color: 'green', label: 'Редактор' },
-    MANAGER: { color: 'orange', label: 'Менеджер' },
+  const config: Record<string, { className: string; label: string }> = {
+    VIEWER: { className: 'bg-blue-100 text-blue-700', label: 'Просмотр' },
+    EDITOR: { className: 'bg-green-100 text-green-700', label: 'Редактор' },
+    MANAGER: { className: 'bg-orange-100 text-orange-700', label: 'Менеджер' },
   }
   const c = config[role]
-  return c ? <Tag color={c.color} style={{ marginLeft: 4, fontSize: 11, pointerEvents: 'none' }}>{c.label}</Tag> : null
+  return c ? (
+    <Badge variant="outline" className={`ml-1 text-[11px] pointer-events-none ${c.className}`}>
+      {c.label}
+    </Badge>
+  ) : null
 }
 
 // ── FolderColorModal ──────────────────────────────────────────────────────────
@@ -45,17 +78,32 @@ function FolderColorModal({
   useEffect(() => { setSelected(current ?? PRESET_COLORS[0]) }, [current, open])
 
   return (
-    <Modal title="Цвет папки" open={open} onOk={() => onOk(selected)} onCancel={onCancel}
-      okText="Сохранить" cancelText="Отмена" width={320} destroyOnHidden>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', padding: '12px 0' }}>
-        {PRESET_COLORS.map(c => (
-          <button key={c} onClick={() => setSelected(c)} style={{
-            width: 32, height: 32, borderRadius: '50%', background: c, cursor: 'pointer',
-            border: selected === c ? '3px solid #000' : '2px solid transparent', outline: 'none',
-          }} />
-        ))}
-      </div>
-    </Modal>
+    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="sm:max-w-[320px]">
+        <DialogHeader>
+          <DialogTitle>Цвет папки</DialogTitle>
+        </DialogHeader>
+        <div className="flex gap-2.5 flex-wrap py-3">
+          {PRESET_COLORS.map(c => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setSelected(c)}
+              className="rounded-full transition-all"
+              style={{
+                width: 32, height: 32, background: c, cursor: 'pointer',
+                border: selected === c ? '3px solid #000' : '2px solid transparent',
+                outline: 'none',
+              }}
+            />
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>Отмена</Button>
+          <Button onClick={() => onOk(selected)}>Сохранить</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -70,13 +118,28 @@ function FolderNameModal({
   const [name, setName] = useState(initialName)
   useEffect(() => { setName(initialName) }, [initialName, open])
 
+  const handleOk = () => { if (name.trim()) onOk(name.trim()) }
+
   return (
-    <Modal title={title} open={open} onOk={() => { if (name.trim()) onOk(name.trim()) }}
-      onCancel={onCancel} okText="Сохранить" cancelText="Отмена" width={380} destroyOnHidden>
-      <Input value={name} onChange={e => setName(e.target.value)}
-        onPressEnter={() => { if (name.trim()) onOk(name.trim()) }}
-        autoFocus style={{ marginTop: 12 }} />
-    </Modal>
+    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="sm:max-w-[380px]">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <div className="mt-3">
+          <Input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleOk() }}
+            autoFocus
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>Отмена</Button>
+          <Button onClick={handleOk}>Сохранить</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -85,7 +148,7 @@ function FolderNameModal({
 interface FolderCallbacks {
   onRename: (id: string) => void
   onChangeColor: (id: string) => void
-  onDelete: (id: string) => void
+  onDeleteRequest: (id: string) => void
   onShare: (folder: Folder) => void
 }
 
@@ -108,7 +171,7 @@ interface FolderSidebarItemProps extends FolderCallbacks {
 function FolderSidebarItem({
   folder, allFolders, depth, currentFolder, expandedFolders, dragOverFolder,
   onOpenFolder, onToggleExpand, onDragOver, onDragLeave, onDrop,
-  onRename, onChangeColor, onDelete, onShare,
+  onRename, onChangeColor, onDeleteRequest, onShare,
 }: FolderSidebarItemProps) {
   const myRole = useMyFolderRole(folder.id)
   const canManage = myRole === null || roleImplies(myRole, 'manage')
@@ -119,31 +182,6 @@ function FolderSidebarItem({
   const hasChildren = children.length > 0
   const isExpanded = expandedFolders.has(folder.id)
   const indent = 8 + depth * 16
-
-  const menuItems: MenuProps['items'] = [
-    ...(canManage ? [
-      { key: 'rename', label: 'Переименовать', onClick: () => onRename(folder.id) },
-      { key: 'color', label: 'Изменить цвет', onClick: () => onChangeColor(folder.id) },
-    ] : []),
-    ...(canShare ? [
-      { key: 'share', label: 'Поделиться', onClick: () => onShare(folder) },
-    ] : []),
-    ...((canManage || canShare) && canDelete ? [{ type: 'divider' as const }] : []),
-    ...(canDelete ? [{
-      key: 'delete',
-      label: (
-        <Popconfirm
-          title={`Удалить папку «${folder.name}»?`}
-          description="Документы останутся, но перейдут в «Без папки»."
-          okText="Удалить" cancelText="Отмена" okButtonProps={{ danger: true }}
-          onConfirm={() => onDelete(folder.id)}
-          onPopupClick={e => e.stopPropagation()}
-        >
-          <span style={{ color: '#ff4d4f' }}>Удалить</span>
-        </Popconfirm>
-      ),
-    }] : []),
-  ]
 
   return (
     <div>
@@ -168,11 +206,42 @@ function FolderSidebarItem({
         <span className="tree-label" style={{ pointerEvents: 'none' }}>{folder.name}</span>
         <RoleBadge role={myRole} />
         <span className="tree-count" style={{ pointerEvents: 'none' }}>{folder.documentCount}</span>
-        <Dropdown menu={{ items: menuItems }} trigger={['click']}>
-          <button className="btn xs icon-only tree-more" onClick={e => e.stopPropagation()} title="Действия">
-            <Icon name="more-h" size={12} />
-          </button>
-        </Dropdown>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="btn xs icon-only tree-more" onClick={e => e.stopPropagation()} title="Действия">
+              <Icon name="more-h" size={12} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {canManage && (
+              <>
+                <DropdownMenuItem onClick={() => onRename(folder.id)}>
+                  <Edit className="mr-2 size-3.5" /> Переименовать
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onChangeColor(folder.id)}>
+                  <Icon name="folder" size={14} /> Изменить цвет
+                </DropdownMenuItem>
+              </>
+            )}
+            {canShare && (
+              <DropdownMenuItem onClick={() => onShare(folder)}>
+                <Share2 className="mr-2 size-3.5" /> Поделиться
+              </DropdownMenuItem>
+            )}
+            {(canManage || canShare) && canDelete && <DropdownMenuSeparator />}
+            {canDelete && (
+              <>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={(e) => { e.stopPropagation(); onDeleteRequest(folder.id) }}
+                >
+                  <Trash2 className="mr-2 size-3.5" /> Удалить
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {isExpanded && hasChildren && children.map(child => (
         <FolderSidebarItem
@@ -190,7 +259,7 @@ function FolderSidebarItem({
           onDrop={onDrop}
           onRename={onRename}
           onChangeColor={onChangeColor}
-          onDelete={onDelete}
+          onDeleteRequest={onDeleteRequest}
           onShare={onShare}
         />
       ))}
@@ -209,37 +278,12 @@ interface FolderTableRowProps extends FolderCallbacks {
 
 function FolderTableRow({
   folder, selected, onToggleSel, onOpenFolder,
-  onRename, onChangeColor, onDelete, onShare,
+  onRename, onChangeColor, onDeleteRequest, onShare,
 }: FolderTableRowProps) {
   const myRole = useMyFolderRole(folder.id)
   const canManage = myRole === null || roleImplies(myRole, 'manage')
   const canShare  = myRole === null || roleImplies(myRole, 'share')
   const canDelete = myRole === null || roleImplies(myRole, 'delete')
-
-  const menuItems: MenuProps['items'] = [
-    ...(canManage ? [
-      { key: 'rename', label: 'Переименовать', onClick: () => onRename(folder.id) },
-      { key: 'color', label: 'Изменить цвет', onClick: () => onChangeColor(folder.id) },
-    ] : []),
-    ...(canShare ? [
-      { key: 'share', label: 'Поделиться', onClick: () => onShare(folder) },
-    ] : []),
-    ...((canManage || canShare) && canDelete ? [{ type: 'divider' as const }] : []),
-    ...(canDelete ? [{
-      key: 'delete',
-      label: (
-        <Popconfirm
-          title={`Удалить папку «${folder.name}»?`}
-          description="Документы останутся, но перейдут в «Без папки»."
-          okText="Удалить" cancelText="Отмена" okButtonProps={{ danger: true }}
-          onConfirm={() => onDelete(folder.id)}
-          onPopupClick={e => e.stopPropagation()}
-        >
-          <span style={{ color: '#ff4d4f' }}>Удалить</span>
-        </Popconfirm>
-      ),
-    }] : []),
-  ]
 
   return (
     <tr className="row-folder">
@@ -266,11 +310,41 @@ function FolderTableRow({
       <td className="muted">—</td>
       <td>
         <div className="row-actions">
-          <Dropdown menu={{ items: menuItems }} trigger={['click']}>
-            <button className="btn xs icon-only" onClick={e => e.stopPropagation()}>
-              <Icon name="more-h" size={14} />
-            </button>
-          </Dropdown>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="btn xs icon-only" onClick={e => e.stopPropagation()}>
+                <Icon name="more-h" size={14} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {canManage && (
+                <>
+                  <DropdownMenuItem onClick={() => onRename(folder.id)}>
+                    <Edit className="mr-2 size-3.5" /> Переименовать
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onChangeColor(folder.id)}>
+                    <Icon name="folder" size={14} /> Изменить цвет
+                  </DropdownMenuItem>
+                </>
+              )}
+              {canShare && (
+                <DropdownMenuItem onClick={() => onShare(folder)}>
+                  <Share2 className="mr-2 size-3.5" /> Поделиться
+                </DropdownMenuItem>
+              )}
+              {(canManage || canShare) && canDelete && <DropdownMenuSeparator />}
+              {canDelete && (
+                <>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={(e) => { e.stopPropagation(); onDeleteRequest(folder.id) }}
+                >
+                  <Trash2 className="mr-2 size-3.5" /> Удалить
+                </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </td>
     </tr>
@@ -281,10 +355,11 @@ function FolderTableRow({
 
 export default function DocumentsPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [docs, setDocs] = useState<DocumentListItem[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
   const [loadingDocs, setLoadingDocs] = useState(false)
-  const [currentFolder, setCurrentFolder] = useState<string | null>(null)
+  const [currentFolder, setCurrentFolder] = useState<string | null>(() => searchParams.get('folder') ?? null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [view, setView] = useState<'list' | 'grid'>('list')
   const [createOpen, setCreateOpen] = useState(false)
@@ -298,6 +373,9 @@ export default function DocumentsPage() {
   const [shareOpen, setShareOpen] = useState(false)
   const [shareFolder, setShareFolder] = useState<Folder | null>(null)
   const [shareMyRole, setShareMyRole] = useState<MemberRole>('OWNER')
+
+  const [deleteDocId, setDeleteDocId] = useState<string | null>(null)
+  const [deleteFolderId, setDeleteFolderId] = useState<string | null>(null)
 
   const dragDocId = useRef<string | null>(null)
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null)
@@ -322,7 +400,7 @@ export default function DocumentsPage() {
       const res = await documentsApi.list(0, 200)
       setDocs(res.content)
     } catch {
-      notification.error({ message: 'Не удалось загрузить документы' })
+      showNotification('error', 'Не удалось загрузить документы')
     } finally {
       setLoadingDocs(false)
     }
@@ -330,35 +408,60 @@ export default function DocumentsPage() {
 
   const loadFolders = useCallback(async () => {
     try { setFolders(await foldersApi.list()) }
-    catch { notification.error({ message: 'Не удалось загрузить папки' }) }
+    catch { showNotification('error', 'Не удалось загрузить папки') }
   }, [])
 
   useEffect(() => { loadDocs(); loadFolders() }, [loadDocs, loadFolders])
+
+  // Sync currentFolder from URL when browser back/forward changes searchParams
+  useEffect(() => {
+    const folderParam = searchParams.get('folder') ?? null
+    if (folderParam !== currentFolder) setCurrentFolder(folderParam)
+  }, [searchParams])
+
+  // Expand ancestors for folder from URL on initial load
+  const initialUrlFolderExpanded = useRef(false)
+  useEffect(() => {
+    if (initialUrlFolderExpanded.current || !currentFolder || folders.length === 0) return
+    initialUrlFolderExpanded.current = true
+    const ancestors: string[] = []
+    let cur: Folder | undefined = folders.find(f => f.id === currentFolder)
+    while (cur?.parentId) {
+      ancestors.push(cur.parentId)
+      cur = folders.find(f => f.id === cur!.parentId)
+    }
+    if (ancestors.length) {
+      setExpandedFolders(prev => { const s = new Set(prev); ancestors.forEach(a => s.add(a)); return s })
+    }
+  }, [currentFolder, folders])
 
   // ── Folder CRUD ─────────────────────────────────────────────────────────────
 
   const handleCreateFolder = async (name: string) => {
     setCreateFolderOpen(false)
     try { await foldersApi.create({ name, color: PRESET_COLORS[0], parentId: currentFolder }); loadFolders() }
-    catch { notification.error({ message: 'Не удалось создать папку' }) }
+    catch { showNotification('error', 'Не удалось создать папку') }
   }
 
   const handleRenameFolder = async (name: string) => {
     setRenameFolderOpen(false)
     if (!activeFolder) return
     try { await foldersApi.update(activeFolder.id, { name, color: activeFolder.color }); loadFolders() }
-    catch { notification.error({ message: 'Не удалось переименовать папку' }) }
+    catch { showNotification('error', 'Не удалось переименовать папку') }
   }
 
   const handleChangeColor = async (color: string) => {
     setColorFolderOpen(false)
     if (!activeFolder) return
     try { await foldersApi.update(activeFolder.id, { name: activeFolder.name, color }); loadFolders() }
-    catch { notification.error({ message: 'Не удалось изменить цвет' }) }
+    catch { showNotification('error', 'Не удалось изменить цвет') }
   }
 
   const openFolder = (id: string | null) => {
     setCurrentFolder(id)
+    const next = new URLSearchParams(searchParams)
+    id ? next.set('folder', id) : next.delete('folder')
+    setSearchParams(next)
     if (id) {
       const ancestors: string[] = []
       let cur: Folder | undefined = folders.find(f => f.id === id)
@@ -373,9 +476,9 @@ export default function DocumentsPage() {
   const handleDeleteFolder = async (id: string) => {
     try {
       await foldersApi.delete(id)
-      if (currentFolder === id) setCurrentFolder(null)
+      if (currentFolder === id) openFolder(null)
       loadFolders(); loadDocs()
-    } catch { notification.error({ message: 'Не удалось удалить папку' }) }
+    } catch { showNotification('error', 'Не удалось удалить папку') }
   }
 
   // ── Folder action callbacks ──────────────────────────────────────────────────
@@ -404,17 +507,19 @@ export default function DocumentsPage() {
     dragDocId.current = null
     if (!docId) return
     try { await documentsApi.moveToFolder(docId, folderId); loadDocs(); loadFolders() }
-    catch { notification.error({ message: 'Не удалось переместить документ' }) }
+    catch { showNotification('error', 'Не удалось переместить документ') }
   }
 
   // ── Misc ─────────────────────────────────────────────────────────────────────
 
-  const handleDelete = async (id: string) => {
+  const handleDeleteDoc = async () => {
+    if (!deleteDocId) return
     try {
-      await documentsApi.delete(id)
-      notification.success({ message: 'Документ удалён', duration: 2 })
+      await documentsApi.delete(deleteDocId)
+      showNotification('success', 'Документ удалён')
       loadDocs(); loadFolders()
-    } catch { notification.error({ message: 'Не удалось удалить документ' }) }
+    } catch { showNotification('error', 'Не удалось удалить документ') }
+    finally { setDeleteDocId(null) }
   }
 
   const toggleSel = (id: string) => setSelected(prev => {
@@ -448,7 +553,7 @@ export default function DocumentsPage() {
       <div
         className={'tree-row' + (currentFolder === null ? ' current' : '') + (dragOverFolder === '__root__' ? ' drag-over' : '')}
         style={{ paddingLeft: 8 }}
-        onClick={() => setCurrentFolder(null)}
+        onClick={() => openFolder(null)}
         onDragOver={e => { e.preventDefault(); setDragOverFolder('__root__') }}
         onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverFolder(null) }}
         onDrop={() => handleDropOnFolder(null)}
@@ -477,7 +582,7 @@ export default function DocumentsPage() {
           onDrop={handleDropOnFolder}
           onRename={handleFolderRename}
           onChangeColor={handleFolderColor}
-          onDelete={handleDeleteFolder}
+          onDeleteRequest={setDeleteFolderId}
           onShare={folder => handleFolderShare(folder, 'OWNER')}
         />
       ))}
@@ -495,6 +600,43 @@ export default function DocumentsPage() {
         onOk={handleRenameFolder} onCancel={() => setRenameFolderOpen(false)} />
       <FolderColorModal open={colorFolderOpen} current={activeFolder?.color ?? null}
         onOk={handleChangeColor} onCancel={() => setColorFolderOpen(false)} />
+
+      <AlertDialog open={deleteFolderId !== null} onOpenChange={(open) => { if (!open) setDeleteFolderId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Удалить папку «{folders.find(f => f.id === deleteFolderId)?.name ?? ''}»?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Документы останутся, но перейдут в «Без папки».
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteFolderId(null)}>Отмена</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => { if (deleteFolderId) handleDeleteFolder(deleteFolderId); setDeleteFolderId(null) }}>
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteDocId !== null} onOpenChange={(open) => { if (!open) setDeleteDocId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить документ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Это действие нельзя отменить.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteDocId(null)}>Отмена</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDeleteDoc}>
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {shareFolder && (
         <ShareDialog
           open={shareOpen}
@@ -650,7 +792,7 @@ export default function DocumentsPage() {
                     onOpenFolder={openFolder}
                     onRename={handleFolderRename}
                     onChangeColor={handleFolderColor}
-                    onDelete={handleDeleteFolder}
+                    onDeleteRequest={setDeleteFolderId}
                     onShare={folder => handleFolderShare(folder, 'OWNER')}
                   />
                 ))}
@@ -717,11 +859,9 @@ export default function DocumentsPage() {
                       <td>
                         <div className="row-actions">
                           <button className="btn xs" onClick={() => navigate(`/documents/${d.id}/fill`)}>Открыть</button>
-                          <Popconfirm title="Удалить документ?" description="Это действие нельзя отменить."
-                            okText="Удалить" cancelText="Отмена" okButtonProps={{ danger: true }}
-                            onConfirm={() => handleDelete(d.id)}>
-                            <button className="btn xs icon-only"><Icon name="trash" size={13} /></button>
-                          </Popconfirm>
+                          <button className="btn xs icon-only" onClick={(e) => { e.stopPropagation(); setDeleteDocId(d.id) }}>
+                            <Icon name="trash" size={13} />
+                          </button>
                         </div>
                       </td>
                     </tr>
