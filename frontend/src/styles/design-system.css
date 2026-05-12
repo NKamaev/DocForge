@@ -749,7 +749,7 @@ button { font-family: inherit; }
 }
 .designer-side .tabs { padding: 0 10px; flex-shrink: 0; }
 .designer-side .tab-body {
-  flex: 1; min-height: 0; overflow-y: auto;
+  flex: 1; min-height: 0; overflow: hidden;
   padding: 14px 14px 18px;
 }
 .param-card {
@@ -1083,7 +1083,7 @@ button { font-family: inherit; }
 .seg-b { appearance: none; border: 0; background: transparent; padding: 0 8px; height: 30px; display: grid; place-items: center; cursor: pointer; color: var(--ink-3); transition: background .1s; }
 .seg-b:hover { background: var(--bg-soft); color: var(--ink-1); }
 .seg-b.active { background: var(--surface); color: var(--ink-1); box-shadow: inset 0 0 0 1px var(--line); }
-.docs-grid { padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.docs-grid { padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; align-content: start; }
 .folder-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); cursor: pointer; transition: transform .1s, box-shadow .1s, border-color .1s; }
 .folder-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-page); border-color: var(--brand-line); }
 .folder-card.up { align-items: center; justify-content: center; color: var(--ink-3); gap: 6px; }
@@ -1097,4 +1097,17 @@ button { font-family: inherit; }
 .dc-tpl { font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dc-foot { display: flex; justify-content: space-between; margin-top: auto; }
 .empty-folder { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px; color: var(--ink-3); font-size: 13px; }
+
+/* ─── Bug report element picker ─────────────────────── */
+.bug-picker-highlight {
+  outline: 3px solid var(--accent-red) !important;
+  outline-offset: 2px !important;
+  border-radius: 2px;
+}
+.bug-picker-hover {
+  outline: 2px solid var(--brand) !important;
+  outline-offset: 1px !important;
+  border-radius: 2px;
+  background: oklch(from var(--brand) l c h / 0.06) !important;
+}
 
