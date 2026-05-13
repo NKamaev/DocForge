@@ -36,6 +36,9 @@ const collabState = vi.hoisted(() => ({
   yAnswers: null as unknown,
 }))
 
+// Mutable ref shared between DocumentWorkspace mock and tests to capture onBodyChange
+const workspaceRef = vi.hoisted(() => ({ onBodyChange: null as ((body: unknown) => void) | null }))
+
 vi.mock('../../hooks/useCollaboration', async () => {
   const { Doc } = await import('yjs')
   collabState.ydoc = new Doc()
@@ -52,7 +55,15 @@ vi.mock('../../hooks/useCollaboration', async () => {
 })
 
 vi.mock('./DocumentWorkspace', () => ({
-  default: () => <div data-testid="workspace" />,
+  default: (props: { onBodyChange?: (body: unknown) => void }) => {
+    workspaceRef.onBodyChange = props.onBodyChange ?? null
+    return <div data-testid="workspace" />
+  },
+}))
+
+vi.mock('../ShareDialog', () => ({
+  default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? <div data-testid="share-dialog">ShareDialog Content</div> : null,
 }))
 
 const mockDoc: Document = {
@@ -99,6 +110,8 @@ const mockTemplate = {
   description: null,
   category: null,
   version: 1,
+  majorVersion: 1,
+  minorVersion: 0,
   published: false,
   ownerId: 'u1',
   defaultFolderId: null,
@@ -185,6 +198,28 @@ describe('QuestionnairePage', () => {
     clickSpy.mockRestore()
   })
 
+  it('render shows edition history with authorName', async () => {
+    const mockRevisions = [
+      { id: 'r1', editionNumber: 1, savedAt: '2026-04-01T10:00:00Z', savedBy: 'u1', authorName: 'Иван Иванов', comment: 'Первый вариант' },
+      { id: 'r2', editionNumber: 2, savedAt: '2026-04-02T12:00:00Z', savedBy: 'u2', authorName: null, comment: null },
+    ]
+    vi.mocked(documentsApi.listRevisions).mockResolvedValue(mockRevisions)
+
+    renderPage()
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    fireEvent.click(screen.getByText('История'))
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    expect(screen.getByText('История редакций')).toBeInTheDocument()
+    expect(screen.getByText('Редакция 1')).toBeInTheDocument()
+    expect(screen.getByText('Редакция 2')).toBeInTheDocument()
+    expect(screen.getByText('Первый вариант')).toBeInTheDocument()
+    expect(screen.getByText((content, element) =>
+      element?.tagName === 'SPAN' && content.includes('Иван Иванов')
+    )).toBeInTheDocument()
+  })
+
   it('scheduleSave calls saveRevision after saveAnswers', async () => {
     renderPage()
 
@@ -201,6 +236,56 @@ describe('QuestionnairePage', () => {
 
     expect(documentsApi.saveAnswers).toHaveBeenCalledWith('doc-1', { answers: { name: 'Иван' } })
     expect(documentsApi.saveRevision).toHaveBeenCalledWith('doc-1', 'Автосохранение')
+  })
+
+  it('scheduleBodySave calls updateBody and saveRevision through debounce when body changes', async () => {
+    vi.mocked(documentsApi.updateBody).mockResolvedValue(undefined)
+
+    renderPage()
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    const mockBody = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }] }
+
+    // Simulate body change via the DocumentWorkspace mock callback
+    await act(async () => {
+      workspaceRef.onBodyChange!(mockBody)
+    })
+
+    // Should NOT be called immediately (debounce has not elapsed)
+    expect(documentsApi.updateBody).not.toHaveBeenCalled()
+    expect(documentsApi.saveRevision).not.toHaveBeenCalled()
+
+    // Advance past the 500ms debounce
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    expect(documentsApi.updateBody).toHaveBeenCalledWith('doc-1', mockBody)
+    expect(documentsApi.saveRevision).toHaveBeenCalledWith('doc-1', 'Автосохранение')
+  })
+
+  it('scheduleBodySave does NOT call saveRevision immediately — only after debounce delay', async () => {
+    vi.mocked(documentsApi.updateBody).mockResolvedValue(undefined)
+
+    renderPage()
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    const saveRevCallsBefore = vi.mocked(documentsApi.saveRevision).mock.calls.length
+    const updateBodyCallsBefore = vi.mocked(documentsApi.updateBody).mock.calls.length
+
+    // Trigger body change
+    await act(async () => {
+      workspaceRef.onBodyChange!({ type: 'doc' })
+    })
+
+    // Check immediately — no debounced calls yet
+    expect(vi.mocked(documentsApi.saveRevision).mock.calls.length).toBe(saveRevCallsBefore)
+    expect(vi.mocked(documentsApi.updateBody).mock.calls.length).toBe(updateBodyCallsBefore)
+
+    // Advance past debounce
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    // Now both should have been called
+    expect(documentsApi.saveRevision).toHaveBeenCalledWith('doc-1', 'Автосохранение')
+    expect(documentsApi.updateBody).toHaveBeenCalledWith('doc-1', { type: 'doc' })
   })
 
   it('handleAnswerChange writes value into yAnswers', async () => {
@@ -237,6 +322,21 @@ describe('QuestionnairePage', () => {
 
     // Handler fired → re-fetched questionnaire
     expect(documentsApi.getQuestionnaire).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows ShareDialog button in toolbar and opens dialog on click', async () => {
+    renderPage()
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    const shareButton = screen.getByText('Доступ')
+    expect(shareButton).toBeInTheDocument()
+
+    expect(screen.queryByTestId('share-dialog')).not.toBeInTheDocument()
+
+    fireEvent.click(shareButton)
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    expect(screen.getByTestId('share-dialog')).toBeInTheDocument()
   })
 
   it('local yAnswers change does not trigger remote refetch', async () => {

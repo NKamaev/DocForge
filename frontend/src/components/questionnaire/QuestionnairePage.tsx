@@ -2,9 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import type { JSONContent } from '@tiptap/core'
 import { useParams } from 'react-router-dom'
-import { Alert, List, Spin, notification } from 'antd'
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { Skeleton } from '@/components/ui/skeleton'
 import { FileWordOutlined, FilePdfOutlined, RollbackOutlined } from '@ant-design/icons'
+import { Share2, GitCompare } from 'lucide-react'
 import { Icon } from '../Icon'
+import ShareDialog from '../ShareDialog'
 import { documentsApi } from '../../api/documentsApi'
 import { templatesApi } from '../../api/templatesApi'
 import type { Questionnaire, QuestionnaireQuestion, RevisionMeta } from '../../types/document'
@@ -15,8 +18,13 @@ import { useMyDocumentRole } from '../../hooks/useMyRole'
 import ParticipantsPanel from '../document-editor/ParticipantsPanel'
 import QuestionRenderer from './QuestionRenderer'
 import DocumentWorkspace from './DocumentWorkspace'
+import { RevisionDiffDialog } from './DiffViewer'
 
 const DEBOUNCE_MS = 500
+
+function showNotification(type: 'success' | 'error' | 'warning', message: string) {
+  console.log(`[${type.toUpperCase()}]`, message)
+}
 
 export default function QuestionnairePage() {
   const { id } = useParams<{ id: string }>()
@@ -36,6 +44,10 @@ export default function QuestionnairePage() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [revisions, setRevisions] = useState<RevisionMeta[]>([])
   const [loadingRevisions, setLoadingRevisions] = useState(false)
+  const [diffForRevision, setDiffForRevision] = useState<number | null>(null)
+
+  const [shareOpen, setShareOpen] = useState(false)
+  const [docName, setDocName] = useState('')
 
   const [templateBody, setTemplateBody] = useState<Record<string, unknown> | null>(null)
   const [docCurrentBody, setDocCurrentBody] = useState<unknown>(null)
@@ -43,16 +55,23 @@ export default function QuestionnairePage() {
   const [phrasings, setPhrasings] = useState<Phrasing[]>([])
   const [formatting, setFormatting] = useState<DocumentFormatting | null>(null)
 
-  // Highlighted param (document → ОЛ navigation)
+  const [loadError, setLoadError] = useState<'access_denied' | 'not_found' | 'unknown' | null>(null)
   const [highlightedParam, setHighlightedParam] = useState<string | null>(null)
 
   const answersRef     = useRef<Record<string, unknown>>({})
   const editorBodyRef  = useRef<JSONContent | null>(null)
   const timerRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bodyTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const questionRefs   = useRef<Map<string, HTMLDivElement>>(new Map())
 
-  // ── Load data ───────────────────────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
+    }
+  }, [])
+
   useEffect(() => {
     if (!id) return
 
@@ -74,9 +93,8 @@ export default function QuestionnairePage() {
 
     const loadT = documentsApi.getById(id)
       .then(async doc => {
+        setDocName(doc.name)
         if (doc.currentBody != null) setDocCurrentBody(doc.currentBody)
-        // Use the immutable snapshot fixed at document creation time.
-        // Fall back to the live template only if the document pre-dates versioning.
         const tmpl = doc.templateVersionNumber != null
           ? await templatesApi.getSnapshot(doc.templateId, doc.templateVersionNumber)
           : await templatesApi.getTemplate(doc.templateId)
@@ -87,16 +105,19 @@ export default function QuestionnairePage() {
       })
 
     Promise.all([loadQ, loadT])
-      .catch(() => notification.error({ message: 'Не удалось загрузить данные' }))
+      .catch((err) => {
+        const status = (err as { response?: { status?: number } })?.response?.status
+        if (status === 403) {
+          setLoadError('access_denied')
+        } else if (status === 404) {
+          setLoadError('not_found')
+        } else {
+          setLoadError('unknown')
+        }
+      })
       .finally(() => setLoading(false))
   }, [id])
 
-  // Track editor body in ref for pre-export updateBody call (no debounced REST save — body lives in Yjs)
-  const handleBodyChange = useCallback((body: JSONContent) => {
-    editorBodyRef.current = body
-  }, [])
-
-  // ── Debounced save ──────────────────────────────────────────────────────────
   const scheduleSave = useCallback(() => {
     if (!id) return
     if (timerRef.current) clearTimeout(timerRef.current)
@@ -105,12 +126,33 @@ export default function QuestionnairePage() {
         const res = await documentsApi.saveAnswers(id, { answers: answersRef.current })
         setQuestionnaire(res.questionnaire)
         setSaveError(null)
-        documentsApi.saveRevision(id, 'Автосохранение').catch(e => console.warn('saveRevision failed', e))
+        documentsApi.saveRevision(id, 'Автосохранение').catch(e => console.warn('saveRevision (answers) failed', e))
       } catch {
         setSaveError('Ошибка автосохранения')
       }
     }, DEBOUNCE_MS)
   }, [id])
+
+  const scheduleBodySave = useCallback(() => {
+    if (!id) return
+    if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
+    bodyTimerRef.current = setTimeout(async () => {
+      try {
+        if (editorBodyRef.current) {
+          await documentsApi.updateBody(id, editorBodyRef.current)
+          await documentsApi.saveRevision(id, 'Автосохранение')
+        }
+        setSaveError(null)
+      } catch {
+        setSaveError('Ошибка автосохранения тела документа')
+      }
+    }, DEBOUNCE_MS)
+  }, [id])
+
+  const handleBodyChange = useCallback((body: JSONContent) => {
+    editorBodyRef.current = body
+    scheduleBodySave()
+  }, [scheduleBodySave])
 
   const handleAnswerChange = useCallback((paramCode: string, value: unknown) => {
     const next = { ...answersRef.current, [paramCode]: value }
@@ -120,7 +162,6 @@ export default function QuestionnairePage() {
     scheduleSave()
   }, [scheduleSave, yAnswers])
 
-  /** For directory fields: set multiple answers at once */
   const handleMultiAnswerChange = useCallback((changes: Record<string, unknown>) => {
     const next = { ...answersRef.current, ...changes }
     answersRef.current = next
@@ -129,7 +170,6 @@ export default function QuestionnairePage() {
     scheduleSave()
   }, [scheduleSave, yAnswers])
 
-  // ── Yjs remote answers sync ─────────────────────────────────────────────────
   useEffect(() => {
     const handler = (event: Y.YMapEvent<unknown>) => {
       if (event.transaction.local) return
@@ -150,7 +190,6 @@ export default function QuestionnairePage() {
     return () => yAnswers.unobserve(handler)
   }, [yAnswers, id])
 
-  // ── Revision history ─────────────────────────────────────────────────────
   const openHistory = useCallback(async () => {
     if (!id) return
     setHistoryOpen(true)
@@ -159,7 +198,7 @@ export default function QuestionnairePage() {
       const data = await documentsApi.listRevisions(id)
       setRevisions(data)
     } catch {
-      notification.error({ message: 'Не удалось загрузить историю ревизий' })
+      showNotification('error', 'Не удалось загрузить историю редакций')
     } finally {
       setLoadingRevisions(false)
     }
@@ -171,11 +210,10 @@ export default function QuestionnairePage() {
       await documentsApi.restoreRevision(id, revNum)
       window.location.reload()
     } catch {
-      notification.error({ message: 'Ошибка восстановления ревизии' })
+      showNotification('error', 'Ошибка восстановления редакции')
     }
   }, [id])
 
-  // ── Document → ОЛ: click on parameter ──────────────────────────────────────
   const handleParamFocus = useCallback((paramCode: string) => {
     if (!questionnaire) return
 
@@ -196,17 +234,31 @@ export default function QuestionnairePage() {
     highlightTimer.current = setTimeout(() => setHighlightedParam(null), 2500)
   }, [questionnaire, currentPage])
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 64 }}>
-        <Spin size="large" />
+      <div className="flex justify-center items-center p-16">
+        <div className="flex flex-col items-center gap-3">
+          <Skeleton className="h-12 w-12 rounded-full" />
+          <Skeleton className="h-4 w-32" />
+        </div>
       </div>
     )
   }
 
   if (!questionnaire) {
-    return <Alert type="error" message="Опросный лист не найден" style={{ margin: 24 }} />
+    const isAccessDenied = loadError === 'access_denied'
+    return (
+      <div className="m-6">
+        <Alert variant={isAccessDenied ? 'default' : 'destructive'}>
+          <AlertTitle>{isAccessDenied ? 'Нет доступа' : 'Ошибка'}</AlertTitle>
+          <AlertDescription>
+            {isAccessDenied
+              ? 'Документ не доступен для просмотра. Обратитесь к владельцу документа для получения приглашения.'
+              : 'Опросный лист не найден'}
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
   }
 
   const pages = questionnaire.pages ?? []
@@ -224,7 +276,6 @@ export default function QuestionnairePage() {
 
   return (
     <div className="workspace">
-      {/* ── Left: questionnaire panel ── */}
       <div className="q-panel">
         <div className="q-head">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -253,7 +304,18 @@ export default function QuestionnairePage() {
 
         <div className="q-body">
           {saveError && (
-            <Alert type="warning" message={saveError} closable onClose={() => setSaveError(null)} style={{ marginBottom: 12 }} />
+            <Alert className="mb-3 border-amber-200 bg-amber-50">
+              <AlertTitle className="text-amber-800">Предупреждение</AlertTitle>
+              <AlertDescription className="flex justify-between items-center text-amber-700">
+                {saveError}
+                <button 
+                  onClick={() => setSaveError(null)}
+                  className="text-xs ml-2 hover:underline text-amber-600"
+                >
+                  ✕
+                </button>
+              </AlertDescription>
+            </Alert>
           )}
           <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 10 }}>
             {page?.title || `Страница ${currentPage + 1}`} · {visibleQuestions.length} вопр.
@@ -309,7 +371,6 @@ export default function QuestionnairePage() {
         </div>
       </div>
 
-      {/* ── Right: document editor ── */}
       <div className="editor-pane">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'var(--bg-soft)', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
           <span style={{ fontSize: 12.5, color: 'var(--ink-3)', flex: 1 }}>
@@ -322,6 +383,10 @@ export default function QuestionnairePage() {
               currentUserName={currentUser?.displayName ?? currentUser?.login}
               currentUserColor={currentUser ? loginToColor(currentUser.login) : '#888'}
             />
+            <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
+            <button className="btn xs ghost" onClick={() => setShareOpen(true)}>
+              <Share2 className="size-3.5" /> Доступ
+            </button>
             <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
             <button className="btn xs ghost" onClick={openHistory}>
               <Icon name="history" size={13} /> История
@@ -340,7 +405,7 @@ export default function QuestionnairePage() {
                   const a = document.createElement('a')
                   a.href = url; a.download = 'document.docx'; a.click()
                   URL.revokeObjectURL(url)
-                } catch { notification.error({ message: 'Ошибка экспорта DOCX' }) }
+                } catch { showNotification('error', 'Ошибка экспорта DOCX') }
                 finally { setExportingDocx(false) }
               }}
             >
@@ -359,7 +424,7 @@ export default function QuestionnairePage() {
                   const a = document.createElement('a')
                   a.href = url; a.download = 'document.pdf'; a.click()
                   URL.revokeObjectURL(url)
-                } catch { notification.error({ message: 'Ошибка экспорта PDF' }) }
+                } catch { showNotification('error', 'Ошибка экспорта PDF') }
                 finally { setExportingPdf(false) }
               }}
             >
@@ -385,49 +450,84 @@ export default function QuestionnairePage() {
         />
       </div>
 
-      {/* Revisions drawer */}
       {historyOpen && (
         <>
           <div className="drawer-veil" onClick={() => setHistoryOpen(false)} />
           <aside className="drawer">
             <div className="drawer-head">
-              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 550 }}>История ревизий</h3>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 550 }}>История редакций</h3>
               <button className="icon-btn" onClick={() => setHistoryOpen(false)}><Icon name="x" size={14} /></button>
             </div>
             <div className="drawer-body">
               {loadingRevisions ? (
-                <div style={{ textAlign: 'center', padding: 32 }}><Spin size="small" /></div>
+                <div className="text-center p-8">
+                  <Skeleton className="h-8 w-8 mx-auto rounded-full mb-2" />
+                  <Skeleton className="h-4 w-24 mx-auto" />
+                </div>
               ) : revisions.length === 0 ? (
-                <div style={{ color: 'var(--ink-3)', fontSize: 13 }}>Ревизий ещё нет</div>
+                <div style={{ color: 'var(--ink-3)', fontSize: 13 }}>Редакций ещё нет</div>
               ) : (
-                <List
-                  dataSource={revisions}
-                  renderItem={(rev) => (
-                    <List.Item
-                      actions={[
-                        <button key="restore" className="btn xs" onClick={() => restoreRevision(rev.revisionNumber)}>
-                          <RollbackOutlined /> Восстановить
-                        </button>,
-                      ]}
+                <div className="space-y-2">
+                  {revisions.map((rev) => (
+                    <div 
+                      key={rev.editionNumber}
+                      className="flex justify-between items-start p-3 rounded-lg hover:bg-muted/50 transition-colors"
                     >
-                      <List.Item.Meta
-                        title={`Ревизия ${rev.revisionNumber}`}
-                        description={
-                          <>
-                            <div>{new Date(rev.savedAt).toLocaleString('ru')}</div>
-                            {rev.comment && <div style={{ color: 'var(--ink-3)', fontSize: 12 }}>{rev.comment}</div>}
-                          </>
-                        }
-                      />
-                    </List.Item>
-                  )}
-                />
+                       <div>
+                         <div className="font-medium text-sm">Редакция {rev.editionNumber}</div>
+                         <div className="text-xs text-muted-foreground">
+                           {rev.authorName && <span className="font-medium">{rev.authorName}</span>}
+                           {rev.authorName ? ' · ' : ''}{new Date(rev.savedAt).toLocaleString('ru')}
+                         </div>
+                         {rev.comment && (
+                           <div className="text-xs text-muted-foreground mt-1">{rev.comment}</div>
+                         )}
+                       </div>
+                       <div className="flex gap-1">
+                         <button
+                           className="btn xs"
+                           onClick={() => {
+                             if (id) {
+                               setDiffForRevision(rev.editionNumber)
+                             }
+                           }}
+                         >
+                           <GitCompare className="size-3" />
+                         </button>
+                         <button
+                           className="btn xs"
+                           onClick={() => restoreRevision(rev.editionNumber)}
+                         >
+                           <RollbackOutlined /> Восстановить
+                         </button>
+                       </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </aside>
         </>
       )}
-    </div>
+
+       <ShareDialog
+         open={shareOpen}
+         onClose={() => setShareOpen(false)}
+         resourceType="document"
+         resourceId={id ?? ''}
+         resourceName={docName || 'Документ'}
+         myRole={myDocRole ?? 'VIEWER'}
+       />
+
+       {diffForRevision !== null && id && (
+         <RevisionDiffDialog
+           open={diffForRevision !== null}
+           onClose={() => setDiffForRevision(null)}
+           documentId={id}
+           revisionNumber={diffForRevision}
+         />
+       )}
+     </div>
   )
 }
 
