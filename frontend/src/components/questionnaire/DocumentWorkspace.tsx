@@ -187,7 +187,7 @@ export default function DocumentWorkspace({
     }, 400)
 
     return () => clearTimeout(timer)
-  }, [editor, ydoc, initialBody, templateBody]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editor, ydoc, initialBody, templateBody, restoreSeedKey])
 
   if (!templateBody && initialBody == null) {
     return (

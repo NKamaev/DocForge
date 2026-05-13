@@ -54,6 +54,7 @@ export interface CreateDocumentRequest {
   templateId: string
   name: string
   folderId?: string | null
+  templateVersionNumber?: number | null
 }
 
 export interface SaveAnswersRequest {
@@ -72,10 +73,26 @@ export interface GenerateResponse {
 
 export interface RevisionMeta {
   id: string
-  revisionNumber: number
+  editionNumber: number
   savedAt: string
-  savedBy?: string
-  comment?: string
+  savedBy?: string | null
+  authorName?: string | null
+  comment?: string | null
+}
+
+export type DiffChunkType = 'INSERT' | 'DELETE' | 'EQUAL'
+
+export interface DiffChunk {
+  type: DiffChunkType
+  text: string
+}
+
+export interface RevisionDiff {
+  revisionId: string
+  revisionNumber: number
+  compareToRevisionNumber: number | null
+  compareToCurrent: boolean
+  diff: DiffChunk[]
 }
 
 export interface PageResponse<T> {
