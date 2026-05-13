@@ -7,15 +7,20 @@ import com.docforge.document.generator.ConditionEvaluator;
 import com.docforge.document.generator.DocumentGenerator;
 import com.docforge.document.generator.PythonConditionEvaluator;
 import com.docforge.document.generator.ScriptExecutionException;
+import com.docforge.document.model.Document;
 import com.docforge.document.model.DocumentRegistry;
 import com.docforge.document.model.DocumentRole;
 import com.docforge.document.model.DocumentRevision;
 import com.docforge.document.model.DocumentRevisionBody;
+import com.github.difflib.DiffUtils;
+import com.github.difflib.patch.AbstractDelta;
+import com.github.difflib.patch.Patch;
 import com.docforge.template.TemplateService;
 import com.docforge.template.dto.TemplateResponse;
 import com.docforge.template.model.*;
 import com.docforge.user.User;
 import com.docforge.user.UserRepository;
+import com.docforge.user.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -41,6 +46,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final DocumentRevisionRepository revisionRepository;
     private final DocumentRevisionBodyRepository revisionBodyRepository;
     private final UserRepository userRepository;
+    private final UserService userService;
     private final TemplateService templateService;
     private final DocumentGenerator documentGenerator;
     private final ConditionEvaluator conditionEvaluator;
@@ -51,13 +57,18 @@ public class DocumentServiceImpl implements DocumentService {
 
     @Override
     @Transactional
-    public DocumentResponse create(UUID templateId, String name, UUID ownerId, UUID folderId) {
+    public DocumentResponse create(UUID templateId, String name, UUID ownerId, UUID folderId,
+                                   Integer templateVersionNumber) {
         // Verify template exists (throws 404 if not)
         TemplateResponse template = templateService.getById(templateId);
 
-        // Resolve latest published snapshot (may be absent for unpublished templates)
-        com.docforge.template.model.TemplateSnapshot snapshot =
-                templateService.findLatestSnapshot(templateId).orElse(null);
+        // Resolve snapshot — use specified version or latest published
+        com.docforge.template.model.TemplateSnapshot snapshot = null;
+        if (templateVersionNumber != null) {
+            snapshot = templateService.getSnapshot(templateId, templateVersionNumber);
+        } else {
+            snapshot = templateService.findLatestSnapshot(templateId).orElse(null);
+        }
 
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
@@ -445,7 +456,7 @@ public class DocumentServiceImpl implements DocumentService {
         documentPermissionService.revokeRole(documentId, userId, null);
     }
 
-    // ── Revisions ─────────────────────────────────────────────────────────────
+    // ── Editions ──────────────────────────────────────────────────────────────
 
     @Override
     @Transactional
@@ -476,7 +487,7 @@ public class DocumentServiceImpl implements DocumentService {
                 .build();
         revisionBodyRepository.save(body);
 
-        log.info("Ревизия документа id={} revision={}", documentId, nextNumber);
+        log.info("Редакция документа id={} edition={}", documentId, nextNumber);
         return toRevisionDTO(revision);
     }
 
@@ -494,9 +505,9 @@ public class DocumentServiceImpl implements DocumentService {
         findRegistryOrThrow(documentId);
         DocumentRevision rev = revisionRepository.findByDocumentIdAndRevisionNumber(documentId, revisionNumber)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Ревизия не найдена: documentId=" + documentId + " revision=" + revisionNumber));
+                        "Редакция не найдена: documentId=" + documentId + " edition=" + revisionNumber));
         return revisionBodyRepository.findById(rev.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Тело ревизии не найдено: " + rev.getId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Тело редакции не найдено: " + rev.getId()));
     }
 
     @Override
@@ -509,17 +520,26 @@ public class DocumentServiceImpl implements DocumentService {
         if (revBody.getAnswers() != null) {
             doc.setAnswers(revBody.getAnswers());
         }
+        doc.setYjsState(null);
         doc.setUpdatedAt(Instant.now());
         documentRepository.save(doc);
 
-        String comment = "Откат к ревизии " + revisionNumber;
+        String comment = "Откат к редакции " + revisionNumber;
         return saveRevision(documentId, comment);
     }
 
     private DocumentRevisionDTO toRevisionDTO(DocumentRevision r) {
+        String authorName = null;
+        if (r.getSavedBy() != null) {
+            try {
+                authorName = userService.getById(r.getSavedBy()).displayName();
+            } catch (Exception e) {
+                log.warn("Не удалось загрузить автора редакции savedBy={}: {}", r.getSavedBy(), e.getMessage());
+            }
+        }
         return new DocumentRevisionDTO(
                 r.getId(), r.getDocumentId(), r.getRevisionNumber(),
-                r.getSavedBy(), r.getSavedAt(), r.getComment()
+                r.getSavedBy(), authorName, r.getSavedAt(), r.getComment()
         );
     }
 
@@ -537,5 +557,123 @@ public class DocumentServiceImpl implements DocumentService {
     private String currentLogin() {
         var auth = SecurityContextHolder.getContext().getAuthentication();
         return auth != null ? auth.getName() : null;
+    }
+
+    // ── Revision Diff ───────────────────────────────────────────────────────────
+
+    @Override
+    @Transactional(readOnly = true)
+    public RevisionDiffResponse computeRevisionDiff(
+            UUID documentId,
+            int revisionNumber,
+            Integer compareToRevisionNumber) {
+
+        DocumentRevisionBody targetBody = getRevisionBody(documentId, revisionNumber);
+        DocumentRevision targetRev = revisionRepository.findByDocumentIdAndRevisionNumber(documentId, revisionNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Редакция не найдена"));
+
+        Object compareBodyObj;
+        boolean compareToCurrent = compareToRevisionNumber == null;
+        Integer actualCompareToNumber = null;
+
+        if (compareToCurrent) {
+            Document doc = findDocOrThrow(documentId);
+            compareBodyObj = doc.getCurrentBody() != null ? doc.getCurrentBody() : doc.getGeneratedBody();
+        } else {
+            DocumentRevisionBody compareBody = getRevisionBody(documentId, compareToRevisionNumber);
+            compareBodyObj = compareBody.getBody();
+            actualCompareToNumber = compareToRevisionNumber;
+        }
+
+        String targetText = extractPlainText(targetBody.getBody());
+        String compareText = extractPlainText(compareBodyObj);
+
+        List<String> targetLines = targetText.lines().toList();
+        List<String> compareLines = compareText.lines().toList();
+
+        Patch<String> patch = DiffUtils.diff(compareLines, targetLines);
+
+        List<DiffChunk> chunks = new ArrayList<>();
+        for (AbstractDelta<String> delta : patch.getDeltas()) {
+            switch (delta.getType()) {
+                case INSERT -> {
+                    for (String line : delta.getTarget().getLines()) {
+                        chunks.add(new DiffChunk(DiffChunk.DiffChunkType.INSERT, line + "\n"));
+                    }
+                }
+                case DELETE -> {
+                    for (String line : delta.getSource().getLines()) {
+                        chunks.add(new DiffChunk(DiffChunk.DiffChunkType.DELETE, line + "\n"));
+                    }
+                }
+                case CHANGE -> {
+                    for (String line : delta.getSource().getLines()) {
+                        chunks.add(new DiffChunk(DiffChunk.DiffChunkType.DELETE, line + "\n"));
+                    }
+                    for (String line : delta.getTarget().getLines()) {
+                        chunks.add(new DiffChunk(DiffChunk.DiffChunkType.INSERT, line + "\n"));
+                    }
+                }
+            }
+        }
+
+        if (chunks.isEmpty()) {
+            chunks.add(new DiffChunk(DiffChunk.DiffChunkType.EQUAL, targetText));
+        }
+
+        return new RevisionDiffResponse(
+                targetRev.getId(),
+                revisionNumber,
+                actualCompareToNumber,
+                compareToCurrent,
+                chunks
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractPlainText(Object body) {
+        if (body == null) return "";
+        if (!(body instanceof Map<?, ?>)) return body.toString();
+
+        Map<String, Object> bodyMap = (Map<String, Object>) body;
+        StringBuilder sb = new StringBuilder();
+        extractTextRecursive(bodyMap, sb);
+        return sb.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void extractTextRecursive(Map<String, Object> node, StringBuilder sb) {
+        if (node == null) return;
+
+        String type = (String) node.get("type");
+        if ("text".equals(type)) {
+            Object text = node.get("text");
+            if (text != null) {
+                sb.append(text);
+            }
+            return;
+        }
+
+        Object attrs = node.get("attrs");
+        if (attrs instanceof Map<?, ?> attrMap) {
+            Object paramCode = attrMap.get("parameterCode");
+            Object display = attrMap.get("display");
+            if ("parameterField".equals(type) && display != null) {
+                sb.append("[").append(display).append("]");
+            }
+        }
+
+        Object content = node.get("content");
+        if (content instanceof List<?> contentList) {
+            for (Object item : contentList) {
+                if (item instanceof Map<?, ?>) {
+                    extractTextRecursive((Map<String, Object>) item, sb);
+                }
+            }
+        }
+
+        if ("paragraph".equals(type) || "heading".equals(type) || "listItem".equals(type)) {
+            sb.append("\n");
+        }
     }
 }
