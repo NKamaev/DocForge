@@ -5,7 +5,7 @@ import { useParams } from 'react-router-dom'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FileWordOutlined, FilePdfOutlined, RollbackOutlined } from '@ant-design/icons'
-import { Share2, GitCompare } from 'lucide-react'
+import { Save, Share2, GitCompare } from 'lucide-react'
 import { Icon } from '../Icon'
 import ShareDialog from '../ShareDialog'
 import { documentsApi } from '../../api/documentsApi'
@@ -21,6 +21,8 @@ import DocumentWorkspace from './DocumentWorkspace'
 import { RevisionDiffDialog } from './DiffViewer'
 
 const DEBOUNCE_MS = 500
+const BODY_AUTOSAVE_MS = 3000
+const BODY_REVISION_IDLE_MS = 60000
 
 function showNotification(type: 'success' | 'error' | 'warning', message: string) {
   console.log(`[${type.toUpperCase()}]`, message)
@@ -61,14 +63,16 @@ export default function QuestionnairePage() {
   const answersRef     = useRef<Record<string, unknown>>({})
   const editorBodyRef  = useRef<JSONContent | null>(null)
   const timerRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const bodyTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bodyAutosaveTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bodyRevisionTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const questionRefs   = useRef<Map<string, HTMLDivElement>>(new Map())
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
-      if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
+      if (bodyAutosaveTimerRef.current) clearTimeout(bodyAutosaveTimerRef.current)
+      if (bodyRevisionTimerRef.current) clearTimeout(bodyRevisionTimerRef.current)
     }
   }, [])
 
@@ -135,18 +139,42 @@ export default function QuestionnairePage() {
 
   const scheduleBodySave = useCallback(() => {
     if (!id) return
-    if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
-    bodyTimerRef.current = setTimeout(async () => {
+
+    if (bodyAutosaveTimerRef.current) clearTimeout(bodyAutosaveTimerRef.current)
+    bodyAutosaveTimerRef.current = setTimeout(async () => {
       try {
         if (editorBodyRef.current) {
           await documentsApi.updateBody(id, editorBodyRef.current)
-          await documentsApi.saveRevision(id, 'Автосохранение')
         }
         setSaveError(null)
       } catch {
         setSaveError('Ошибка автосохранения тела документа')
       }
-    }, DEBOUNCE_MS)
+    }, BODY_AUTOSAVE_MS)
+
+    if (bodyRevisionTimerRef.current) clearTimeout(bodyRevisionTimerRef.current)
+    bodyRevisionTimerRef.current = setTimeout(async () => {
+      try {
+        if (editorBodyRef.current) {
+          await documentsApi.saveRevision(id, 'Автосохранение')
+        }
+      } catch (e) {
+        console.warn('auto revision save failed', e)
+      }
+    }, BODY_REVISION_IDLE_MS)
+  }, [id])
+
+  const handleSaveRevision = useCallback(async () => {
+    if (!id) return
+    try {
+      if (editorBodyRef.current) {
+        await documentsApi.updateBody(id, editorBodyRef.current)
+      }
+      await documentsApi.saveRevision(id, 'Сохранение редакции')
+      showNotification('success', 'Редакция сохранена')
+    } catch {
+      showNotification('error', 'Ошибка сохранения редакции')
+    }
   }, [id])
 
   const handleBodyChange = useCallback((body: JSONContent) => {
@@ -386,6 +414,10 @@ export default function QuestionnairePage() {
             <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
             <button className="btn xs ghost" onClick={() => setShareOpen(true)}>
               <Share2 className="size-3.5" /> Доступ
+            </button>
+            <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
+            <button className="btn xs ghost" onClick={handleSaveRevision}>
+              <Save className="size-3.5" /> Сохранить редакцию
             </button>
             <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
             <button className="btn xs ghost" onClick={openHistory}>
