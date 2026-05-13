@@ -44,6 +44,7 @@ export default function QuestionnairePage() {
   const [revisions, setRevisions] = useState<RevisionMeta[]>([])
   const [loadingRevisions, setLoadingRevisions] = useState(false)
   const [diffForRevision, setDiffForRevision] = useState<number | null>(null)
+  const [restoreSeedKey, setRestoreSeedKey] = useState(0)
 
   const [shareOpen, setShareOpen] = useState(false)
   const [docName, setDocName] = useState('')
@@ -264,11 +265,48 @@ export default function QuestionnairePage() {
     if (!id) return
     try {
       await documentsApi.restoreRevision(id, revNum)
-      window.location.reload()
+
+      // Программный ресет: очистить Yjs + перезагрузить данные из REST
+      const fragment = ydoc.getXmlFragment('default')
+      fragment.delete(0, fragment.length)
+      yAnswers.clear()
+
+      setLoading(true)
+      const loadQ = documentsApi.getQuestionnaire(id).then(q => {
+        setQuestionnaire(q)
+        const initial: Record<string, unknown> = {}
+        q.pages.forEach(p =>
+          p.questions.forEach(qu => {
+            if (qu.currentValue !== undefined && qu.currentValue !== null)
+              initial[qu.parameterCode] = qu.currentValue
+          })
+        )
+        setAnswers(initial)
+        answersRef.current = initial
+        Object.entries(initial).forEach(([k, v]) => yAnswers.set(k, v))
+      })
+
+      const loadT = documentsApi.getById(id)
+        .then(async doc => {
+          setDocName(doc.name)
+          if (doc.currentBody != null) setDocCurrentBody(doc.currentBody)
+          const tmpl = doc.templateVersionNumber != null
+            ? await templatesApi.getSnapshot(doc.templateId, doc.templateVersionNumber)
+            : await templatesApi.getTemplate(doc.templateId)
+          if (tmpl.body)       setTemplateBody(tmpl.body)
+          if (tmpl.parameters) setParameters(tmpl.parameters)
+          if (tmpl.formatting) setFormatting(tmpl.formatting)
+          setPhrasings(tmpl.phrasings ?? [])
+        })
+
+      await Promise.all([loadQ, loadT])
+      setRestoreSeedKey(k => k + 1)
     } catch {
       showToast('Ошибка восстановления редакции', 'error')
+    } finally {
+      setLoading(false)
     }
-  }, [id])
+  }, [id, ydoc, yAnswers])
 
   const handleParamFocus = useCallback((paramCode: string) => {
     if (!questionnaire) return
@@ -507,6 +545,7 @@ export default function QuestionnairePage() {
           initialBody={docCurrentBody}
           onBodyChange={handleBodyChange}
           readOnly={isReadOnly}
+          restoreSeedKey={restoreSeedKey}
         />
       </div>
 

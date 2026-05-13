@@ -51,6 +51,7 @@ interface Props {
   initialBody?: unknown
   onBodyChange?: (body: JSONContent) => void
   readOnly?: boolean
+  restoreSeedKey?: number
 }
 
 export default function DocumentWorkspace({
@@ -67,6 +68,7 @@ export default function DocumentWorkspace({
   initialBody,
   onBodyChange,
   readOnly = false,
+  restoreSeedKey = 0,
 }: Props) {
   // Keep callbacks in refs so storage always has fresh versions
   const onAnswerChangeRef = useRef(onAnswerChange)
@@ -78,7 +80,7 @@ export default function DocumentWorkspace({
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ undoRedo: false }),
+      StarterKit.configure({ undoRedo: false, link: false, underline: false }),
       Collaboration.configure({ document: ydoc }),
       Underline,
       TextStyle,
@@ -159,7 +161,7 @@ export default function DocumentWorkspace({
   // If the server already has Yjs state the fragment will be non-empty and
   // we skip seeding — Yjs content wins over REST / rendered preview.
   const seededRef = useRef(false)
-  useEffect(() => { seededRef.current = false }, [ydoc])
+  useEffect(() => { seededRef.current = false }, [ydoc, restoreSeedKey])
   useEffect(() => {
     if (seededRef.current || !editor) return
     if (initialBody == null && !templateBody) return
@@ -187,7 +189,7 @@ export default function DocumentWorkspace({
     return () => clearTimeout(timer)
   }, [editor, ydoc, initialBody, templateBody]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!templateBody) {
+  if (!templateBody && initialBody == null) {
     return (
       <div className="editor-canvas" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <span style={{ color: 'var(--ink-3)', fontSize: 13 }}>Шаблон не содержит тела документа</span>
