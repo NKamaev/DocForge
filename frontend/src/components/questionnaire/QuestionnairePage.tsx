@@ -6,6 +6,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FileWordOutlined, FilePdfOutlined, RollbackOutlined } from '@ant-design/icons'
 import { Save, Share2, GitCompare } from 'lucide-react'
+import { showToast } from '@/components/ui/toast'
 import { Icon } from '../Icon'
 import ShareDialog from '../ShareDialog'
 import { documentsApi } from '../../api/documentsApi'
@@ -23,10 +24,6 @@ import { RevisionDiffDialog } from './DiffViewer'
 const DEBOUNCE_MS = 500
 const BODY_AUTOSAVE_MS = 3000
 const BODY_REVISION_IDLE_MS = 60000
-
-function showNotification(type: 'success' | 'error' | 'warning', message: string) {
-  console.log(`[${type.toUpperCase()}]`, message)
-}
 
 export default function QuestionnairePage() {
   const { id } = useParams<{ id: string }>()
@@ -171,9 +168,9 @@ export default function QuestionnairePage() {
         await documentsApi.updateBody(id, editorBodyRef.current)
       }
       await documentsApi.saveRevision(id, 'Сохранение редакции')
-      showNotification('success', 'Редакция сохранена')
+      showToast('Редакция сохранена', 'success')
     } catch {
-      showNotification('error', 'Ошибка сохранения редакции')
+      showToast('Ошибка сохранения редакции', 'error')
     }
   }, [id])
 
@@ -257,7 +254,7 @@ export default function QuestionnairePage() {
       const data = await documentsApi.listRevisions(id)
       setRevisions(data)
     } catch {
-      showNotification('error', 'Не удалось загрузить историю редакций')
+      showToast('Не удалось загрузить историю редакций', 'error')
     } finally {
       setLoadingRevisions(false)
     }
@@ -269,7 +266,7 @@ export default function QuestionnairePage() {
       await documentsApi.restoreRevision(id, revNum)
       window.location.reload()
     } catch {
-      showNotification('error', 'Ошибка восстановления редакции')
+      showToast('Ошибка восстановления редакции', 'error')
     }
   }, [id])
 
@@ -468,7 +465,7 @@ export default function QuestionnairePage() {
                   const a = document.createElement('a')
                   a.href = url; a.download = 'document.docx'; a.click()
                   URL.revokeObjectURL(url)
-                } catch { showNotification('error', 'Ошибка экспорта DOCX') }
+                } catch { showToast('Ошибка экспорта DOCX', 'error') }
                 finally { setExportingDocx(false) }
               }}
             >
@@ -487,7 +484,7 @@ export default function QuestionnairePage() {
                   const a = document.createElement('a')
                   a.href = url; a.download = 'document.pdf'; a.click()
                   URL.revokeObjectURL(url)
-                } catch { showNotification('error', 'Ошибка экспорта PDF') }
+                } catch { showToast('Ошибка экспорта PDF', 'error') }
                 finally { setExportingPdf(false) }
               }}
             >
