@@ -177,6 +177,37 @@ export default function QuestionnairePage() {
     }
   }, [id])
 
+  const saveOnExit = useCallback(() => {
+    if (!id) return
+    const body = editorBodyRef.current
+    if (!body) return
+
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    fetch(`/api/documents/${id}/body`, {
+      method: 'PUT', headers,
+      body: JSON.stringify({ currentBody: body }),
+      keepalive: true,
+    }).catch(() => {})
+    fetch(`/api/documents/${id}/revisions?comment=Автосохранение`, {
+      method: 'POST', headers,
+      keepalive: true,
+    }).catch(() => {})
+  }, [id])
+
+  useEffect(() => {
+    return () => saveOnExit()
+  }, [saveOnExit])
+
+  useEffect(() => {
+    if (!id) return
+    const handler = () => saveOnExit()
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [id, saveOnExit])
+
   const handleBodyChange = useCallback((body: JSONContent) => {
     editorBodyRef.current = body
     scheduleBodySave()
