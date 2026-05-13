@@ -12,7 +12,10 @@
     },
     "playwright": {
       "type": "local",
-      "command": ["npx", "@playwright/mcp@latest"]
+      "command": ["npx", "@playwright/mcp@latest"],
+      "environment": {
+        "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH": "/home/nkamaev/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome"
+      }
     },
     "task-tracker": {
       "type": "local",
@@ -33,13 +36,15 @@
       }
     },
     "build": {
-      "description": "Full development with all tools enabled",
+      "description": "Full development: COORDINATOR that delegates ALL implementation to subagents (backend, frontend, test, review, etc.). NEVER writes code directly.",
       "mode": "primary"
     },
     "architect": {
-      "description": "Architecture planning, module structure, data models, Flyway migrations",
+      "description": "Architecture planning, module structure, data models, Flyway migration skeletons. DELEGATES implementation to backend/frontend agents.",
       "mode": "subagent",
       "permission": {
+        "edit": "deny",
+        "write": "deny",
         "task-tracker_*": "allow",
         "context7_*": "allow"
       }
@@ -61,7 +66,7 @@
         "playwright_*": "allow"
       }
     },
-    "tiptap": {
+    "tiptap-specialist": {
       "description": "TipTap custom extensions, ProseMirror nodes and plugins",
       "mode": "subagent",
       "permission": {
@@ -96,7 +101,10 @@
     },
     "devops": {
       "description": "Docker, CI/CD, infrastructure config",
-      "mode": "subagent"
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow"
+      }
     },
     "ui-migration": {
       "description": "Migrate Ant Design → shadcn/ui + Tailwind",
@@ -116,6 +124,43 @@
     },
     "migrate": {
       "description": "Database migrations (Flyway) and data migration scripts",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow"
+      }
+    },
+    "template-architect": {
+      "description": "Templates, parameters, conditions, questionnaire design",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow",
+        "context7_*": "allow"
+      }
+    },
+    "document-collab-specialist": {
+      "description": "Yjs CRDT, WebSocket collaboration, document export (DOCX/PDF)",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow"
+      }
+    },
+    "format-engineer": {
+      "description": "Parameter formatting (FIO, dates, numbers, currency), locale support",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow"
+      }
+    },
+    "layer-architect": {
+      "description": "Analyze layer boundaries and contracts; enforce modular architecture rules",
+      "mode": "subagent",
+      "permission": {
+        "task-tracker_*": "allow",
+        "context7_*": "allow"
+      }
+    },
+    "feedback-sync": {
+      "description": "Sync bug reports from audit_log to TaskTracker",
       "mode": "subagent",
       "permission": {
         "task-tracker_*": "allow"
