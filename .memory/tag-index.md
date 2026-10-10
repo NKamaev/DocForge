@@ -54,13 +54,17 @@
 |-----|------|-------------|
 | `TASK-006` | `tickets/TASK-006.md` | /fill feature parity — реализовано (body, current_body, Yjs, ShareDialog) |
 | `TASK-007` | `tickets/TASK-007.md` | Ревизии: исследование нагрузки/очистки — открыт |
+| `TASK-019` | `tickets/TASK-019.md` | Diff редакций документа (backend API + DiffViewer) — закрыт |
 | `TASK-059` | `tickets/TASK-059.md` | ShareDialog («Доступ») на /fill — закрыто |
+| `TASK-062` | `tickets/TASK-062.md` | Diff не учитывает значения параметров (answers) — открыт |
+| `TASK-063` | `tickets/TASK-063.md` | Полировка diff-view (baseline, E2E, точность) — открыт |
 | `BUG-010` | `tickets/BUG-010.md` | ОЛ/ответы не синхронизируются в реалтайме — закрыт (канал yAnswers) |
 | `BUG-012` | `tickets/BUG-012.md` | Все условные блоки видны на /fill — закрыт |
 | `BUG-019` | `tickets/BUG-019.md` | Скрытые блоки в DOCX/PDF — закрыт (единая фильтрация) |
 | `BUG-020` | `tickets/BUG-020.md` | yAnswers инициализируется до WS-sync — закрыт (seeding guard) |
 | `BUG-029` | `tickets/BUG-029.md` | Toast не показывался программно — закрыт (CustomEvent app-toast) |
 | `BUG-046` | `tickets/BUG-046.md` | Откат к редакции через reload — закрыт (программный Yjs-reset) |
+| `BUG-048` | `tickets/BUG-048.md` | Permission-check на revision/answers/generate эндпоинтах — открыт |
 
 ---
 
