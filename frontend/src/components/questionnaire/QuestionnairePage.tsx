@@ -368,6 +368,17 @@ export default function QuestionnairePage() {
   const totalCount  = pages.flatMap(p => p.questions).filter(q => q.visible).length
   const progress    = totalCount > 0 ? Math.round(filledCount / totalCount * 100) : 0
 
+  // Baseline for the revision diff: the largest edition strictly older than
+  // the selected revision (null when the selected revision is the earliest).
+  const previousRevisionForDiff = diffForRevision === null
+    ? null
+    : revisions.reduce<number | null>(
+        (prev, rev) => rev.editionNumber < diffForRevision && (prev === null || rev.editionNumber > prev)
+          ? rev.editionNumber
+          : prev,
+        null,
+      )
+
   return (
     <div className="workspace">
       <div className="q-panel">
@@ -583,16 +594,18 @@ export default function QuestionnairePage() {
                          )}
                        </div>
                        <div className="flex gap-1">
-                         <button
-                           className="btn xs"
-                           onClick={() => {
-                             if (id) {
-                               setDiffForRevision(rev.editionNumber)
-                             }
-                           }}
-                         >
-                           <GitCompare className="size-3" />
-                         </button>
+                          <button
+                            className="btn xs"
+                            aria-label="Показать изменения"
+                            title="Показать изменения"
+                            onClick={() => {
+                              if (id) {
+                                setDiffForRevision(rev.editionNumber)
+                              }
+                            }}
+                          >
+                            <GitCompare className="size-3" />
+                          </button>
                          <button
                            className="btn xs"
                            onClick={() => restoreRevision(rev.editionNumber)}
@@ -624,6 +637,7 @@ export default function QuestionnairePage() {
            onClose={() => setDiffForRevision(null)}
            documentId={id}
            revisionNumber={diffForRevision}
+           previousRevisionNumber={previousRevisionForDiff}
          />
        )}
      </div>

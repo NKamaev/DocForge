@@ -8,6 +8,7 @@ import {
   ScrollArea,
 } from '@/components/ui'
 import { Loader2, Eye } from 'lucide-react'
+import { documentsApi } from '../../api/documentsApi'
 import type { DiffChunk, RevisionDiff } from '../../types/document'
 
 interface DiffViewerProps {
@@ -28,11 +29,36 @@ export function DiffViewer({ diff }: DiffViewerProps) {
 
   return (
     <div className="font-mono text-sm whitespace-pre-wrap">
-      {diff.map((chunk, i) => (
-        <span key={i} className={chunkClass(chunk.type)}>
-          {chunk.text}
-        </span>
-      ))}
+      {diff.map((chunk, i) =>
+        chunk.type === 'INSERT' ? (
+          <ins
+            key={i}
+            data-testid={`diff-chunk-${chunk.type}`}
+            data-chunk-type={chunk.type}
+            className={chunkClass(chunk.type)}
+          >
+            {chunk.text}
+          </ins>
+        ) : chunk.type === 'DELETE' ? (
+          <del
+            key={i}
+            data-testid={`diff-chunk-${chunk.type}`}
+            data-chunk-type={chunk.type}
+            className={chunkClass(chunk.type)}
+          >
+            {chunk.text}
+          </del>
+        ) : (
+          <span
+            key={i}
+            data-testid={`diff-chunk-${chunk.type}`}
+            data-chunk-type={chunk.type}
+            className={chunkClass(chunk.type)}
+          >
+            {chunk.text}
+          </span>
+        )
+      )}
     </div>
   )
 }
@@ -40,7 +66,7 @@ export function DiffViewer({ diff }: DiffViewerProps) {
 function chunkClass(type: DiffChunk['type']): string {
   switch (type) {
     case 'INSERT':
-      return 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
+      return 'bg-green-100 text-green-800 underline dark:bg-green-950 dark:text-green-300'
     case 'DELETE':
       return 'bg-red-100 text-red-800 line-through dark:bg-red-950 dark:text-red-300'
     default:
@@ -48,11 +74,14 @@ function chunkClass(type: DiffChunk['type']): string {
   }
 }
 
+type DiffBaseline = 'previous' | 'current'
+
 interface RevisionDiffDialogProps {
   open: boolean
   onClose: () => void
   documentId: string
   revisionNumber: number
+  previousRevisionNumber: number | null
 }
 
 export function RevisionDiffDialog({
@@ -60,15 +89,28 @@ export function RevisionDiffDialog({
   onClose,
   documentId,
   revisionNumber,
+  previousRevisionNumber,
 }: RevisionDiffDialogProps) {
+  const hasPrevious = previousRevisionNumber != null
+  const [baseline, setBaseline] = useState<DiffBaseline>(hasPrevious ? 'previous' : 'current')
   const [loading, setLoading] = useState(false)
   const [diffData, setDiffData] = useState<RevisionDiff | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const loadData = useCallback(async () => {
-    const { documentsApi } = await import('../../api/documentsApi')
-    return documentsApi.getRevisionDiff(documentId, revisionNumber)
-  }, [documentId, revisionNumber])
+  // When the dialog is (re)opened or the selected revision changes, default
+  // the baseline to the previous revision whenever one exists.
+  useEffect(() => {
+    setBaseline(hasPrevious ? 'previous' : 'current')
+  }, [open, revisionNumber, hasPrevious])
+
+  const compareTo = baseline === 'previous' && previousRevisionNumber != null
+    ? previousRevisionNumber
+    : undefined
+
+  const loadData = useCallback(
+    () => documentsApi.getRevisionDiff(documentId, revisionNumber, compareTo),
+    [documentId, revisionNumber, compareTo],
+  )
 
   useEffect(() => {
     if (!open) {
@@ -89,6 +131,10 @@ export function RevisionDiffDialog({
       })
   }, [open, loadData])
 
+  const baselineLabel = baseline === 'previous' && previousRevisionNumber != null
+    ? `Сравнение с редакцией ${previousRevisionNumber}`
+    : 'Сравнение с текущим состоянием'
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
@@ -97,7 +143,32 @@ export function RevisionDiffDialog({
       >
         <DialogHeader>
           <DialogTitle>Изменения в редакции {revisionNumber}</DialogTitle>
+          <p className="text-sm text-muted-foreground">{baselineLabel}</p>
         </DialogHeader>
+
+        <div
+          className="flex flex-wrap gap-1"
+          role="group"
+          aria-label="Базовая редакция для сравнения"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant={baseline === 'previous' ? 'default' : 'outline'}
+            disabled={!hasPrevious}
+            onClick={() => setBaseline('previous')}
+          >
+            С предыдущей редакцией
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={baseline === 'current' ? 'default' : 'outline'}
+            onClick={() => setBaseline('current')}
+          >
+            С текущим состоянием
+          </Button>
+        </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-12">

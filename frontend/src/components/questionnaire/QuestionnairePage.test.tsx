@@ -62,7 +62,7 @@ vi.mock('./DocumentWorkspace', () => ({
 }))
 
 vi.mock('../ShareDialog', () => ({
-  default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+  default: ({ open }: { open: boolean }) =>
     open ? <div data-testid="share-dialog">ShareDialog Content</div> : null,
 }))
 
