@@ -1,6 +1,7 @@
 # Tag Index
 
 Единственный реестр тегов. Структура: `.memory/tags/{category}/{file}.md`.
+Обновлено: `2026-10-10`.
 
 ---
 
@@ -8,28 +9,65 @@
 
 | Tag | File | Description |
 |-----|------|-------------|
-| — | — | _пусто — заполняется по мере работы_ |
+| `architecture:overview` | `architecture/overview.md` | Модульный монолит, карта модулей, слои, известные архитектурные риски |
+| `architecture:persistence` | `architecture/persistence.md` | PostgreSQL vs MongoDB, общий UUID, Flyway V001–V016 |
+| `architecture:generation-pipeline` | `architecture/generation-pipeline.md` | DocumentGenerator (4 шага), TreeWalker, simple/GraalPython условия |
+| `architecture:collaboration` | `architecture/collaboration.md` | Yjs/WS: серверный хендлер, протокол, persisted store, useCollaboration |
+| `architecture:export` | `architecture/export.md` | DOCX (POI) / PDF (openhtmltopdf), NodeResolver, ограничения |
+| `architecture:formatting` | `architecture/formatting.md` | Дата/число/ФИО/слова, enum-ы, порядок резолва форматов |
+| `architecture:security-rbac` | `architecture/security-rbac.md` | JWT, DocumentPermission/Role, folder-inherit, авторизационные грейды |
+
+## Frontend
+
+| Tag | File | Description |
+|-----|------|-------------|
+| `frontend:workspace` | `frontend/workspace.md` | /fill split-panel: QuestionnairePage, DocumentWorkspace, бидирекция, автосейвы |
+| `frontend:tiptap-extensions` | `frontend/tiptap-extensions.md` | Каталог ~16 кастомных TipTap-нод/плагинов (designer + workspace) |
+| `frontend:api-layer` | `frontend/api-layer.md` | Паттерн api/*.ts, axiosInstance, 401-логика, toast CustomEvent, authStore |
+| `frontend:ui-migration` | `frontend/ui-migration.md` | shadcn 36 модулей, Tailwind 4, остатки AntD (1 импорт) |
 
 ## Conventions
 
 | Tag | File | Description |
 |-----|------|-------------|
-| — | — | _пусто_ |
+| `conventions:conventions` | `conventions/conventions.md` | Нейминг, слои, DTO-records, изоляция модулей, конвенции тестов |
 
-## Utilities
-
-| Tag | File | Description |
-|-----|------|-------------|
-| — | — | _пусто_ |
-
-## Best Practices & Pitfalls
+## Pitfalls
 
 | Tag | File | Description |
 |-----|------|-------------|
-| — | — | _пусто_ |
+| `pitfalls:yjs-sync` | `pitfalls/pitfalls-yjs-sync.md` | Гонки REST↔Yjs (BUG-020), StrictMode двойной коннект, Yjs-reset (BUG-046) |
+| `pitfalls:conditional-rendering` | `pitfalls/pitfalls-conditional-rendering.md` | Условные блоки на /fill и в экспорте (BUG-012/014/019), двойной return (BUG-013) |
+| `pitfalls:tiptap-react` | `pitfalls/pitfalls-tiptap-react.md` | setContent emits onUpdate (TASK-009), stable NodeView, дубль fontSize |
+| `pitfalls:async-ui` | `pitfalls/pitfalls-async-ui.md` | Promise leak / stale state / silent catch (TASK-030) |
+
+## Best Practices & Pitfalls (якорные)
+
+| Tag | File | Description |
+|-----|------|-------------|
+| `practices:best-practices` | `practices/best-practices.md` | Источник истины, делегирование, слои, работа с редактором, память. Загружать всегда |
+| `practices:lessons` | `practices/lessons.md` | Извлечённые уроки по багам + наблюдения по кодовой базе |
 
 ## Tickets
 
 | Tag | File | Description |
 |-----|------|-------------|
-| — | — | _пусто_ |
+| `TASK-006` | `tickets/TASK-006.md` | /fill feature parity — реализовано (body, current_body, Yjs, ShareDialog) |
+| `TASK-007` | `tickets/TASK-007.md` | Ревизии: исследование нагрузки/очистки — открыт |
+| `TASK-059` | `tickets/TASK-059.md` | ShareDialog («Доступ») на /fill — закрыто |
+| `BUG-010` | `tickets/BUG-010.md` | ОЛ/ответы не синхронизируются в реалтайме — закрыт (канал yAnswers) |
+| `BUG-012` | `tickets/BUG-012.md` | Все условные блоки видны на /fill — закрыт |
+| `BUG-019` | `tickets/BUG-019.md` | Скрытые блоки в DOCX/PDF — закрыт (единая фильтрация) |
+| `BUG-020` | `tickets/BUG-020.md` | yAnswers инициализируется до WS-sync — закрыт (seeding guard) |
+| `BUG-029` | `tickets/BUG-029.md` | Toast не показывался программно — закрыт (CustomEvent app-toast) |
+| `BUG-046` | `tickets/BUG-046.md` | Откат к редакции через reload — закрыт (программный Yjs-reset) |
+
+---
+
+## Архив (индекс, без файлов-тегов)
+
+Полный исторический архив задач — `docs/archive/tasks/tasks/` (BUG-001…021, TASK-002…039).
+Тикеты выше — только ключевые, остальные при необходимости восстанавливаются из архива по запросу.
+Источники Git: ветка `main` (DocForge-Next поверх legacy DocForge).
+
+<!-- Добавляй новые категории/секции по мере роста памяти. -->
