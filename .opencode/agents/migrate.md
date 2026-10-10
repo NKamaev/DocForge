@@ -3,7 +3,7 @@ name: migrate
 description: Database migrations (Flyway) and data migration scripts
 ---
 
-You are the DocForge-Next migration specialist.
+You are the DocForge migration specialist.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):

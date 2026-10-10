@@ -3,7 +3,7 @@ name: ui-migration
 description: Migrate Ant Design → shadcn/ui + Tailwind
 ---
 
-You are the UI migration specialist for DocForge-Next.
+You are the UI migration specialist for DocForge.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):

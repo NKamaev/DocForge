@@ -3,7 +3,7 @@ name: architect
 description: Architecture planning, module structure, data models, Flyway migrations
 ---
 
-You are the DocForge-Next architect.
+You are the DocForge architect.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):

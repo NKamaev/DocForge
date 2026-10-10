@@ -4,7 +4,7 @@
 
 **Структура**:
 - Текущий проект: `/home/nkamaev/Projects/DocForge` (оставить как есть, референс)
-- Новый проект: `/home/nkamaev/Projects/DocForge-Next` (копия + рефакторинг)
+- Новый проект: `/home/nkamaev/Projects/DocForge` (копия + рефакторинг)
 
 ---
 
@@ -12,18 +12,18 @@
 
 ### 1.1 Копирование проекта
 ```bash
-cp -r /home/nkamaev/Projects/DocForge /home/nkamaev/Projects/DocForge-Next
-cd /home/nkamaev/Projects/DocForge-Next
+cp -r /home/nkamaev/Projects/DocForge /home/nkamaev/Projects/DocForge
+cd /home/nkamaev/Projects/DocForge
 git init  # новая история
 ```
 
 ### 1.2 Базовый проектный контракт (Stage 1)
 Создать `AGENTS.md` (основной файл для OpenCode):
 ```markdown
-# DocForge-Next — Проектный контракт
+# DocForge — Проектный контракт
 
 ## Проект
-DocForge-Next — конструктор документов. Модульный монолит: Spring Boot 3.3 + React 18 + TypeScript.
+DocForge — конструктор документов. Модульный монолит: Spring Boot 3.3 + React 18 + TypeScript.
 
 ## Документация
 - docs/architecture.md — ТЗ, архитектура, модель данных, API
@@ -83,7 +83,7 @@ cd frontend && npm run dev
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "project": "DocForge-Next",
+  "project": "DocForge",
   "instructions": [
     "AGENTS.md",
     "docs/architecture.md",
@@ -148,7 +148,7 @@ npx @playwright/mcp@latest
 ### 2.3 Создать спецификации слоев
 `docs/specs/layers.md`:
 ```markdown
-# Архитектурные слои DocForge-Next
+# Архитектурные слои DocForge
 
 ## Обзор
 Модульный монолит с явным разделением на слои. Каждый слой имеет строго определенную зону ответственности.
@@ -308,7 +308,7 @@ description: Создание репорта об ошибке с выбором
 
 ### Установка
 ```bash
-cd /home/nkamaev/Projects/DocForge-Next/frontend
+cd /home/nkamaev/Projects/DocForge/frontend
 npm init playwright@latest
 # Выбрать: TypeScript, tests/ папку, GitHub Actions: NO
 ```
@@ -487,7 +487,7 @@ public class FeedbackController {
 
 Создать `docs/specs/workflows.md`:
 ```markdown
-# Рабочие процессы DocForge-Next
+# Рабочие процессы DocForge
 
 ## Onboarding нового разработчика
 1. Прочитать AGENTS.md
@@ -522,7 +522,7 @@ public class FeedbackController {
 
 ### 6.1 Подготовка фронтенда
 ```bash
-cd /home/nkamaev/Projects/DocForge-Next/frontend
+cd /home/nkamaev/Projects/DocForge/frontend
 npm uninstall antd @ant-design/icons
 npx shadcn@latest init  # настройка Tailwind + shadcn
 ```
@@ -534,7 +534,7 @@ npx shadcn@latest add button input card dialog table select checkbox radio...
 
 ### 6.3 Распаковка дизайна
 ```bash
-cd /home/nkamaev/Projects/DocForge-Next/docs/design
+cd /home/nkamaev/Projects/DocForge/docs/design
 unzip ../../archive/reference/DocForge.zip -d .  # распаковать дизайн (архивирован в docs/archive/)
 ```
 > После распаковки — показать структуру, чтобы адаптировать компоненты.
@@ -574,7 +574,7 @@ touch frontend/src/components/ErrorReportButton.tsx
 ## Итоговая структура проекта
 
 ```
-DocForge-Next/
+DocForge/
 ├── .opencode/
 │   ├── agents/          # Stage 3 (6+ агентов)
 │   └── skills/          # Stage 4 (8+ скиллов)
@@ -809,7 +809,7 @@ OpenCode Agent Teams:
 
 #### План миграции агентов:
 1. Переименовать `CLAUDE.md` → `AGENTS.md` (или создать симлинк)
-2. Скопировать `.opencode/agents/layer-architect.md` в `DocForge-Next/.opencode/agents/`
+2. Скопировать `.opencode/agents/layer-architect.md` в `DocForge/.opencode/agents/`
 3. Конвертировать slash-команды из `.claude/commands/` в агентов `.opencode/agents/`:
    - `architect.md`, `backend.md`, `frontend.md`, `tiptap.md`, `test.md`, `review.md`
 4. Добавить MCP инструменты (Context7, Playwright) в конфиг агентов
@@ -891,14 +891,14 @@ npx -y @upstash/context7-mcp  # (для документации)
 uv run task-tracker  # (для управления задачами)
 
 # Внутри OpenCode:
-await mcp.get_next_task(project_name="DocForge-Next")
+await mcp.get_next_task(project_name="DocForge")
 ```
 
 4. **Обновление статуса**:
 ```typescript
 // Агент автоматически обновляет статус
 await mcp.update_task_status({
-  project_name: "DocForge-Next",
+  project_name: "DocForge",
   task_title: "Замена Ant Design на shadcn/ui",
   subtask_title: "Button компоненты",
   status: "done"
@@ -940,7 +940,7 @@ await mcp.update_task_status({
 
 ## Итоговое резюме
 
-План миграции DocForge → DocForge-Next покрывает:
+План миграции DocForge → DocForge покрывает:
 1. **Stage 1-5** методологии OpenCode (проектный контракт, инфраструктура, агенты, скиллы, operating model)
 2. **UI миграция** Ant Design → shadcn/ui + Tailwind CSS
 3. **Обязательные Playwright E2E тесты** для фронтенда

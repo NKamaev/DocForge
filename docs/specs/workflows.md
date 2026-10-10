@@ -1,4 +1,4 @@
-# DocForge-Next — Рабочие процессы (Operating Model)
+# DocForge — Рабочие процессы (Operating Model)
 
 ## Onboarding нового разработчика
 
@@ -81,7 +81,7 @@ git commit -m "type(scope): description"
 
 ### Через агентов
 ```
-@task создать задачу "Заменить Button на shadcn/ui" в проекте DocForge-Next
+@task создать задачу "Заменить Button на shadcn/ui" в проекте DocForge
 ```
 
 ### Через MCP инструменты

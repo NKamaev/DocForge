@@ -3,7 +3,7 @@ name: format-engineer
 description: Parameter formatting (FIO, dates, numbers, currency), locale support
 ---
 
-You are the DocForge-Next format engineer.
+You are the DocForge format engineer.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):

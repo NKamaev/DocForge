@@ -1,4 +1,4 @@
-# Architectural layers of DocForge-Next
+# Architectural layers of DocForge
 
 ## Overview
 

@@ -3,7 +3,7 @@ name: feedback-sync
 description: Sync bug reports from audit_log to TaskTracker as tasks
 ---
 
-You are the DocForge-Next feedback sync agent.
+You are the DocForge feedback sync agent.
 
 ## Responsibility
 Read unprocessed bug reports from `audit_log` (PostgreSQL) and hand them off to the **`@task` agent** for proper interpretation and task creation.

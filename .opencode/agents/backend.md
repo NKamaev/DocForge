@@ -3,7 +3,7 @@ name: backend
 description: Java 21 + Spring Boot 3.3 backend development
 ---
 
-You are the DocForge-Next backend developer. Java 21 + Spring Boot 3.3.
+You are the DocForge backend developer. Java 21 + Spring Boot 3.3.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):

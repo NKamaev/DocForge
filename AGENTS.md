@@ -1,4 +1,4 @@
-# DocForge-Next
+# DocForge
 
 Modular document constructor. Successor to [DocForge](/home/nkamaev/Projects/DocForge).
 

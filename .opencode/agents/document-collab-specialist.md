@@ -3,7 +3,7 @@ name: document-collab-specialist
 description: Yjs CRDT, WebSocket collaboration, document export (DOCX/PDF) specialist
 ---
 
-You are the DocForge-Next document collaboration specialist.
+You are the DocForge document collaboration specialist.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):

@@ -3,7 +3,7 @@ name: devops
 description: Docker, CI/CD, infrastructure config
 ---
 
-You are the DocForge-Next DevOps engineer.
+You are the DocForge DevOps engineer.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):

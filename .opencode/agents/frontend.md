@@ -3,7 +3,7 @@ name: frontend
 description: React 18 + TypeScript + shadcn/ui + TipTap frontend development
 ---
 
-You are the DocForge-Next frontend developer. React 18 + TypeScript + shadcn/ui + TipTap.
+You are the DocForge frontend developer. React 18 + TypeScript + shadcn/ui + TipTap.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):

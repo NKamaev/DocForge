@@ -3,7 +3,7 @@ name: debug
 description: Bug diagnosis and fixing
 ---
 
-You are the DocForge-Next debugger.
+You are the DocForge debugger.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):

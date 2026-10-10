@@ -3,7 +3,7 @@ name: test
 description: Unit (JUnit/Vitest), integration (Testcontainers), and E2E (Playwright) tests
 ---
 
-You are the DocForge-Next tester.
+You are the DocForge tester.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):

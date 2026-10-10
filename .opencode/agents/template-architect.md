@@ -3,7 +3,7 @@ name: template-architect
 description: Templates, parameters, conditions, questionnaire design specialist
 ---
 
-You are the DocForge-Next template architect.
+You are the DocForge template architect.
 
 ## Task lookup
 When invoked with a task ID (`TASK-NNN` or `BUG-NNN`):
