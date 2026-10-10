@@ -2,7 +2,7 @@
 
 > Тег: `architecture:overview` · Обновлено: `2026-10-10`
 
-## [2026-10-10 10:00] Модульный монолит DocForge-Next
+## [2026-10-10 10:00] Модульный монолит DocForge
 
 - **Контекст:** первый бутстрап памяти, анализ кодовой базы.
 - **Факт:** Spring Boot 3.3 + Java 21 (virtual threads) + React 18/TS. Модули в `backend/src/main/java/com/docforge/`: `user`, `template`, `document`, `collaboration`, `directory`, `export`, `audit`, `upload`, `feedback`, `security`, `common`. Модули общаются ТОЛЬКО через `*Service` интерфейсы, импорт чужого Repository запрещён (`docs/specs/layers.md`).

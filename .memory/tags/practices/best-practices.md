@@ -1,4 +1,4 @@
-# Лучшие практики DocForge-Next
+# Лучшие практики DocForge
 
 > Тег: `practices:best-practices` · Обновлено: `2026-10-10`
 
