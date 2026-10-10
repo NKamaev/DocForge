@@ -24,6 +24,11 @@
         "TASKTRACKER_BASE_URL": "http://localhost:8765/api/v1",
         "TASKTRACKER_ACTOR": "mcp:claude-code"
       }
+    },
+    "github": {
+      "type": "local",
+      "command": ["/home/nkamaev/.local/bin/docforge-github-mcp.sh"],
+      "enabled": true
     }
   },
   "agent": {
