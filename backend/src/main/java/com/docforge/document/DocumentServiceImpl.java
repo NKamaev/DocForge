@@ -569,8 +569,6 @@ public class DocumentServiceImpl implements DocumentService {
             Integer compareToRevisionNumber) {
 
         DocumentRevisionBody targetBody = getRevisionBody(documentId, revisionNumber);
-        DocumentRevision targetRev = revisionRepository.findByDocumentIdAndRevisionNumber(documentId, revisionNumber)
-                .orElseThrow(() -> new ResourceNotFoundException("Редакция не найдена"));
 
         Object compareBodyObj;
         boolean compareToCurrent = compareToRevisionNumber == null;
@@ -625,7 +623,7 @@ public class DocumentServiceImpl implements DocumentService {
         }
 
         return new RevisionDiffResponse(
-                targetRev.getId(),
+                targetBody.getId(),
                 revisionNumber,
                 actualCompareToNumber,
                 compareToCurrent,
@@ -670,7 +668,6 @@ public class DocumentServiceImpl implements DocumentService {
 
         Object attrs = node.get("attrs");
         if (attrs instanceof Map<?, ?> attrMap) {
-            Object paramCode = attrMap.get("parameterCode");
             Object display = attrMap.get("display");
             if ("parameterField".equals(type) && display != null) {
                 sb.append("[").append(display).append("]");

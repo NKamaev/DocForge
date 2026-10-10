@@ -261,8 +261,12 @@ public class DocumentController {
     public ResponseEntity<RevisionDiffResponse> getRevisionDiff(
             @PathVariable UUID id,
             @PathVariable int revNum,
-            @RequestParam(required = false) Integer compareTo
+            @RequestParam(required = false) Integer compareTo,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.READ))
+            throw new AccessDeniedException("Нет доступа к документу");
         return ResponseEntity.ok(documentService.computeRevisionDiff(id, revNum, compareTo));
     }
 

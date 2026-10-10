@@ -100,7 +100,7 @@ Base URL: `/api/{resource}` — plural nouns, kebab-case.
 |--------|------|-------------|
 | GET | `/api/documents/{id}/revisions` | List revisions |
 | GET | `/api/documents/{id}/revisions/{revId}` | Get revision body |
-| GET | `/api/documents/{id}/revisions/diff?from={revId}&to={revId}` | Diff between revisions |
+| GET | `/api/documents/{id}/revisions/{revNum}/diff?compareTo={revNum}` | Diff of revision against another revision (`compareTo`) or the current body (omitted) |
 
 ### Directories
 
