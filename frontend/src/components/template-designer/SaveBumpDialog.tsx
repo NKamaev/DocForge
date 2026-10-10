@@ -25,7 +25,6 @@ interface Props {
 export default function SaveBumpDialog({
   open,
   onClose,
-  templateId,
   templateName,
   majorVersion,
   minorVersion,
