@@ -58,7 +58,7 @@ PK (document_id, user_id)
 }
 ```
 
-## API (планируемое)
+## API
 
 ```
 GET    /api/documents                         — мои документы

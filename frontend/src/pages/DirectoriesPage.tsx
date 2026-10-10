@@ -1,9 +1,25 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Form, Input, Modal, notification } from 'antd'
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+} from '@/components/ui'
 import { directoriesApi } from '../api/directoriesApi'
 import type { DirectoryListItem } from '../types/directory'
 import { Icon } from '../components/Icon'
+
+function showNotification(type: 'success' | 'error', message: string) {
+  console.log(`[${type.toUpperCase()}]`, message)
+  if (type === 'error') {
+    alert(message)
+  }
+}
 
 export default function DirectoriesPage() {
   const navigate = useNavigate()
@@ -11,29 +27,38 @@ export default function DirectoriesPage() {
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [form] = Form.useForm<{ name: string }>()
+  const [name, setName] = useState('')
+  const [errors, setErrors] = useState<{ name?: string }>({})
 
   const load = () => {
     setLoading(true)
     directoriesApi
       .list()
       .then(setItems)
-      .catch(() => notification.error({ message: 'Не удалось загрузить справочники' }))
+      .catch(() => showNotification('error', 'Не удалось загрузить справочники'))
       .finally(() => setLoading(false))
   }
 
   useEffect(() => { load() }, [])
 
+  const handleReset = () => {
+    setName('')
+    setErrors({})
+  }
+
   const handleCreate = async () => {
-    const { name } = await form.validateFields()
+    if (!name.trim()) {
+      setErrors({ name: 'Введите название' })
+      return
+    }
     setSaving(true)
     try {
-      await directoriesApi.create({ name, fields: [] })
+      await directoriesApi.create({ name: name.trim(), fields: [] })
       setModalOpen(false)
-      form.resetFields()
+      handleReset()
       load()
     } catch {
-      notification.error({ message: 'Ошибка создания' })
+      showNotification('error', 'Ошибка создания')
     } finally {
       setSaving(false)
     }
@@ -96,22 +121,47 @@ export default function DirectoriesPage() {
         </div>
       )}
 
-      <Modal
-        title="Новый справочник"
-        open={modalOpen}
-        onOk={handleCreate}
-        onCancel={() => { setModalOpen(false); form.resetFields() }}
-        confirmLoading={saving}
-        okText="Создать"
-        cancelText="Отмена"
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="Название" rules={[{ required: true, message: 'Введите название' }]}>
-            <Input placeholder="Список банков" autoFocus />
-          </Form.Item>
-        </Form>
-      </Modal>
+      <Dialog open={modalOpen} onOpenChange={(open) => {
+        if (!open) {
+          setModalOpen(false)
+          handleReset()
+        }
+      }}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Новый справочник</DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="directory-name">
+                Название <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="directory-name"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  if (errors.name) setErrors({})
+                }}
+                placeholder="Список банков"
+                autoFocus
+                className={errors.name ? 'border-destructive' : ''}
+              />
+              {errors.name && (
+                <p className="text-xs text-destructive">{errors.name}</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="mt-6">
+            <Button variant="outline" onClick={() => { setModalOpen(false); handleReset() }}>
+              Отмена
+            </Button>
+            <Button onClick={handleCreate} disabled={saving}>
+              {saving ? 'Создание...' : 'Создать'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

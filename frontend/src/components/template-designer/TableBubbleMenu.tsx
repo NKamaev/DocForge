@@ -4,27 +4,30 @@ import type { Editor } from '@tiptap/react'
 import {
   Button,
   ColorPicker,
-  Divider,
-  InputNumber,
+  Input,
   Select,
-  Space,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Separator,
   Tooltip,
-} from 'antd'
-import type { Color } from 'antd/es/color-picker'
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui'
 import {
-  DeleteColumnOutlined,
-  DeleteOutlined,
-  DeleteRowOutlined,
-  InsertRowAboveOutlined,
-  InsertRowBelowOutlined,
-  InsertRowLeftOutlined,
-  InsertRowRightOutlined,
-  MergeCellsOutlined,
-  SplitCellsOutlined,
-  VerticalAlignBottomOutlined,
-  VerticalAlignMiddleOutlined,
-  VerticalAlignTopOutlined,
-} from '@ant-design/icons'
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignStartVertical,
+  ArrowDownToLine,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  ArrowUpToLine,
+  TableCellsMerge,
+  TableCellsSplit,
+  Trash2,
+} from 'lucide-react'
 
 interface Props {
   editor: Editor
@@ -61,16 +64,19 @@ const ROW_STYLE: React.CSSProperties = {
 }
 
 export default function TableBubbleMenu({ editor }: Props) {
-  const isInTable = useEditorState({
+  const editorState = useEditorState({
     editor,
-    selector: ({ editor: e }) => e.isActive('table'),
+    selector: ({ editor: e }) => ({
+      isInTable: e.isActive('table'),
+      cellBgColor: e.getAttributes('tableCell').backgroundColor as string | undefined,
+    }),
   })
 
   const [borderStyle, setBorderStyle] = useState<BorderStyle>('solid')
   const [borderWidth, setBorderWidth] = useState<number>(1)
   const [borderColor, setBorderColor] = useState<string>('#000000')
 
-  if (!isInTable) return null
+  if (!editorState.isInTable) return null
 
   const applyToSide = (side: BorderSide) =>
     setCellBorders(editor, [side], buildBorderValue(borderStyle, borderWidth, borderColor))
@@ -78,239 +84,368 @@ export default function TableBubbleMenu({ editor }: Props) {
   return (
     <div style={{ borderBottom: '1px solid #bae0ff', background: '#e6f4ff' }}>
 
-      {/* ── Строка 1: структурные операции ───────────────────────────── */}
+      {/* ── Row 1: structural operations ───────────────────────────── */}
       <div style={ROW_STYLE}>
 
-        {/* Строки */}
-        <Space size={2}>
-          <Tooltip title="Строка выше">
-            <Button size="small" icon={<InsertRowAboveOutlined />}
-              onClick={() => editor.chain().focus().addRowBefore().run()} />
-          </Tooltip>
-          <Tooltip title="Строка ниже">
-            <Button size="small" icon={<InsertRowBelowOutlined />}
-              onClick={() => editor.chain().focus().addRowAfter().run()} />
-          </Tooltip>
-          <Tooltip title="Удалить строку">
-            <Button size="small" icon={<DeleteRowOutlined />} danger
-              onClick={() => editor.chain().focus().deleteRow().run()} />
-          </Tooltip>
-        </Space>
+        {/* Rows */}
+        <TooltipProvider>
+          <div className="flex gap-0.5 items-center">
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().addRowBefore().run()}>
+                  <ArrowUpToLine className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Строка выше</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().addRowAfter().run()}>
+                  <ArrowDownToLine className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Строка ниже</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().deleteRow().run()}>
+                  <Trash2 className="size-3.5 text-destructive" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Удалить строку</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
 
-        <Divider type="vertical" style={{ margin: '0 4px' }} />
+        <Separator orientation="vertical" className="mx-1 h-5" />
 
-        {/* Колонки */}
-        <Space size={2}>
-          <Tooltip title="Колонка слева">
-            <Button size="small" icon={<InsertRowLeftOutlined />}
-              onClick={() => editor.chain().focus().addColumnBefore().run()} />
-          </Tooltip>
-          <Tooltip title="Колонка справа">
-            <Button size="small" icon={<InsertRowRightOutlined />}
-              onClick={() => editor.chain().focus().addColumnAfter().run()} />
-          </Tooltip>
-          <Tooltip title="Удалить колонку">
-            <Button size="small" icon={<DeleteColumnOutlined />} danger
-              onClick={() => editor.chain().focus().deleteColumn().run()} />
-          </Tooltip>
-        </Space>
+        {/* Columns */}
+        <TooltipProvider>
+          <div className="flex gap-0.5 items-center">
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().addColumnBefore().run()}>
+                  <ArrowLeftToLine className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Колонка слева</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().addColumnAfter().run()}>
+                  <ArrowRightToLine className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Колонка справа</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().deleteColumn().run()}>
+                  <Trash2 className="size-3.5 text-destructive" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Удалить колонку</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
 
-        <Divider type="vertical" style={{ margin: '0 4px' }} />
+        <Separator orientation="vertical" className="mx-1 h-5" />
 
-        {/* Слияние */}
-        <Space size={2}>
-          <Tooltip title="Объединить ячейки">
-            <Button size="small" icon={<MergeCellsOutlined />}
-              onClick={() => editor.chain().focus().mergeCells().run()}
-              disabled={!editor.can().mergeCells()} />
-          </Tooltip>
-          <Tooltip title="Разбить ячейку">
-            <Button size="small" icon={<SplitCellsOutlined />}
-              onClick={() => editor.chain().focus().splitCell().run()}
-              disabled={!editor.can().splitCell()} />
-          </Tooltip>
-        </Space>
+        {/* Merge */}
+        <TooltipProvider>
+          <div className="flex gap-0.5 items-center">
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().mergeCells().run()}
+                  disabled={!editor.can().mergeCells()}>
+                  <TableCellsMerge className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Объединить ячейки</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().splitCell().run()}
+                  disabled={!editor.can().splitCell()}>
+                  <TableCellsSplit className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Разбить ячейку</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
 
-        <Divider type="vertical" style={{ margin: '0 4px' }} />
+        <Separator orientation="vertical" className="mx-1 h-5" />
 
-        {/* Вертикальное выравнивание */}
-        <Space size={2}>
+        {/* Vertical align */}
+        <div className="flex gap-0.5 items-center">
           <span style={{ fontSize: 11, color: '#595959' }}>Верт.:</span>
-          <Tooltip title="Сверху">
-            <Button size="small" icon={<VerticalAlignTopOutlined />}
-              onClick={() => editor.chain().focus().setCellAttribute('verticalAlign', 'top').run()} />
-          </Tooltip>
-          <Tooltip title="По центру">
-            <Button size="small" icon={<VerticalAlignMiddleOutlined />}
-              onClick={() => editor.chain().focus().setCellAttribute('verticalAlign', 'middle').run()} />
-          </Tooltip>
-          <Tooltip title="Снизу">
-            <Button size="small" icon={<VerticalAlignBottomOutlined />}
-              onClick={() => editor.chain().focus().setCellAttribute('verticalAlign', 'bottom').run()} />
-          </Tooltip>
-        </Space>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().setCellAttribute('verticalAlign', 'top').run()}>
+                  <AlignStartVertical className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Сверху</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().setCellAttribute('verticalAlign', 'middle').run()}>
+                  <AlignCenterVertical className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>По центру</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm"
+                  onClick={() => editor.chain().focus().setCellAttribute('verticalAlign', 'bottom').run()}>
+                  <AlignEndVertical className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Снизу</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
 
-        <Divider type="vertical" style={{ margin: '0 4px' }} />
+        <Separator orientation="vertical" className="mx-1 h-5" />
 
-        {/* Размер ячейки */}
-        <Space size={4} align="center">
+        {/* Cell size */}
+        <div className="flex gap-1 items-center">
           <span style={{ fontSize: 11, color: '#595959' }}>Шир.:</span>
-          <InputNumber
-            size="small"
-            min={20}
-            max={800}
-            style={{ width: 70 }}
-            addonAfter="px"
-            placeholder="Авто"
-            onChange={v => {
-              if (v) editor.chain().focus().setCellAttribute('colwidth', [v]).run()
-              else editor.chain().focus().setCellAttribute('colwidth', null).run()
-            }}
-          />
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-0.5">
+                  <Input
+                    type="number"
+                    className="h-6 w-[60px] text-xs"
+                    min={20} max={800}
+                    placeholder="Авто"
+                    onChange={v => {
+                      const val = parseInt(v.target.value)
+                      if (val) editor.chain().focus().setCellAttribute('colwidth', [val]).run()
+                      else editor.chain().focus().setCellAttribute('colwidth', null).run()
+                    }}
+                  />
+                  <span style={{ fontSize: 10, color: '#595959' }}>px</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Ширина ячейки</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <span style={{ fontSize: 11, color: '#595959' }}>Выс.:</span>
-          <InputNumber
-            size="small"
-            min={20}
-            max={500}
-            style={{ width: 70 }}
-            addonAfter="px"
-            placeholder="Авто"
-            onChange={v => {
-              editor.chain().focus().setCellAttribute('minHeight', v ?? null).run()
-            }}
-          />
-        </Space>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-0.5">
+                  <Input
+                    type="number"
+                    className="h-6 w-[60px] text-xs"
+                    min={20} max={500}
+                    placeholder="Авто"
+                    onChange={v => {
+                      const val = parseInt(v.target.value)
+                      editor.chain().focus().setCellAttribute('minHeight', val ?? null).run()
+                    }}
+                  />
+                  <span style={{ fontSize: 10, color: '#595959' }}>px</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Высота ячейки</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
 
-        <Divider type="vertical" style={{ margin: '0 4px' }} />
+        <Separator orientation="vertical" className="mx-1 h-5" />
 
-        <Tooltip title="Удалить таблицу">
-          <Button size="small" icon={<DeleteOutlined />} danger
-            onClick={() => editor.chain().focus().deleteTable().run()} />
-        </Tooltip>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>
+              <Button variant="outline" size="icon-sm"
+                onClick={() => editor.chain().focus().deleteTable().run()}>
+                <Trash2 className="size-3.5 text-destructive" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Удалить таблицу</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
-      {/* ── Строка 2: оформление ячейки ──────────────────────────────── */}
+      {/* ── Row 2: cell styling ──────────────────────────────── */}
       <div style={{ ...ROW_STYLE, borderTop: '1px solid #bae0ff', background: '#f0f9ff' }}>
 
-        {/* Фон ячейки */}
-        <Space size={4} align="center">
-          <span style={{ fontSize: 11, color: '#595959' }}>Фон:</span>
-          <Tooltip title="Цвет фона ячейки">
+        {/* Cell background */}
+          <div className="flex gap-1 items-center">
+            <span style={{ fontSize: 11, color: '#595959' }}>Фон:</span>
             <ColorPicker
-              size="small"
-              defaultValue="#ffffff"
-              onChangeComplete={(c: Color) =>
-                editor.chain().focus().setCellAttribute('backgroundColor', c.toHexString()).run()
+              value={editorState.cellBgColor || '#ffffff'}
+              onChange={(c) =>
+                editor.chain().focus().setCellAttribute('backgroundColor', c).run()
               }
+              data-testid="table-cell-bg-color"
             />
-          </Tooltip>
-          <Tooltip title="Сбросить фон">
-            <Button size="small" style={{ fontSize: 11 }}
-              onClick={() => editor.chain().focus().setCellAttribute('backgroundColor', null).run()}>
-              ✕
-            </Button>
-          </Tooltip>
-        </Space>
+            <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm" style={{ fontSize: 11 }}
+                  onClick={() => editor.chain().focus().setCellAttribute('backgroundColor', null).run()}>
+                  ✕
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Сбросить фон</TooltipContent>
+            </Tooltip>
+            </TooltipProvider>
+          </div>
 
-        <Divider type="vertical" style={{ margin: '0 4px' }} />
+        <Separator orientation="vertical" className="mx-1 h-5" />
 
-        {/* Ориентация текста */}
-        <Space size={2}>
+        {/* Text orientation */}
+        <div className="flex gap-0.5 items-center">
           <span style={{ fontSize: 11, color: '#595959' }}>Текст:</span>
-          <Tooltip title="Горизонтально (обычный)">
-            <Button size="small" style={{ fontSize: 11 }}
-              onClick={() => editor.chain().focus().setCellAttribute('textOrientation', null).run()}>
-              0°
-            </Button>
-          </Tooltip>
-          <Tooltip title="Вертикально по часовой (90°)">
-            <Button size="small" style={{ fontSize: 11 }}
-              onClick={() => editor.chain().focus().setCellAttribute('textOrientation', 'rotate-90').run()}>
-              90°
-            </Button>
-          </Tooltip>
-          <Tooltip title="Перевёрнуто (180°)">
-            <Button size="small" style={{ fontSize: 11 }}
-              onClick={() => editor.chain().focus().setCellAttribute('textOrientation', 'rotate-180').run()}>
-              180°
-            </Button>
-          </Tooltip>
-          <Tooltip title="Вертикально против часовой (270°)">
-            <Button size="small" style={{ fontSize: 11 }}
-              onClick={() => editor.chain().focus().setCellAttribute('textOrientation', 'rotate-270').run()}>
-              270°
-            </Button>
-          </Tooltip>
-        </Space>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm" style={{ fontSize: 11 }}
+                  onClick={() => editor.chain().focus().setCellAttribute('textOrientation', null).run()}>
+                  0°
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Горизонтально (обычный)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm" style={{ fontSize: 11 }}
+                  onClick={() => editor.chain().focus().setCellAttribute('textOrientation', 'rotate-90').run()}>
+                  90°
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Вертикально по часовой (90°)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm" style={{ fontSize: 11 }}
+                  onClick={() => editor.chain().focus().setCellAttribute('textOrientation', 'rotate-180').run()}>
+                  180°
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Перевёрнуто (180°)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button variant="outline" size="icon-sm" style={{ fontSize: 11 }}
+                  onClick={() => editor.chain().focus().setCellAttribute('textOrientation', 'rotate-270').run()}>
+                  270°
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Вертикально против часовой (270°)</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
 
-        <Divider type="vertical" style={{ margin: '0 4px' }} />
+        <Separator orientation="vertical" className="mx-1 h-5" />
 
-        {/* Границы — мгновенное применение ────────────────────────────
-            Выбери стиль, ширину, цвет → нажми нужную сторону или «Все».
-            Изменения применяются сразу, кнопка «Применить» не нужна.     */}
-        <Space size={4} align="center" wrap>
+        {/* Borders */}
+        <div className="flex gap-1 items-center flex-wrap">
           <span style={{ fontSize: 11, color: '#595959' }}>Граница:</span>
-          <Select
-            size="small"
-            style={{ width: 82 }}
-            value={borderStyle}
-            onChange={setBorderStyle}
-            options={[
-              { value: 'solid', label: 'Сплошная' },
-              { value: 'dashed', label: 'Пунктир' },
-              { value: 'dotted', label: 'Точки' },
-            ]}
+          <Select value={borderStyle} onValueChange={(v: BorderStyle) => setBorderStyle(v)}>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SelectTrigger className="h-6 w-[80px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Стиль границы</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <SelectContent>
+              <SelectItem value="solid">Сплошная</SelectItem>
+              <SelectItem value="dashed">Пунктир</SelectItem>
+              <SelectItem value="dotted">Точки</SelectItem>
+            </SelectContent>
+          </Select>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Input
+                  type="number"
+                  className="h-6 w-[48px] text-xs"
+                  min={1} max={4}
+                  value={borderWidth}
+                  onChange={e => setBorderWidth(parseInt(e.target.value) || 1)}
+                />
+              </TooltipTrigger>
+              <TooltipContent>Толщина границы</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <span style={{ fontSize: 10, color: '#595959' }}>px</span>
+          <ColorPicker
+            value={borderColor}
+            onChange={(c) => setBorderColor(c)}
+            data-testid="table-border-color"
           />
-          <InputNumber
-            size="small"
-            min={1}
-            max={4}
-            value={borderWidth}
-            onChange={v => setBorderWidth(v ?? 1)}
-            style={{ width: 52 }}
-            addonAfter="px"
-          />
-          <Tooltip title="Цвет границы">
-            <ColorPicker
-              size="small"
-              value={borderColor}
-              onChange={(c: Color) => setBorderColor(c.toHexString())}
-            />
-          </Tooltip>
           <span style={{ fontSize: 11, color: '#8c8c8c' }}>→</span>
           {BORDER_SIDES.map(side => (
-            <Tooltip key={side} title={`Применить к: ${SIDE_LABELS[side]}`}>
-              <Button
-                size="small"
-                style={{ fontSize: 10, minWidth: 28 }}
-                onClick={() => applyToSide(side)}
-              >
-                {SIDE_SHORT[side]}
-              </Button>
-            </Tooltip>
+            <TooltipProvider key={side}>
+              <Tooltip>
+                <TooltipTrigger>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    style={{ fontSize: 10, minWidth: 28, height: 24 }}
+                    onClick={() => applyToSide(side)}
+                  >
+                    {SIDE_SHORT[side]}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Применить к: {SIDE_LABELS[side]}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           ))}
-          <Tooltip title="Применить ко всем сторонам">
-            <Button
-              size="small"
-              type="primary"
-              ghost
-              style={{ fontSize: 10 }}
-              onClick={() => setCellBorders(editor, 'all', buildBorderValue(borderStyle, borderWidth, borderColor))}
-            >
-              Все
-            </Button>
-          </Tooltip>
-          <Tooltip title="Убрать все границы">
-            <Button
-              size="small"
-              danger
-              style={{ fontSize: 10 }}
-              onClick={() => setCellBorders(editor, 'all', null)}
-            >
-              Нет
-            </Button>
-          </Tooltip>
-        </Space>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button
+                  variant="default"
+                  size="icon-sm"
+                  style={{ fontSize: 10, height: 24 }}
+                  onClick={() => setCellBorders(editor, 'all', buildBorderValue(borderStyle, borderWidth, borderColor))}
+                >
+                  Все
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Применить ко всем сторонам</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  style={{ fontSize: 10, height: 24 }}
+                  className="text-destructive"
+                  onClick={() => setCellBorders(editor, 'all', null)}
+                >
+                  Нет
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Убрать все границы</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
     </div>
   )

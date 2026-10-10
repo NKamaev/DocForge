@@ -20,7 +20,7 @@ Template                          — корневой документ (@Docume
 ├── parameters: List<Parameter>
 │   ├── code: String              — уникальный код (snake_case)
 │   ├── label: String
-│   ├── type: ParameterType       — TEXT | NUMBER | DATE | FIO | BOOLEAN | SELECT
+│   ├── type: ParameterType       — TEXT | NUMBER | DATE | FIO | BOOLEAN | SELECT | DIRECTORY
 │   ├── required: boolean
 │   ├── defaultValue: Object      — строка, число, boolean или $TODAY/$TOMORROW
 │   ├── options: List<String>     — только для SELECT
@@ -44,6 +44,8 @@ Template                          — корневой документ (@Docume
 │               └── scriptId: String             — ссылка на Script.id (для PYTHON)
 ├── body: Map<String, Object>     — TipTap JSON (ProseMirror)
 │                                   кастомные ноды: parameter_field, conditional_block
+│   ├── directoryId: String       — UUID справочника (только для DIRECTORY)
+│   ├── directoryFields: List<String> — поля справочника (только для DIRECTORY)
 ├── formatting: DocumentFormatting
 │   ├── pageSize: String          — "A4", "A3", "Letter"
 │   ├── orientation: String       — "portrait" | "landscape"
@@ -64,7 +66,7 @@ Template                          — корневой документ (@Docume
 |-------|------|
 | `Template` | `model/Template.java` |
 | `Parameter` | `model/Parameter.java` |
-| `ParameterType` | `model/ParameterType.java` |
+| `ParameterType` | `model/ParameterType.java` — TEXT, NUMBER, DATE, FIO, BOOLEAN, SELECT, **DIRECTORY** |
 | `ParameterValidation` | `model/ParameterValidation.java` |
 | `Questionnaire` | `model/Questionnaire.java` |
 | `QuestionnairePage` | `model/QuestionnairePage.java` |
@@ -93,3 +95,5 @@ Template                          — корневой документ (@Docume
   **Не импортируй `TemplateRepository` из других пакетов.** (Исключение: `ExportController` — прямой доступ к MongoDB для чтения тела шаблона без лишних DTO.)
 - `body` хранится как `Map<String, Object>` — структура определяется TipTap-редактором.
 - MongoDB-поля в snake_case задаются через `@Field("field_name")` (Spring Data MongoDB).
+- Версионирование шаблонов: `TemplateVersion` (MongoDB) + `TemplateSnapshot` (PostgreSQL), миграции V008, V015, V016.
+- Тип `DIRECTORY` ссылается на справочник через `directoryId`; поля справочника автоматически создают составные параметры (`paramCode__fieldKey`).

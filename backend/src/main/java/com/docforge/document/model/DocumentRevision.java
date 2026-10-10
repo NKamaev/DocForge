@@ -9,8 +9,8 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 /**
- * Метаданные ревизии документа в PostgreSQL.
- * Тело ревизии хранится в MongoDB (коллекция document_revisions, _id = id этой записи).
+ * Метаданные редакции документа в PostgreSQL.
+ * Тело редакции хранится в MongoDB (коллекция document_revisions, _id = id этой записи).
  */
 @Entity
 @Table(name = "document_revision")

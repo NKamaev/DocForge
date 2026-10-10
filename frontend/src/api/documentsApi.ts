@@ -9,6 +9,7 @@ import type {
   Questionnaire,
   PageResponse,
   RevisionMeta,
+  RevisionDiff,
 } from '../types/document'
 
 export const documentsApi = {
@@ -55,6 +56,11 @@ export const documentsApi = {
 
   restoreRevision: (id: string, revNum: number) =>
     api.post(`/documents/${id}/revisions/${revNum}/restore`).then(r => r.data),
+
+  getRevisionDiff: (id: string, revNum: number, compareTo?: number) =>
+    api.get<RevisionDiff>(`/documents/${id}/revisions/${revNum}/diff`, {
+      params: { compareTo },
+    }).then(r => r.data),
 
   moveToFolder: (id: string, folderId: string | null) =>
     api.patch(`/documents/${id}/folder`, { folderId }),

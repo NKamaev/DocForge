@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Checkbox, Input, Space, Tooltip } from 'antd'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import {
-  ArrowDownOutlined,
-  ArrowUpOutlined,
-  CloseOutlined,
-} from '@ant-design/icons'
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { X, ChevronUp, ChevronDown } from 'lucide-react'
 import type { Editor } from '@tiptap/react'
 import { searchReplaceKey } from './extensions/SearchReplaceExtension'
 import { useEditorState } from '@tiptap/react'
+import { cn } from '@/lib/utils'
 
 interface Props {
   editor: Editor
@@ -30,7 +34,6 @@ export default function SearchReplacePanel({ editor, open, onClose }: Props) {
   const matchCount = pluginState?.matches.length ?? 0
   const currentIndex = pluginState?.currentIndex ?? 0
 
-  // Focus search input when opened
   useEffect(() => {
     if (open) {
       setTimeout(() => searchInputRef.current?.focus(), 50)
@@ -40,13 +43,11 @@ export default function SearchReplacePanel({ editor, open, onClose }: Props) {
     }
   }, [open, editor])
 
-  // Re-run search when term or options change
   useEffect(() => {
     if (!open) return
     editor.commands.setSearch(searchTerm, { caseSensitive, wholeWord })
   }, [searchTerm, caseSensitive, wholeWord, open, editor])
 
-  // Escape closes the panel
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && open) {
@@ -65,104 +66,123 @@ export default function SearchReplacePanel({ editor, open, onClose }: Props) {
     : `${currentIndex + 1} из ${matchCount}`
 
   return (
-    <div
-      style={{
-        padding: '8px 12px',
-        borderBottom: '1px solid #d9d9d9',
-        background: '#fffbe6',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}
-    >
-      {/* Row 1: Search */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Input
-          ref={searchInputRef as React.Ref<never>}
-          size="small"
-          placeholder="Найти…"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.shiftKey
-                ? editor.commands.prevMatch()
-                : editor.commands.nextMatch()
-            }
-          }}
-          style={{ width: 220 }}
-          suffix={
-            <span style={{ fontSize: 11, color: matchCount === 0 && searchTerm ? '#ff4d4f' : '#8c8c8c', minWidth: 50 }}>
-              {counterText}
-            </span>
-          }
-        />
-        <Tooltip title="Предыдущее (Shift+Enter)">
-          <Button
-            size="small"
-            icon={<ArrowUpOutlined />}
-            onClick={() => editor.commands.prevMatch()}
-            disabled={matchCount === 0}
+    <div className="px-3 py-2 border-b border-line bg-[#fffbe6] flex flex-col gap-1.5">
+      <div className="flex items-center gap-1.5">
+        <div className="relative" style={{ width: 220 }}>
+          <Input
+            ref={searchInputRef}
+            placeholder="Найти…"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.shiftKey
+                  ? editor.commands.prevMatch()
+                  : editor.commands.nextMatch()
+              }
+            }}
+            className="h-7 text-xs pr-12"
           />
-        </Tooltip>
-        <Tooltip title="Следующее (Enter)">
-          <Button
-            size="small"
-            icon={<ArrowDownOutlined />}
-            onClick={() => editor.commands.nextMatch()}
-            disabled={matchCount === 0}
-          />
-        </Tooltip>
-        <Space size={12} style={{ marginLeft: 4 }}>
-          <Checkbox
-            checked={caseSensitive}
-            onChange={(e) => setCaseSensitive(e.target.checked)}
-            style={{ fontSize: 12 }}
+          <span
+            className={cn(
+              "absolute right-2 top-1/2 -translate-y-1/2 text-[11px] min-w-12",
+              matchCount === 0 && searchTerm ? "text-destructive" : "text-muted-foreground"
+            )}
           >
-            Aa
-          </Checkbox>
-          <Checkbox
-            checked={wholeWord}
-            onChange={(e) => setWholeWord(e.target.checked)}
-            style={{ fontSize: 12 }}
-          >
-            Слово
-          </Checkbox>
-        </Space>
-        <Tooltip title="Закрыть (Escape)">
-          <Button
-            size="small"
-            icon={<CloseOutlined />}
-            type="text"
-            onClick={onClose}
-            style={{ marginLeft: 'auto' }}
-          />
+            {counterText}
+          </span>
+        </div>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => editor.commands.prevMatch()}
+              disabled={matchCount === 0}
+              className="h-7 px-2"
+            >
+              <ChevronUp className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Предыдущее (Shift+Enter)</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => editor.commands.nextMatch()}
+              disabled={matchCount === 0}
+              className="h-7 px-2"
+            >
+              <ChevronDown className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Следующее (Enter)</TooltipContent>
+        </Tooltip>
+
+        <div className="flex items-center gap-4 ml-1">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <Checkbox
+              checked={caseSensitive}
+              onCheckedChange={(checked) => setCaseSensitive(checked === true)}
+              className="size-3.5"
+            />
+            <span className="text-xs">Aa</span>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <Checkbox
+              checked={wholeWord}
+              onCheckedChange={(checked) => setWholeWord(checked === true)}
+              className="size-3.5"
+            />
+            <span className="text-xs">Слово</span>
+          </label>
+        </div>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onClose}
+              className="h-7 w-7 ml-auto hover:bg-muted/50"
+            >
+              <X className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Закрыть (Escape)</TooltipContent>
         </Tooltip>
       </div>
 
-      {/* Row 2: Replace */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div className="flex items-center gap-1.5">
         <Input
-          size="small"
           placeholder="Заменить на…"
           value={replacement}
           onChange={(e) => setReplacement(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') editor.commands.replaceMatch(replacement)
           }}
+          className="h-7 text-xs"
           style={{ width: 220 }}
         />
         <Button
-          size="small"
+          variant="outline"
+          size="sm"
           onClick={() => editor.commands.replaceMatch(replacement)}
           disabled={matchCount === 0}
+          className="h-7 text-xs"
         >
           Заменить
         </Button>
         <Button
-          size="small"
+          variant="outline"
+          size="sm"
           onClick={() => editor.commands.replaceAll(replacement)}
           disabled={matchCount === 0}
+          className="h-7 text-xs"
         >
           Заменить всё
         </Button>

@@ -11,7 +11,7 @@ import java.util.UUID;
 public interface DocumentService {
 
     /** Создать документ из шаблона. Возвращает пустой документ с опросным листом. */
-    DocumentResponse create(UUID templateId, String name, UUID ownerId, UUID folderId);
+    DocumentResponse create(UUID templateId, String name, UUID ownerId, UUID folderId, Integer templateVersionNumber);
 
     DocumentResponse getById(UUID id);
 
@@ -55,15 +55,18 @@ public interface DocumentService {
 
     void removeParticipant(UUID documentId, UUID userId);
 
-    // ── Revisions ─────────────────────────────────────────────────────────────
+    // ── Editions ──────────────────────────────────────────────────────────────
 
-    /** Создаёт ревизию из текущего состояния документа. */
+    /** Создаёт редакцию из текущего состояния документа. */
     DocumentRevisionDTO saveRevision(UUID documentId, String comment);
 
     List<DocumentRevisionDTO> listRevisions(UUID documentId);
 
     DocumentRevisionBody getRevisionBody(UUID documentId, int revisionNumber);
 
-    /** Откатывает документ к указанной ревизии (создаёт новую ревизию). */
+    /** Откатывает документ к указанной редакции (создаёт новую редакцию). */
     DocumentRevisionDTO restoreRevision(UUID documentId, int revisionNumber);
+
+    /** Вычисляет diff между редакцией и предыдущей/текущей версией. */
+    RevisionDiffResponse computeRevisionDiff(UUID documentId, int revisionNumber, Integer compareToRevisionNumber);
 }

@@ -5,8 +5,12 @@ import type { ResolvedPos } from '@tiptap/pm/model'
 import type { Node as PmNode } from '@tiptap/pm/model'
 import { ReactNodeViewRenderer, NodeViewWrapper, NodeViewContent } from '@tiptap/react'
 import type { ReactNodeViewProps } from '@tiptap/react'
-import { Tooltip } from 'antd'
-import { FilterOutlined } from '@ant-design/icons'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui'
+import { Filter } from 'lucide-react'
 import ConditionBuilder from '../ConditionBuilder'
 import { useDesignerContext } from '../DesignerContext'
 import type { Condition } from '../../../types/templateModel'
@@ -226,16 +230,21 @@ function NumberedClauseView({ node, getPos, editor, updateAttributes }: ReactNod
         }}
       >
         {label}
-        <Tooltip title={condition ? `Условие: ${condition.expression || '(пусто)'}` : 'Добавить условие на пункт'}>
-          <FilterOutlined
-            onClick={() => setConditionOpen(true)}
-            style={{
-              fontSize: 10,
-              color: condition ? '#D46B08' : '#d9d9d9',
-              cursor: 'pointer',
-              flexShrink: 0,
-            }}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Filter
+              onClick={() => setConditionOpen(true)}
+              size={12}
+              style={{
+                color: condition ? '#D46B08' : '#d9d9d9',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            />
+          </TooltipTrigger>
+          <TooltipContent>
+            {condition ? `Условие: ${condition.expression || '(пусто)'}` : 'Добавить условие на пункт'}
+          </TooltipContent>
         </Tooltip>
       </span>
 

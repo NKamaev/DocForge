@@ -218,23 +218,37 @@ class DocumentPermissionServiceTest {
     @DisplayName("listMembers() maps members with user info")
     void listMembers_mapsWithUserInfo() {
         UUID docId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         DocumentMember m = member(docId, userId, "EDITOR", "DIRECT");
+
+        User owner = new User();
+        owner.setId(ownerId);
+        owner.setLogin("owner");
+        owner.setDisplayName("Owner");
 
         User user = new User();
         user.setId(userId);
         user.setLogin("bob");
         user.setDisplayName("Bob");
 
+        DocumentRegistry reg = registry(docId, ownerId, null);
+        reg.setCreatedAt(Instant.now());
+
+        when(registryRepository.findById(docId)).thenReturn(Optional.of(reg));
         when(documentMemberRepository.findByDocumentId(docId)).thenReturn(List.of(m));
+        when(userRepository.findById(ownerId)).thenReturn(Optional.of(owner));
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
 
         List<DocumentMemberDTO> result = service.listMembers(docId, UUID.randomUUID());
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).userLogin()).isEqualTo("bob");
-        assertThat(result.get(0).role()).isEqualTo("EDITOR");
-        assertThat(result.get(0).source()).isEqualTo("DIRECT");
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).userId()).isEqualTo(ownerId);
+        assertThat(result.get(0).userLogin()).isEqualTo("owner");
+        assertThat(result.get(0).role()).isEqualTo("OWNER");
+        assertThat(result.get(1).userLogin()).isEqualTo("bob");
+        assertThat(result.get(1).role()).isEqualTo("EDITOR");
+        assertThat(result.get(1).source()).isEqualTo("DIRECT");
     }
 
     // ── Role.implies matrix ────────────────────────────────────────────────────

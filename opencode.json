@@ -36,7 +36,7 @@
       }
     },
     "build": {
-      "description": "Full development: COORDINATOR that delegates ALL implementation to subagents (backend, frontend, test, review, etc.). NEVER writes code directly.",
+      "description": "Full development: COORDINATOR that delegates complex/cross-domain tasks to subagents but CAN implement small pattern-based changes (1-5 files) directly when context is already loaded.",
       "mode": "primary"
     },
     "architect": {

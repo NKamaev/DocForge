@@ -1,16 +1,14 @@
-import { Input, Space } from 'antd'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
 
 interface Props {
   value: unknown
   onChange: (val: unknown) => void
   disabled?: boolean
+  className?: string
 }
 
-/**
- * ФИО-поле: три отдельных инпута (Фамилия, Имя, Отчество).
- * Хранится как единая строка "Фамилия Имя Отчество".
- */
-export default function FioField({ value, onChange, disabled }: Props) {
+export default function FioField({ value, onChange, disabled, className }: Props) {
   const str = typeof value === 'string' ? value : ''
   const parts = str.split(' ')
   const lastName  = parts[0] ?? ''
@@ -23,7 +21,7 @@ export default function FioField({ value, onChange, disabled }: Props) {
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size={8}>
+    <div className={cn('flex flex-col gap-2 w-full', className)}>
       <Input
         placeholder="Фамилия"
         value={lastName}
@@ -42,6 +40,6 @@ export default function FioField({ value, onChange, disabled }: Props) {
         onChange={e => emit(lastName, firstName, e.target.value)}
         disabled={disabled}
       />
-    </Space>
+    </div>
   )
 }

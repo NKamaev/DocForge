@@ -1,4 +1,12 @@
-import { Button, Input, Select, Space } from 'antd'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import type {
   ParameterType,
   ParameterFormat,
@@ -8,15 +16,11 @@ import type {
   GrammaticalCase,
 } from '../../types/templateModel'
 
-const { Option } = Select
-
 interface Props {
   paramType: ParameterType
   value: ParameterFormat | null
   onChange: (fmt: ParameterFormat | null) => void
 }
-
-// ── Option lists ──────────────────────────────────────────────────────────────
 
 const DATE_OPTIONS: { value: DateFormat; label: string }[] = [
   { value: 'DOTS',            label: 'Точки — 20.03.2026' },
@@ -59,14 +63,11 @@ const UNIT_NEEDED: NumberDisplayFormat[] = [
   'WITH_UNIT', 'WORDS_WITH_UNIT', 'WORDS_WITH_NUMBER_AND_UNIT',
 ]
 
-// ── Component ─────────────────────────────────────────────────────────────────
-
 export default function ParameterFormatSelector({ paramType, value, onChange }: Props) {
   const fmt = value ?? {}
 
   function patch(partial: Partial<ParameterFormat>) {
     const next: ParameterFormat = { ...fmt, ...partial }
-    // Если все поля null/undefined — сбрасываем в null
     const hasAny = Object.values(next).some(v => v !== null && v !== undefined && v !== '')
     onChange(hasAny ? next : null)
   }
@@ -77,85 +78,110 @@ export default function ParameterFormatSelector({ paramType, value, onChange }: 
 
   if (paramType === 'DATE') {
     return (
-      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+      <div className="flex flex-col gap-1 w-full">
         <Select
-          style={{ width: '100%' }}
-          placeholder="Формат даты (по умолчанию: 20 марта 2026 г.)"
-          allowClear
           value={fmt.dateFormat ?? undefined}
-          onChange={(v) => patch({ dateFormat: v ?? null })}
+          onValueChange={(v) => patch({ dateFormat: v as DateFormat ?? null })}
         >
-          {DATE_OPTIONS.map(o => (
-            <Option key={o.value} value={o.value}>{o.label}</Option>
-          ))}
+          <SelectTrigger className="w-full h-8 text-xs">
+            <SelectValue placeholder="Формат даты (по умолчанию: 20 марта 2026 г.)" />
+          </SelectTrigger>
+          <SelectContent>
+            {DATE_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value} className="text-xs">
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
         {value && (
-          <Button size="small" onClick={reset}>Сбросить</Button>
+          <Button variant="outline" size="sm" onClick={reset} className="h-7 text-xs w-fit">
+            Сбросить
+          </Button>
         )}
-      </Space>
+      </div>
     )
   }
 
   if (paramType === 'NUMBER') {
     const showUnit = fmt.numberFormat != null && UNIT_NEEDED.includes(fmt.numberFormat)
     return (
-      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+      <div className="flex flex-col gap-1 w-full">
         <Select
-          style={{ width: '100%' }}
-          placeholder="Формат числа (по умолчанию: 1 000)"
-          allowClear
           value={fmt.numberFormat ?? undefined}
-          onChange={(v) => patch({ numberFormat: v ?? null, unit: showUnit ? fmt.unit : null })}
+          onValueChange={(v) => patch({ 
+            numberFormat: v as NumberDisplayFormat ?? null, 
+            unit: showUnit ? fmt.unit : null 
+          })}
         >
-          {NUMBER_OPTIONS.map(o => (
-            <Option key={o.value} value={o.value}>{o.label}</Option>
-          ))}
+          <SelectTrigger className="w-full h-8 text-xs">
+            <SelectValue placeholder="Формат числа (по умолчанию: 1 000)" />
+          </SelectTrigger>
+          <SelectContent>
+            {NUMBER_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value} className="text-xs">
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
         {showUnit && (
           <Input
             placeholder="штука|штуки|штук  или просто  рублей"
             value={fmt.unit ?? ''}
             onChange={(e) => patch({ unit: e.target.value || null })}
-            size="small"
+            className="h-8 text-xs"
             title="Для автоматического склонения введите три формы через |: штука|штуки|штук"
           />
         )}
         {value && (
-          <Button size="small" onClick={reset}>Сбросить</Button>
+          <Button variant="outline" size="sm" onClick={reset} className="h-7 text-xs w-fit">
+            Сбросить
+          </Button>
         )}
-      </Space>
+      </div>
     )
   }
 
   if (paramType === 'FIO') {
     return (
-      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+      <div className="flex flex-col gap-1 w-full">
         <Select
-          style={{ width: '100%' }}
-          placeholder="Формат ФИО (по умолчанию: Иванов Иван Иванович)"
-          allowClear
           value={fmt.fioFormat ?? undefined}
-          onChange={(v) => patch({ fioFormat: v ?? null })}
+          onValueChange={(v) => patch({ fioFormat: v as FioDisplayFormat ?? null })}
         >
-          {FIO_OPTIONS.map(o => (
-            <Option key={o.value} value={o.value}>{o.label}</Option>
-          ))}
+          <SelectTrigger className="w-full h-8 text-xs">
+            <SelectValue placeholder="Формат ФИО (по умолчанию: Иванов Иван Иванович)" />
+          </SelectTrigger>
+          <SelectContent>
+            {FIO_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value} className="text-xs">
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
         <Select
-          style={{ width: '100%' }}
-          placeholder="Падеж (по умолчанию: именительный)"
-          allowClear
           value={fmt.grammaticalCase ?? undefined}
-          onChange={(v) => patch({ grammaticalCase: v ?? null })}
+          onValueChange={(v) => patch({ grammaticalCase: v as GrammaticalCase ?? null })}
         >
-          {CASE_OPTIONS.map(o => (
-            <Option key={o.value} value={o.value}>{o.label}</Option>
-          ))}
+          <SelectTrigger className="w-full h-8 text-xs">
+            <SelectValue placeholder="Падеж (по умолчанию: именительный)" />
+          </SelectTrigger>
+          <SelectContent>
+            {CASE_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value} className="text-xs">
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
         {value && (
-          <Button size="small" onClick={reset}>Сбросить</Button>
+          <Button variant="outline" size="sm" onClick={reset} className="h-7 text-xs w-fit">
+            Сбросить
+          </Button>
         )}
-      </Space>
+      </div>
     )
   }
 

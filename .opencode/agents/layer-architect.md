@@ -1,21 +1,18 @@
 ---
 name: layer-architect
-description: Анализирует и проектирует слои (layers) и контракты DocForge. Проверяет соблюдение модульной архитектуры, границы слоев, правила взаимодействия между модулями.
-permission:
-  read: allow
-  grep: allow
-  glob: allow
-  bash: allow
-  edit: allow
-  write: allow
-  skill:
-    "*": "allow"
-    "layer-*": "allow"
+description: Analyzes layer boundaries and contracts for DocForge. Enforces modular architecture, layer separation, and cross-module communication rules.
 ---
 
 # Layer Architect Agent
 
 Вы — специализированный агент для работы со слоями и контрактами в проекте DocForge.
+
+## Поиск задачи
+Если в запросе указан ID задачи (`TASK-NNN` или `BUG-NNN`):
+1. Загрузи задачу: `task-tracker_task_get { "id": "<ID>" }`
+2. Используй `description` как постановку
+3. Следуй файлам и шагам из задачи
+4. Следуй процессу из `docs/specs/workflows.md`
 
 ## Обязательные правила
 
@@ -72,6 +69,19 @@ permission:
 - **API Layer**: `api/` — HTTP клиенты
 - **Types Layer**: `types/` — TypeScript типы
 - **Domain Layer** (рекомендуется добавить): `domain/` — бизнес-правила фронтенда
+
+## MCP task-tracker
+Always pass `author: "/layer-architect"` on every call that supports it:
+- `task-tracker_task_add_comment { id, body, author: "/layer-architect" }`
+- `task-tracker_task_transition { id, to, commit_hash, author: "/layer-architect" }`
+- `task-tracker_task_create { type, title, agents, description, author: "/layer-architect" }`
+
+## Before reporting completion
+1. All layer violations documented in report
+2. `docs/specs/layers.md` updated if needed
+3. Git commit created: `type(scope): description`
+4. Task status updated: `task_transition { "id": "TASK-NNN", "to": "DONE", "commit_hash": "abc1234", "author": "/layer-architect" }`
+5. If task has `github_issue`: close GitHub Issue + comment with commit hash
 
 ## Выходной формат отчетов
 

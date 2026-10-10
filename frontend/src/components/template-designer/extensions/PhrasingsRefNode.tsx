@@ -1,7 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react'
 import type { ReactNodeViewProps } from '@tiptap/react'
-import { Tag } from 'antd'
+import { X } from 'lucide-react'
 import { useDesignerContext } from '../DesignerContext'
 
 // ── Command augmentation ──────────────────────────────────────────────────────
@@ -42,14 +42,42 @@ function PhrasingsRefView({ node, deleteNode }: ReactNodeViewProps) {
 
   return (
     <NodeViewWrapper as="span" contentEditable={false} style={{ display: 'inline' }}>
-      <Tag
-        color={isOrphaned ? 'error' : 'success'}
-        closeIcon
-        onClose={(e) => { e.preventDefault(); deleteNode() }}
-        style={{ cursor: 'default', userSelect: 'none', margin: '0 2px' }}
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '2px 6px',
+          borderRadius: 9999,
+          fontSize: 12,
+          cursor: 'default',
+          userSelect: 'none',
+          margin: '0 2px',
+          background: isOrphaned ? '#fff2f0' : '#f6ffed',
+          border: `1px solid ${isOrphaned ? '#ffccc7' : '#b7eb8f'}`,
+          color: isOrphaned ? '#ff4d4f' : '#389e0d',
+        }}
       >
-        📝 {isOrphaned ? `${label} (не найдена)` : label}
-      </Tag>
+        <span>📝 {isOrphaned ? `${label} (не найдена)` : label}</span>
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteNode() }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            padding: 0,
+            margin: 0,
+            border: 'none',
+            background: 'transparent',
+            color: 'inherit',
+            fontSize: 10,
+            lineHeight: 1,
+          }}
+        >
+          <X size={10} />
+        </button>
+      </span>
     </NodeViewWrapper>
   )
 }

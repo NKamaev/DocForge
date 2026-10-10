@@ -38,7 +38,7 @@ class DocumentServiceImplIT extends AbstractIT {
         templateService.publish(template.id());
 
         // Act — create document
-        DocumentResponse doc = documentService.create(template.id(), "Test Document", null, null);
+        DocumentResponse doc = documentService.create(template.id(), "Test Document", null, null, null);
 
         // Assert — BUG-001: snapshotId and versionNumber must be populated
         assertThat(doc.templateSnapshotId()).isNotNull();
@@ -57,7 +57,7 @@ class DocumentServiceImplIT extends AbstractIT {
         );
 
         // Act
-        DocumentResponse doc = documentService.create(template.id(), "Doc Without Snapshot", null, null);
+        DocumentResponse doc = documentService.create(template.id(), "Doc Without Snapshot", null, null, null);
 
         // Assert — no snapshot → both fields are null
         assertThat(doc.templateSnapshotId()).isNull();

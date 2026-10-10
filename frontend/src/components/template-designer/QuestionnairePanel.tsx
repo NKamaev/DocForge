@@ -1,8 +1,35 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
-  Button, Collapse, Form, Input, Modal, Popconfirm,
-  Select, Space, Tag, Tooltip, Typography,
-} from 'antd'
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Badge,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui'
 import {
   DndContext, DragOverlay, PointerSensor,
   closestCenter, useSensor, useSensors,
@@ -12,15 +39,10 @@ import {
   SortableContext, arrayMove, useSortable, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import {
-  DeleteOutlined, EyeOutlined, HolderOutlined,
-  PlusOutlined, EditOutlined,
-} from '@ant-design/icons'
+import { Eye, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Parameter, Questionnaire } from '../../types/template'
 import type { Condition, Question } from '../../types/templateModel'
 import ConditionBuilder from './ConditionBuilder'
-
-const { Text } = Typography
 
 // ── Internal type: page with a stable client-side id ─────────────────────────
 
@@ -52,50 +74,34 @@ function toQuestionnaire(pages: PageInternal[], title: string): Questionnaire {
   }
 }
 
-// ── Question form values ──────────────────────────────────────────────────────
-
-interface QuestionFormValues {
-  parameterCode: string
-  label: string
-  hint?: string
-}
+type DeleteTarget =
+  | { type: 'question'; questionId: string; pageId: string }
+  | { type: 'page'; pageId: string }
+  | null
 
 // ── Drag overlay card ─────────────────────────────────────────────────────────
 
-function QuestionCard({ question, style }: {
+function QuestionCard({ question }: {
   question: Question
-  parameters?: Parameter[]
-  style?: React.CSSProperties
 }) {
   return (
-    <div style={{
-      background: '#fff',
-      border: '1px solid #d9d9d9',
-      borderRadius: 6,
-      padding: '6px 8px',
-      fontSize: 13,
-      ...style,
-    }}>
-      <Space size={4}>
-        <HolderOutlined style={{ color: '#bbb' }} />
-        <Text style={{ fontSize: 13 }}>{question.label}</Text>
-      </Space>
-      <div>
-        <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace' }}>
-          {question.parameterCode}
-        </Text>
+    <div className="bg-card border rounded-md px-2 py-1.5 text-sm shadow-md">
+      <div className="flex items-center gap-1">
+        <GripVertical className="size-3.5 text-muted-foreground shrink-0" />
+        <span className="text-sm truncate">{question.label}</span>
       </div>
+      <div className="text-xs text-muted-foreground font-mono pl-5">{question.parameterCode}</div>
     </div>
   )
 }
 
 // ── Sortable question row ─────────────────────────────────────────────────────
 
-function SortableQuestion({ question, parameters, onEdit, onDelete, onConditionChange, readOnly }: {
+function SortableQuestion({ question, parameters, onEdit, onDeleteRequest, onConditionChange, readOnly }: {
   question: Question
   parameters: Parameter[]
   onEdit: () => void
-  onDelete: () => void
+  onDeleteRequest: () => void
   onConditionChange: (c: Condition | null) => void
   readOnly?: boolean
 }) {
@@ -113,47 +119,48 @@ function SortableQuestion({ question, parameters, onEdit, onDelete, onConditionC
         marginBottom: 4,
       }}
     >
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 4,
-        background: '#fafafa',
-        border: '1px solid #e8e8e8',
-        borderRadius: 6,
-        padding: '5px 8px',
-      }}>
-        <span {...attributes} {...listeners} style={{ cursor: 'grab', color: '#bbb', flexShrink: 0 }}>
-          <HolderOutlined />
+      <div className="flex items-center gap-1 bg-muted/30 border rounded-md px-2 py-1.5">
+        <span {...attributes} {...listeners} className="cursor-grab text-muted-foreground shrink-0">
+          <GripVertical className="size-3.5" />
         </span>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ fontSize: 13, display: 'block' }} ellipsis>{question.label}</Text>
-          <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace' }}>
-            {question.parameterCode}
-          </Text>
+        <div className="flex-1 min-w-0">
+          <span className="text-sm block truncate">{question.label}</span>
+          <span className="text-xs text-muted-foreground font-mono">{question.parameterCode}</span>
         </div>
 
         {!readOnly && (
-          <Space size={2} style={{ flexShrink: 0 }}>
-            <Tooltip title="Настроить видимость">
-              <Button
-                type="text" size="small"
-                icon={<EyeOutlined />}
-                style={{ color: question.visibilityCondition ? '#1677ff' : '#d9d9d9' }}
-                onClick={() => setCondOpen(true)}
-              />
-            </Tooltip>
-            <Tooltip title="Редактировать">
-              <Button type="text" size="small" icon={<EditOutlined />} onClick={onEdit} />
-            </Tooltip>
-            <Popconfirm
-              title="Удалить вопрос?"
-              okText="Да" cancelText="Нет"
-              onConfirm={onDelete}
-            >
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-            </Popconfirm>
-          </Space>
+          <div className="flex gap-0.5 shrink-0">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost" size="icon-sm"
+                    style={{ color: question.visibilityCondition ? 'var(--primary)' : 'var(--muted-foreground)' }}
+                    onClick={() => setCondOpen(true)}
+                  >
+                    <Eye className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Настроить видимость</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" onClick={onEdit}>
+                    <Pencil className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Редактировать</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <Button variant="ghost" size="icon-sm" onClick={onDeleteRequest}>
+              <Trash2 className="size-3.5 text-destructive" />
+            </Button>
+          </div>
         )}
       </div>
 
@@ -168,26 +175,56 @@ function SortableQuestion({ question, parameters, onEdit, onDelete, onConditionC
   )
 }
 
-// ── Page block (Collapse panel content) ──────────────────────────────────────
+// ── Page accordion item component ────────────────────────────────────────────
 
-function PageContent({ page, parameters, onAddQuestion, onEditQuestion, onDeleteQuestion, onConditionChange, readOnly }: {
+function PageAccordionItem({ page, onRename, onDeleteRequest, readOnly, children }: {
+  page: PageInternal
+  onRename: (pageId: string) => void
+  onDeleteRequest: (pageId: string) => void
+  readOnly?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <AccordionItem key={page._id} value={page._id} className="border rounded-md px-3">
+      <AccordionTrigger className="py-2 hover:no-underline">
+        <div className="flex items-center gap-2 flex-1 min-w-0 text-left" onClick={e => e.stopPropagation()}>
+          <span style={{ fontWeight: 600, fontSize: 13 }} className="truncate">{page.title}</span>
+          <Badge variant="outline" style={{ fontSize: 11 }}>{page.questions.length}</Badge>
+        </div>
+      </AccordionTrigger>
+      <AccordionContent>
+        {children}
+        {!readOnly && (
+          <div className="flex gap-1 mt-2 pt-2 border-t">
+            <Button variant="ghost" size="sm" className="text-xs" onClick={() => onRename(page._id)}>
+              <Pencil className="mr-1 size-3" /> Переименовать
+            </Button>
+            <Button variant="ghost" size="sm" className="text-xs text-destructive" onClick={() => onDeleteRequest(page._id)}>
+              <Trash2 className="mr-1 size-3" /> Удалить
+            </Button>
+          </div>
+        )}
+      </AccordionContent>
+    </AccordionItem>
+  )
+}
+
+// ── Page content inside accordion ────────────────────────────────────────────
+
+function PageContent({ page, parameters, onAddQuestion, onEditQuestion, onDeleteRequest, onConditionChange, readOnly }: {
   page: PageInternal
   parameters: Parameter[]
   onAddQuestion: () => void
   onEditQuestion: (q: Question) => void
-  onDeleteQuestion: (id: string) => void
+  onDeleteRequest: (questionId: string) => void
   onConditionChange: (questionId: string, c: Condition | null) => void
-  onRenamePage?: (title: string) => void
-  onDeletePage?: () => void
   readOnly?: boolean
 }) {
   return (
     <div>
       <SortableContext items={page.questions.map((q) => q.id)} strategy={verticalListSortingStrategy}>
         {page.questions.length === 0 && (
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-            Нет вопросов
-          </Text>
+          <p className="text-xs text-muted-foreground mb-2">Нет вопросов</p>
         )}
         {page.questions.map((q) => (
           <SortableQuestion
@@ -195,7 +232,7 @@ function PageContent({ page, parameters, onAddQuestion, onEditQuestion, onDelete
             question={q}
             parameters={parameters}
             onEdit={() => onEditQuestion(q)}
-            onDelete={() => onDeleteQuestion(q.id)}
+            onDeleteRequest={() => onDeleteRequest(q.id)}
             onConditionChange={(c) => onConditionChange(q.id, c)}
             readOnly={readOnly}
           />
@@ -203,12 +240,8 @@ function PageContent({ page, parameters, onAddQuestion, onEditQuestion, onDelete
       </SortableContext>
 
       {!readOnly && (
-        <Button
-          type="dashed" size="small" icon={<PlusOutlined />}
-          onClick={onAddQuestion}
-          style={{ width: '100%', marginTop: 6 }}
-        >
-          Добавить вопрос
+        <Button variant="outline" size="sm" className="w-full mt-1.5" onClick={onAddQuestion}>
+          <Plus className="mr-1 size-3.5" /> Добавить вопрос
         </Button>
       )}
     </div>
@@ -221,77 +254,96 @@ interface QuestionModalProps {
   open: boolean
   initial?: Question
   parameters: Parameter[]
-  onSave: (values: QuestionFormValues) => void
+  onSave: (values: { parameterCode: string; label: string; hint?: string }) => void
   onClose: () => void
 }
 
 function QuestionModal({ open, initial, parameters, onSave, onClose }: QuestionModalProps) {
-  const [form] = Form.useForm<QuestionFormValues>()
+  const [paramCode, setParamCode] = useState('')
+  const [label, setLabel] = useState('')
+  const [hint, setHint] = useState('')
 
   useEffect(() => {
     if (open) {
       if (initial) {
-        form.setFieldsValue({ parameterCode: initial.parameterCode, label: initial.label, hint: initial.hint ?? '' })
+        setParamCode(initial.parameterCode)
+        setLabel(initial.label)
+        setHint(initial.hint ?? '')
       } else {
-        form.resetFields()
+        setParamCode('')
+        setLabel('')
+        setHint('')
       }
     }
-  }, [open, initial, form])
+  }, [open, initial])
 
-  const handleOk = async () => {
-    const values = await form.validateFields()
-    onSave(values)
+  const handleOk = () => {
+    onSave({ parameterCode: paramCode, label, hint: hint || undefined })
     onClose()
   }
 
   const handleParamChange = (code: string) => {
+    setParamCode(code)
     const param = parameters.find((p) => p.code === code)
-    if (param && !form.getFieldValue('label')) {
-      form.setFieldValue('label', param.label)
+    if (param && !label) {
+      setLabel(param.label)
     }
   }
 
   return (
-    <Modal
-      title={initial ? 'Редактировать вопрос' : 'Новый вопрос'}
-      open={open}
-      onOk={handleOk}
-      onCancel={onClose}
-      okText="Сохранить"
-      cancelText="Отмена"
-      destroyOnHidden
-      width={440}
-    >
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="parameterCode" label="Параметр" rules={[{ required: true, message: 'Выберите параметр' }]}>
-          <Select
-            showSearch
-            placeholder="Выберите параметр"
-            onChange={handleParamChange}
-            options={parameters.map((p) => ({
-              value: p.code,
-              label: (
-                <Space size={6}>
-                  <Text style={{ fontSize: 13 }}>{p.label}</Text>
-                  <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace' }}>{p.code}</Text>
-                </Space>
-              ),
-            }))}
-            filterOption={(input, option) =>
-              String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())
-            }
-          />
-        </Form.Item>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>{initial ? 'Редактировать вопрос' : 'Новый вопрос'}</DialogTitle>
+        </DialogHeader>
 
-        <Form.Item name="label" label="Текст вопроса" rules={[{ required: true, message: 'Введите вопрос' }]}>
-          <Input placeholder="Укажите ФИО или наименование клиента" />
-        </Form.Item>
+        <div className="mt-4 space-y-4">
+          <div className="space-y-1.5">
+            <Label>Параметр <span className="text-destructive">*</span></Label>
+            <Select value={paramCode} onValueChange={handleParamChange}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Выберите параметр" />
+              </SelectTrigger>
+              <SelectContent>
+                {parameters.map((p) => (
+                  <SelectItem key={p.code} value={p.code}>
+                    <span className="flex items-center gap-1.5">
+                      <span>{p.label}</span>
+                      <span className="text-xs text-muted-foreground font-mono">({p.code})</span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <Form.Item name="hint" label="Подсказка (необязательно)">
-          <Input placeholder="Для юр. лица — полное наименование с ОПФ" />
-        </Form.Item>
-      </Form>
-    </Modal>
+          <div className="space-y-1.5">
+            <Label htmlFor="q-label">Текст вопроса <span className="text-destructive">*</span></Label>
+            <Input
+              id="q-label"
+              value={label}
+              onChange={e => setLabel(e.target.value)}
+              placeholder="Укажите ФИО или наименование клиента"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="q-hint">Подсказка (необязательно)</Label>
+            <Input
+              id="q-hint"
+              value={hint}
+              onChange={e => setHint(e.target.value)}
+              placeholder="Для юр. лица — полное наименование с ОПФ"
+            />
+          </div>
+        </div>
+
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={onClose}>Отмена</Button>
+          <Button onClick={handleOk} disabled={!paramCode || !label.trim()}>Сохранить</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -307,6 +359,7 @@ export interface QuestionnairePanelProps {
 export default function QuestionnairePanel({ questionnaire, parameters, onChange, readOnly }: QuestionnairePanelProps) {
   const [pages, setPages] = useState<PageInternal[]>(() => toInternal(questionnaire))
   const [title] = useState(questionnaire?.title ?? 'Опросный лист')
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
 
   // Sync when questionnaire prop changes (on template load)
   useEffect(() => {
@@ -341,7 +394,7 @@ export default function QuestionnairePanel({ questionnaire, parameters, onChange
   const openEditQuestion = (pageId: string, q: Question) =>
     setQModal({ open: true, pageId, editing: q })
 
-  const handleQuestionSave = (values: QuestionFormValues) => {
+  const handleQuestionSave = (values: { parameterCode: string; label: string; hint?: string }) => {
     notify(pages.map((p) => {
       if (p._id !== qModal.pageId) return p
       if (qModal.editing) {
@@ -383,8 +436,13 @@ export default function QuestionnairePanel({ questionnaire, parameters, onChange
     ))
   }
 
-  const handleRenamePage = (pageId: string, t: string) => {
-    notify(pages.map((p) => p._id === pageId ? { ...p, title: t } : p))
+  const handleRenamePage = (pageId: string) => {
+    const page = pages.find(p => p._id === pageId)
+    if (!page) return
+    const newTitle = prompt('Название страницы:', page.title)
+    if (newTitle && newTitle.trim()) {
+      notify(pages.map((p) => p._id === pageId ? { ...p, title: newTitle.trim() } : p))
+    }
   }
 
   const handleDeletePage = (pageId: string) => {
@@ -455,69 +513,30 @@ export default function QuestionnairePanel({ questionnaire, parameters, onChange
     ))
   }
 
-  // ── Collapse items ────────────────────────────────────────────────────────
-  const collapseItems = useMemo(() => pages.map((page) => ({
-    key: page._id,
-    label: (
-      <Space>
-        <Text strong style={{ fontSize: 13 }}>{page.title}</Text>
-        <Tag style={{ fontSize: 11 }}>{page.questions.length}</Tag>
-      </Space>
-    ),
-    extra: readOnly ? undefined : (
-      <Popconfirm
-        title="Удалить страницу со всеми вопросами?"
-        okText="Удалить" cancelText="Нет" okButtonProps={{ danger: true }}
-        onConfirm={(e) => { e?.stopPropagation(); handleDeletePage(page._id) }}
-        onCancel={(e) => e?.stopPropagation()}
-      >
-        <Button
-          type="text" size="small" danger
-          icon={<DeleteOutlined />}
-          onClick={(e) => e.stopPropagation()}
-        />
-      </Popconfirm>
-    ),
-    children: (
-      <PageContent
-        page={page}
-        parameters={parameters}
-        onAddQuestion={() => openAddQuestion(page._id)}
-        onEditQuestion={(q) => openEditQuestion(page._id, q)}
-        onDeleteQuestion={(qId) => handleDeleteQuestion(page._id, qId)}
-        onConditionChange={(qId, c) => handleConditionChange(page._id, qId, c)}
-        onRenamePage={(t) => handleRenamePage(page._id, t)}
-        onDeletePage={() => handleDeletePage(page._id)}
-        readOnly={readOnly}
-      />
-    ),
-  })), [pages, parameters, readOnly]) // eslint-disable-line react-hooks/exhaustive-deps
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <Text strong>Страницы ({pages.length})</Text>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>Страницы ({pages.length})</span>
         {!readOnly && (
-          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setAddingPage(true)}>
-            Страница
+          <Button size="sm" onClick={() => setAddingPage(true)}>
+            <Plus className="mr-1 size-3.5" /> Страница
           </Button>
         )}
       </div>
 
       {addingPage && (
-        <Space style={{ marginBottom: 8, width: '100%' }}>
+        <div className="flex gap-2 mb-2 w-full">
           <Input
             autoFocus
-            size="small"
-            placeholder="Название страницы"
             value={newPageTitle}
             onChange={(e) => setNewPageTitle(e.target.value)}
-            onPressEnter={commitAddPage}
-            style={{ flex: 1 }}
+            onKeyDown={e => { if (e.key === 'Enter') commitAddPage() }}
+            placeholder="Название страницы"
+            className="flex-1"
           />
-          <Button size="small" type="primary" onClick={commitAddPage}>OK</Button>
-          <Button size="small" onClick={() => { setAddingPage(false); setNewPageTitle('') }}>✕</Button>
-        </Space>
+          <Button size="sm" onClick={commitAddPage}>OK</Button>
+          <Button size="sm" variant="outline" onClick={() => { setAddingPage(false); setNewPageTitle('') }}>✕</Button>
+        </div>
       )}
 
       <div style={{ flex: 1, overflow: 'auto' }}>
@@ -529,15 +548,31 @@ export default function QuestionnairePanel({ questionnaire, parameters, onChange
           onDragEnd={handleDragEnd}
         >
           {pages.length === 0 ? (
-            <Text type="secondary" style={{ fontSize: 13 }}>
+            <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>
               Нажмите «Страница» чтобы создать первую страницу опросного листа.
-            </Text>
+            </p>
           ) : (
-            <Collapse
-              items={collapseItems}
-              defaultActiveKey={pages.map((p) => p._id)}
-              size="small"
-            />
+            <Accordion type="multiple" defaultValue={pages.map((p) => p._id)} className="space-y-1">
+              {pages.map((page) => (
+                  <PageAccordionItem
+                    key={page._id}
+                    page={page}
+                    onRename={handleRenamePage}
+                    onDeleteRequest={(pageId) => setDeleteTarget({ type: 'page', pageId })}
+                    readOnly={readOnly}
+                  >
+                    <PageContent
+                      page={page}
+                      parameters={parameters}
+                      onAddQuestion={() => openAddQuestion(page._id)}
+                      onEditQuestion={(q) => openEditQuestion(page._id, q)}
+                      onDeleteRequest={(qId) => setDeleteTarget({ type: 'question', questionId: qId, pageId: page._id })}
+                      onConditionChange={(qId, c) => handleConditionChange(page._id, qId, c)}
+                      readOnly={readOnly}
+                    />
+                  </PageAccordionItem>
+              ))}
+            </Accordion>
           )}
 
           <DragOverlay>
@@ -547,6 +582,30 @@ export default function QuestionnairePanel({ questionnaire, parameters, onChange
           </DragOverlay>
         </DndContext>
       </div>
+
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteTarget?.type === 'page' ? 'Удалить страницу со всеми вопросами?' : 'Удалить вопрос?'}
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>Нет</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => {
+              if (!deleteTarget) return
+              if (deleteTarget.type === 'page') {
+                handleDeletePage(deleteTarget.pageId)
+              } else {
+                handleDeleteQuestion(deleteTarget.pageId, deleteTarget.questionId!)
+              }
+              setDeleteTarget(null)
+            }}>
+              Да
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <QuestionModal
         open={qModal.open}

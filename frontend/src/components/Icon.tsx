@@ -75,6 +75,8 @@ export function Icon({ name, size = 16, className, style }: IconProps) {
     case 'indent-l': return <svg {...common}><path d="M3 6h18M3 12h10M3 18h10M21 12l-4 4V8z"/></svg>
     case 'page-break': return <svg {...common}><path d="M5 4h14v6H5zM5 14h14v6H5z" strokeDasharray="3 3"/><path d="M3 12h2m4 0h2m4 0h2m4 0h2"/></svg>
     case 'spacing': return <svg {...common}><path d="M3 6h6m6 0h6M3 12h18M3 18h6m6 0h6"/></svg>
+    case 'bug': return <svg {...common}><path d="M18 8h-3a4 4 0 0 0-6 0H6"/><path d="M18 14a6 6 0 0 1-12 0V8"/><path d="M20 4l-3 4M4 4l3 4"/><path d="M12 18v-4"/><path d="M8 10h.01M16 10h.01"/></svg>
+    case 'crosshair': return <svg {...common}><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="4"/></svg>
     default: return <svg {...common}><circle cx="12" cy="12" r="9"/></svg>
   }
 }

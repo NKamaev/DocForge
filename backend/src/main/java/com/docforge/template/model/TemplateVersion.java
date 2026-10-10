@@ -38,4 +38,19 @@ public class TemplateVersion {
 
     @Column(columnDefinition = "TEXT")
     private String comment;
+
+    @Column(name = "bump_type", length = 10)
+    private String bumpType;
+
+    @Column(name = "auto_description", columnDefinition = "TEXT")
+    private String autoDescription;
+
+    @Column(name = "rollback_from")
+    private Integer rollbackFrom;
+
+    @Column(name = "major_version")
+    private Integer majorVersion;
+
+    @Column(name = "minor_version")
+    private Integer minorVersion;
 }

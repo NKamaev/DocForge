@@ -9,6 +9,10 @@ import com.docforge.document.generator.PythonConditionEvaluator;
 import com.docforge.document.generator.ScriptExecutionException;
 import com.docforge.user.UserService;
 import com.docforge.template.dto.CreateTemplateRequest;
+import com.docforge.template.dto.DiffResult;
+import com.docforge.template.dto.RollbackResponse;
+import com.docforge.template.dto.SaveVersionRequest;
+import com.docforge.template.dto.SaveVersionResponse;
 import com.docforge.template.dto.ScriptTestRequest;
 import com.docforge.template.dto.ScriptTestResult;
 import com.docforge.template.dto.TemplateListItemResponse;
@@ -47,6 +51,7 @@ public class TemplateServiceImpl implements TemplateService {
     private final TemplateRepository templateRepository;
     private final TemplateVersionRepository versionRepository;
     private final TemplateSnapshotRepository snapshotRepository;
+    private final TemplateDiffService templateDiffService;
     private final AuditService auditService;
     private final TemplateValidator templateValidator;
     private final PythonConditionEvaluator pythonConditionEvaluator;
@@ -59,11 +64,6 @@ public class TemplateServiceImpl implements TemplateService {
     @Autowired
     private UserService userService;
 
-    /**
-     * Создание шаблона.
-     * Порядок: сначала PostgreSQL (внутри @Transactional), потом MongoDB.
-     * Если MongoDB-сохранение упадёт — транзакция JPA откатится автоматически.
-     */
     @Override
     @Transactional
     public TemplateResponse create(UUID ownerId, CreateTemplateRequest request) {
@@ -76,6 +76,8 @@ public class TemplateServiceImpl implements TemplateService {
         registry.setCategory(request.category());
         registry.setOwnerId(ownerId);
         registry.setDefaultFolderId(request.defaultFolderId());
+        registry.setMajorVersion(1);
+        registry.setMinorVersion(0);
         registry = registryRepository.save(registry);
 
         Template template = Template.builder()
@@ -89,9 +91,6 @@ public class TemplateServiceImpl implements TemplateService {
         return toResponse(registry, template);
     }
 
-    /**
-     * Загружает полный шаблон из MongoDB + метаданные из PostgreSQL.
-     */
     @Override
     @Transactional(readOnly = true)
     public TemplateResponse getById(UUID id) {
@@ -100,9 +99,6 @@ public class TemplateServiceImpl implements TemplateService {
         return toResponse(registry, template);
     }
 
-    /**
-     * Список шаблонов с пагинацией. Источник — PostgreSQL (быстрые фильтры и сортировка).
-     */
     @Override
     @Transactional(readOnly = true)
     public Page<TemplateListItemResponse> list(int page, int size, String category, Boolean isPublished) {
@@ -119,10 +115,6 @@ public class TemplateServiceImpl implements TemplateService {
         return registryRepository.findAll(spec, pageRequest).map(this::toListItem);
     }
 
-    /**
-     * Обновление шаблона.
-     * Порядок: сначала PostgreSQL (@Transactional), потом MongoDB.
-     */
     @Override
     @Transactional
     public TemplateResponse update(UUID id, UpdateTemplateRequest request) {
@@ -134,7 +126,6 @@ public class TemplateServiceImpl implements TemplateService {
         registry.setDescription(request.description());
         registry.setCategory(request.category());
         registry.setDefaultFolderId(request.defaultFolderId());
-        // version is managed exclusively by publish() — do not increment on draft saves
         registry = registryRepository.save(registry);
 
         Template template = findTemplateOrThrow(id);
@@ -151,11 +142,6 @@ public class TemplateServiceImpl implements TemplateService {
         return toResponse(registry, template);
     }
 
-    /**
-     * Удаление из обоих хранилищ.
-     * PostgreSQL удаляется внутри @Transactional — откатится при ошибке MongoDB.
-     * Если MongoDB вернёт ошибку уже после commit JPA — логируем, не бросаем.
-     */
     @Override
     @Transactional
     public void delete(UUID id) {
@@ -189,46 +175,145 @@ public class TemplateServiceImpl implements TemplateService {
         return setPublished(id, false);
     }
 
-    // ── private helpers ───────────────────────────────────────────────────────
+    // ── Versioning ────────────────────────────────────────────────────────────
 
-    private TemplateResponse setPublished(UUID id, boolean published) {
-        TemplateRegistry registry = findRegistryOrThrow(id);
-        Template template = findTemplateOrThrow(id);
+    @Override
+    @Transactional
+    public SaveVersionResponse saveVersion(UUID templateId, SaveVersionRequest request) {
+        TemplateRegistry registry = findRegistryOrThrow(templateId);
+        Template template = findTemplateOrThrow(templateId);
 
-        if (published) {
-            int nextVersion = versionRepository.findMaxVersionNumber(id) + 1;
-            registry.setVersion(nextVersion);
+        // Ensure current content is persisted before snapshot
+        template = templateRepository.save(template);
 
-            // Create version metadata in PostgreSQL
-            TemplateVersion version = new TemplateVersion();
-            version.setTemplateId(id);
-            version.setVersionNumber(nextVersion);
-            version.setCreatedBy(currentUserId());
-            version.setCreatedAt(OffsetDateTime.now());
-            versionRepository.save(version);
-
-            // Create snapshot in MongoDB
-            TemplateSnapshot snapshot = TemplateSnapshot.builder()
-                    .id(version.getId())
-                    .templateId(id)
-                    .versionNumber(nextVersion)
-                    .parameters(template.getParameters())
-                    .questionnaire(template.getQuestionnaire())
-                    .body(template.getBody())
-                    .formatting(template.getFormatting())
-                    .scripts(template.getScripts())
-                    .phrasings(template.getPhrasings())
-                    .createdAt(version.getCreatedAt().toInstant())
-                    .build();
-            snapshotRepository.save(snapshot);
-
-            log.info("Шаблон id={} опубликован, создан снимок version={} snapshotId={}", id, nextVersion, version.getId());
+        // Determine new version numbers
+        int newMajor = registry.getMajorVersion();
+        int newMinor = registry.getMinorVersion();
+        if ("MAJOR".equals(request.bumpType())) {
+            newMajor++;
+            newMinor = 0;
+        } else {
+            newMinor++;
         }
+        int newVersionNumber = newMajor * 10000 + newMinor;
 
-        registry.setPublished(published);
+        // Build auto-diff description
+        String autoDescription = buildAutoDescription(templateId, template, newMajor, newMinor);
+
+        // Update registry
+        registry.setMajorVersion(newMajor);
+        registry.setMinorVersion(newMinor);
+        registry.setVersion(newVersionNumber);
         registry = registryRepository.save(registry);
-        auditService.log(currentLogin(), "TEMPLATE", id, published ? "PUBLISH" : "UNPUBLISH", null);
-        return toResponse(registry, template);
+
+        // Create version metadata
+        TemplateVersion version = new TemplateVersion();
+        version.setTemplateId(templateId);
+        version.setVersionNumber(newVersionNumber);
+        version.setCreatedBy(currentUserId());
+        version.setCreatedAt(OffsetDateTime.now());
+        version.setComment(request.comment());
+        version.setBumpType(request.bumpType());
+        version.setAutoDescription(autoDescription);
+        version.setMajorVersion(newMajor);
+        version.setMinorVersion(newMinor);
+        versionRepository.save(version);
+
+        // Create snapshot in MongoDB
+        TemplateSnapshot snapshot = TemplateSnapshot.builder()
+                .id(version.getId())
+                .templateId(templateId)
+                .versionNumber(newVersionNumber)
+                .majorVersion(newMajor)
+                .minorVersion(newMinor)
+                .parameters(template.getParameters())
+                .questionnaire(template.getQuestionnaire())
+                .body(template.getBody())
+                .formatting(template.getFormatting())
+                .scripts(template.getScripts())
+                .phrasings(template.getPhrasings())
+                .createdAt(version.getCreatedAt().toInstant())
+                .build();
+        snapshotRepository.save(snapshot);
+
+        log.info("Создана версия шаблона id={} v{}.{} ({})", templateId, newMajor, newMinor, request.bumpType());
+        auditService.log(currentLogin(), "TEMPLATE", templateId, "SAVE_VERSION",
+                "version=" + newMajor + "." + newMinor + ",bumpType=" + request.bumpType());
+
+        TemplateVersionDTO dto = toVersionDTO(version);
+        return new SaveVersionResponse(dto, toResponse(registry, template));
+    }
+
+    @Override
+    @Transactional
+    public RollbackResponse rollback(UUID templateId, int versionNumber) {
+        TemplateRegistry registry = findRegistryOrThrow(templateId);
+        Template template = findTemplateOrThrow(templateId);
+        TemplateSnapshot snapshot = getSnapshot(templateId, versionNumber);
+
+        // Restore template content from snapshot
+        template.setParameters(snapshot.getParameters());
+        template.setQuestionnaire(snapshot.getQuestionnaire());
+        template.setBody(snapshot.getBody());
+        template.setFormatting(snapshot.getFormatting());
+        template.setScripts(snapshot.getScripts());
+        template.setPhrasings(snapshot.getPhrasings());
+        template = templateRepository.save(template);
+
+        // Create a new version as rollback
+        int newMajor = registry.getMajorVersion();
+        int newMinor = registry.getMinorVersion() + 1;
+        int newVersionNumber = newMajor * 10000 + newMinor;
+
+        registry.setMinorVersion(newMinor);
+        registry.setVersion(newVersionNumber);
+        registry = registryRepository.save(registry);
+
+        String autoDescription = "Откат к версии v" + snapshot.getMajorVersion() + "." + snapshot.getMinorVersion();
+
+        TemplateVersion version = new TemplateVersion();
+        version.setTemplateId(templateId);
+        version.setVersionNumber(newVersionNumber);
+        version.setCreatedBy(currentUserId());
+        version.setCreatedAt(OffsetDateTime.now());
+        version.setBumpType("ROLLBACK");
+        version.setAutoDescription(autoDescription);
+        version.setRollbackFrom(versionNumber);
+        version.setMajorVersion(newMajor);
+        version.setMinorVersion(newMinor);
+        versionRepository.save(version);
+
+        // Create snapshot
+        TemplateSnapshot newSnapshot = TemplateSnapshot.builder()
+                .id(version.getId())
+                .templateId(templateId)
+                .versionNumber(newVersionNumber)
+                .majorVersion(newMajor)
+                .minorVersion(newMinor)
+                .parameters(template.getParameters())
+                .questionnaire(template.getQuestionnaire())
+                .body(template.getBody())
+                .formatting(template.getFormatting())
+                .scripts(template.getScripts())
+                .phrasings(template.getPhrasings())
+                .createdAt(version.getCreatedAt().toInstant())
+                .build();
+        snapshotRepository.save(newSnapshot);
+
+        log.info("Откат шаблона id={} к версии {} -> новая v{}.{}", templateId, versionNumber, newMajor, newMinor);
+        auditService.log(currentLogin(), "TEMPLATE", templateId, "ROLLBACK",
+                "fromVersion=" + versionNumber + ",newVersion=" + newMajor + "." + newMinor);
+
+        TemplateVersionDTO dto = toVersionDTO(version);
+        return new RollbackResponse(dto, toResponse(registry, template));
+    }
+
+    @Override
+    public DiffResult getDiff(UUID templateId, int fromVersion, int toVersion) {
+        findRegistryOrThrow(templateId);
+        TemplateSnapshot from = getSnapshot(templateId, fromVersion);
+        TemplateSnapshot to = getSnapshot(templateId, toVersion);
+        return templateDiffService.diff(from, to);
     }
 
     @Override
@@ -236,8 +321,7 @@ public class TemplateServiceImpl implements TemplateService {
         findRegistryOrThrow(templateId);
         return versionRepository.findByTemplateIdOrderByVersionNumberDesc(templateId)
                 .stream()
-                .map(v -> new TemplateVersionDTO(v.getId(), v.getTemplateId(), v.getVersionNumber(),
-                        v.getCreatedAt(), v.getCreatedBy(), v.getComment()))
+                .map(this::toVersionDTO)
                 .toList();
     }
 
@@ -263,6 +347,67 @@ public class TemplateServiceImpl implements TemplateService {
                 .orElseThrow(() -> new ResourceNotFoundException("Снимок шаблона не найден: " + snapshotId));
     }
 
+    // ── private helpers ───────────────────────────────────────────────────────
+
+    private TemplateResponse setPublished(UUID id, boolean published) {
+        TemplateRegistry registry = findRegistryOrThrow(id);
+        Template template = findTemplateOrThrow(id);
+
+        if (published) {
+            int nextVersion = versionRepository.findMaxVersionNumber(id) + 1;
+            registry.setVersion(nextVersion);
+
+            TemplateVersion version = new TemplateVersion();
+            version.setTemplateId(id);
+            version.setVersionNumber(nextVersion);
+            version.setCreatedBy(currentUserId());
+            version.setCreatedAt(OffsetDateTime.now());
+            version.setBumpType("PUBLISH");
+            version.setMajorVersion(registry.getMajorVersion());
+            version.setMinorVersion(registry.getMinorVersion());
+            versionRepository.save(version);
+
+            TemplateSnapshot snapshot = TemplateSnapshot.builder()
+                    .id(version.getId())
+                    .templateId(id)
+                    .versionNumber(nextVersion)
+                    .majorVersion(registry.getMajorVersion())
+                    .minorVersion(registry.getMinorVersion())
+                    .parameters(template.getParameters())
+                    .questionnaire(template.getQuestionnaire())
+                    .body(template.getBody())
+                    .formatting(template.getFormatting())
+                    .scripts(template.getScripts())
+                    .phrasings(template.getPhrasings())
+                    .createdAt(version.getCreatedAt().toInstant())
+                    .build();
+            snapshotRepository.save(snapshot);
+
+            log.info("Шаблон id={} опубликован, создан снимок version={} snapshotId={}", id, nextVersion, version.getId());
+        }
+
+        registry.setPublished(published);
+        registry = registryRepository.save(registry);
+        auditService.log(currentLogin(), "TEMPLATE", id, published ? "PUBLISH" : "UNPUBLISH", null);
+        return toResponse(registry, template);
+    }
+
+    private String buildAutoDescription(UUID templateId, Template current, int newMajor, int newMinor) {
+        // Diff with previous snapshot if exists
+        int currentVersionNumber = newMajor * 10000 + newMinor;
+        int prevVersionNumber = versionRepository.findMaxVersionNumber(templateId);
+        if (prevVersionNumber > 0 && prevVersionNumber < currentVersionNumber) {
+            try {
+                TemplateSnapshot prev = getSnapshot(templateId, prevVersionNumber);
+                DiffResult diff = templateDiffService.diff(prev, new TemplateSnapshotSupplier(current));
+                return diff.summary();
+            } catch (Exception e) {
+                log.warn("Не удалось сформировать авто-описание для шаблона {}: {}", templateId, e.getMessage());
+            }
+        }
+        return "Первая версия";
+    }
+
     private TemplateRegistry findRegistryOrThrow(UUID id) {
         return registryRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Шаблон не найден: " + id));
@@ -276,7 +421,8 @@ public class TemplateServiceImpl implements TemplateService {
     private TemplateResponse toResponse(TemplateRegistry r, Template t) {
         return new TemplateResponse(
                 r.getId(), r.getCode(), r.getName(), r.getDescription(), r.getCategory(),
-                r.getVersion(), r.isPublished(), r.getOwnerId(), r.getCreatedAt(), r.getUpdatedAt(),
+                r.getVersion(), r.getMajorVersion(), r.getMinorVersion(),
+                r.isPublished(), r.getOwnerId(), r.getCreatedAt(), r.getUpdatedAt(),
                 r.getDefaultFolderId(),
                 t.getParameters(), t.getQuestionnaire(), t.getBody(), t.getFormatting(), t.getScripts(),
                 t.getPhrasings()
@@ -286,7 +432,21 @@ public class TemplateServiceImpl implements TemplateService {
     private TemplateListItemResponse toListItem(TemplateRegistry r) {
         return new TemplateListItemResponse(
                 r.getId(), r.getCode(), r.getName(), r.getDescription(),
-                r.getCategory(), r.isPublished(), r.getCreatedAt()
+                r.getCategory(), r.isPublished(), r.getMajorVersion(), r.getMinorVersion(),
+                r.getCreatedAt()
+        );
+    }
+
+    private TemplateVersionDTO toVersionDTO(TemplateVersion v) {
+        int major = v.getMajorVersion() != null ? v.getMajorVersion()
+                : (v.getVersionNumber() / 10000 > 0 ? v.getVersionNumber() / 10000 : v.getVersionNumber());
+        int minor = v.getMinorVersion() != null ? v.getMinorVersion()
+                : (v.getVersionNumber() % 10000);
+        return new TemplateVersionDTO(
+                v.getId(), v.getTemplateId(), v.getVersionNumber(),
+                major, minor,
+                v.getCreatedAt(), v.getCreatedBy(),
+                v.getComment(), v.getBumpType(), v.getAutoDescription(), v.getRollbackFrom()
         );
     }
 
@@ -340,5 +500,21 @@ public class TemplateServiceImpl implements TemplateService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Adapter wrapping a live Template to implement TemplateDiffService.ParameterTypeSupplier.
+     */
+    private record TemplateSnapshotSupplier(Template template) implements ParameterTypeSupplier {
+        @Override
+        public List<com.docforge.template.model.Parameter> getParameters() { return template.getParameters(); }
+        @Override
+        public Map<String, Object> getBody() { return template.getBody(); }
+        @Override
+        public com.docforge.template.model.Questionnaire getQuestionnaire() { return template.getQuestionnaire(); }
+        @Override
+        public List<Script> getScripts() { return template.getScripts(); }
+        @Override
+        public List<com.docforge.template.model.Phrasing> getPhrasings() { return template.getPhrasings(); }
     }
 }

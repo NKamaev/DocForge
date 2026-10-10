@@ -102,9 +102,11 @@ class FolderMembersIT extends AbstractIT {
         folderPermissionService.grantRole(folder.id(), viewerId, FolderRole.EDITOR, ownerId);
 
         List<FolderMemberDTO> members = folderPermissionService.listMembers(folder.id(), ownerId);
-        assertThat(members).hasSize(1);
-        assertThat(members.get(0).userId()).isEqualTo(viewerId);
-        assertThat(members.get(0).role()).isEqualTo("EDITOR");
+        assertThat(members).hasSize(2);
+        assertThat(members.get(0).userId()).isEqualTo(ownerId);
+        assertThat(members.get(0).role()).isEqualTo("OWNER");
+        assertThat(members.get(1).userId()).isEqualTo(viewerId);
+        assertThat(members.get(1).role()).isEqualTo("EDITOR");
 
         // viewer now has WRITE via EDITOR role
         assertThat(folderPermissionService.hasPermission(folder.id(), viewerId, FolderPermission.WRITE)).isTrue();
@@ -123,7 +125,10 @@ class FolderMembersIT extends AbstractIT {
         folderPermissionService.revokeRole(folder.id(), viewerId, ownerId);
 
         assertThat(folderPermissionService.hasPermission(folder.id(), viewerId, FolderPermission.VIEW)).isFalse();
-        assertThat(folderPermissionService.listMembers(folder.id(), ownerId)).isEmpty();
+        List<FolderMemberDTO> members = folderPermissionService.listMembers(folder.id(), ownerId);
+        assertThat(members).hasSize(1);
+        assertThat(members.get(0).userId()).isEqualTo(ownerId);
+        assertThat(members.get(0).role()).isEqualTo("OWNER");
     }
 
     @Test

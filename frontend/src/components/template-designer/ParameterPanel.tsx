@@ -1,8 +1,33 @@
 import { useEffect, useState } from 'react'
 import {
-  Badge, Button, Checkbox, Form, Input, InputNumber, List,
-  Modal, Popconfirm, Select, Space, Spin, Tag, Tooltip, Typography,
-} from 'antd'
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Badge,
+  Button,
+  Checkbox,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
@@ -11,30 +36,34 @@ import {
   SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { DeleteOutlined, EditOutlined, HolderOutlined, PlusOutlined } from '@ant-design/icons'
+import { GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Parameter } from '../../types/template'
 import type { ParameterType, ParameterFormat } from '../../types/templateModel'
 import type { DirectoryListItem, DirectoryField } from '../../types/directory'
 import { directoriesApi } from '../../api/directoriesApi'
 import ParameterFormatSelector from './ParameterFormatSelector'
 
-const { Text } = Typography
-
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TYPE_OPTIONS: { value: ParameterType; label: string; color: string }[] = [
-  { value: 'TEXT',      label: 'Текст',      color: 'blue'     },
-  { value: 'NUMBER',    label: 'Число',      color: 'orange'   },
-  { value: 'DATE',      label: 'Дата',       color: 'green'    },
-  { value: 'FIO',       label: 'ФИО',        color: 'purple'   },
-  { value: 'BOOLEAN',   label: 'Да/Нет',     color: 'cyan'     },
-  { value: 'SELECT',    label: 'Список',     color: 'magenta'  },
-  { value: 'DIRECTORY', label: 'Справочник', color: 'geekblue' },
+const TYPE_OPTIONS: { value: ParameterType; label: string }[] = [
+  { value: 'TEXT',      label: 'Текст'      },
+  { value: 'NUMBER',    label: 'Число'       },
+  { value: 'DATE',      label: 'Дата'        },
+  { value: 'FIO',       label: 'ФИО'         },
+  { value: 'BOOLEAN',   label: 'Да/Нет'      },
+  { value: 'SELECT',    label: 'Список'      },
+  { value: 'DIRECTORY', label: 'Справочник'  },
 ]
 
-const TYPE_COLOR: Record<ParameterType, string> = Object.fromEntries(
-  TYPE_OPTIONS.map((t) => [t.value, t.color])
-) as Record<ParameterType, string>
+const TYPE_CLASSES: Record<string, string> = {
+  TEXT: 'bg-blue-100 text-blue-700',
+  NUMBER: 'bg-orange-100 text-orange-700',
+  DATE: 'bg-green-100 text-green-700',
+  FIO: 'bg-purple-100 text-purple-700',
+  BOOLEAN: 'bg-cyan-100 text-cyan-700',
+  SELECT: 'bg-pink-100 text-pink-700',
+  DIRECTORY: 'bg-indigo-100 text-indigo-700',
+}
 
 const CODE_PATTERN = /^[a-z][a-z0-9_]*$/
 
@@ -46,12 +75,12 @@ interface ParameterFormValues {
   type: ParameterType
   required: boolean
   defaultValue?: string
-  options?: string[]
+  options: string[]
   validationMin?: number
   validationMax?: number
   validationPattern?: string
   directoryId?: string
-  directoryFields?: string[]
+  directoryFields: string[]
   format?: ParameterFormat | null
 }
 
@@ -89,191 +118,16 @@ function parameterToForm(p: Parameter): ParameterFormValues {
   }
 }
 
-// ── Parameter form (inside modal) ─────────────────────────────────────────────
-
-interface ParameterFormProps {
-  form: ReturnType<typeof Form.useForm<ParameterFormValues>>[0]
-  existingCodes: string[]
-  editingCode?: string   // when editing — allow own code
-  formatValue: ParameterFormat | null
-  onFormatChange: (fmt: ParameterFormat | null) => void
-}
-
-function ParameterFormFields({ form, existingCodes, editingCode, formatValue: fmtValue, onFormatChange }: ParameterFormProps) {
-  const selectedType   = Form.useWatch('type', form)
-  const selectedDirId  = Form.useWatch('directoryId', form)
-
-  const [directories,   setDirectories]   = useState<DirectoryListItem[]>([])
-  const [dirFields,     setDirFields]     = useState<DirectoryField[]>([])
-  const [dirLoading,    setDirLoading]    = useState(false)
-  const [fieldsLoading, setFieldsLoading] = useState(false)
-
-  // Load directory list once when DIRECTORY type is selected
-  useEffect(() => {
-    if (selectedType !== 'DIRECTORY') return
-    setDirLoading(true)
-    directoriesApi.list()
-      .then(setDirectories)
-      .finally(() => setDirLoading(false))
-  }, [selectedType])
-
-  // Load directory fields when a directory is selected
-  useEffect(() => {
-    if (!selectedDirId) { setDirFields([]); return }
-    setFieldsLoading(true)
-    directoriesApi.getById(selectedDirId)
-      .then(d => setDirFields(d.fields))
-      .finally(() => setFieldsLoading(false))
-  }, [selectedDirId])
-
-  return (
-    <>
-      <Form.Item
-        name="code"
-        label="Код"
-        tooltip="snake_case, только латиница: client_name"
-        rules={[
-          { required: true, message: 'Введите код' },
-          { pattern: CODE_PATTERN, message: 'Только строчные латинские буквы, цифры и _' },
-          {
-            validator: (_, value) =>
-              !value || !existingCodes.includes(value) || value === editingCode
-                ? Promise.resolve()
-                : Promise.reject('Код уже используется'),
-          },
-        ]}
-      >
-        <Input placeholder="client_name" style={{ fontFamily: 'monospace' }} />
-      </Form.Item>
-
-      <Form.Item name="label" label="Название" rules={[{ required: true, message: 'Введите название' }]}>
-        <Input placeholder="ФИО клиента" />
-      </Form.Item>
-
-      <Form.Item name="type" label="Тип" rules={[{ required: true }]}>
-        <Select options={TYPE_OPTIONS.map((t) => ({ value: t.value, label: t.label }))} />
-      </Form.Item>
-
-      <Form.Item name="required" valuePropName="checked">
-        <Checkbox>Обязательный</Checkbox>
-      </Form.Item>
-
-      {selectedType === 'SELECT' && (
-        <Form.List name="options">
-          {(fields, { add, remove }) => (
-            <Form.Item label="Варианты">
-              <Space direction="vertical" style={{ width: '100%' }}>
-                {fields.map((field) => (
-                  <Space key={field.key} style={{ width: '100%' }}>
-                    <Form.Item {...field} noStyle rules={[{ required: true, message: 'Введите вариант' }]}>
-                      <Input placeholder="Вариант" style={{ width: 240 }} />
-                    </Form.Item>
-                    <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
-                  </Space>
-                ))}
-                <Button type="dashed" icon={<PlusOutlined />} onClick={() => add('')} size="small">
-                  Добавить вариант
-                </Button>
-              </Space>
-            </Form.Item>
-          )}
-        </Form.List>
-      )}
-
-      {selectedType === 'DIRECTORY' && (
-        <>
-          <Form.Item
-            name="directoryId"
-            label="Справочник"
-            rules={[{ required: true, message: 'Выберите справочник' }]}
-          >
-            <Select
-              loading={dirLoading}
-              placeholder="Выберите справочник"
-              options={directories.map(d => ({ value: d.id, label: d.name }))}
-              onChange={() => form.setFieldValue('directoryFields', [])}
-              allowClear
-            />
-          </Form.Item>
-
-          {selectedDirId && (
-            <Form.Item
-              name="directoryFields"
-              label="Поля для подстановки"
-              tooltip="Выбранные поля будут доступны в теле шаблона как отдельные параметры"
-            >
-              {fieldsLoading
-                ? <Spin size="small" />
-                : (
-                  <Checkbox.Group
-                    options={dirFields.map(f => ({ value: f.key, label: f.label || f.key }))}
-                    style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
-                  />
-                )
-              }
-            </Form.Item>
-          )}
-        </>
-      )}
-
-      {selectedType !== 'DIRECTORY' && (
-        <Form.Item name="defaultValue" label="Значение по умолчанию">
-          {selectedType === 'BOOLEAN'
-            ? <Select allowClear options={[{ value: 'true', label: 'Да' }, { value: 'false', label: 'Нет' }]} />
-            : selectedType === 'SELECT'
-            ? <Input placeholder="Один из вариантов выше" />
-            : <Input placeholder={selectedType === 'DATE' ? '$TODAY или дата' : 'Значение'} />
-          }
-        </Form.Item>
-      )}
-
-      {(selectedType === 'TEXT' || selectedType === 'NUMBER') && (
-        <>
-          {selectedType === 'NUMBER' && (
-            <Space>
-              <Form.Item name="validationMin" label="Мин">
-                <InputNumber style={{ width: 100 }} />
-              </Form.Item>
-              <Form.Item name="validationMax" label="Макс">
-                <InputNumber style={{ width: 100 }} />
-              </Form.Item>
-            </Space>
-          )}
-          {selectedType === 'TEXT' && (
-            <Form.Item name="validationPattern" label="Паттерн (regex)">
-              <Input placeholder="^[А-ЯЁ].*" style={{ fontFamily: 'monospace' }} />
-            </Form.Item>
-          )}
-        </>
-      )}
-
-      {(selectedType === 'DATE' || selectedType === 'NUMBER' || selectedType === 'FIO') && (
-        <Form.Item
-          label="Формат отображения"
-          tooltip="Как значение будет выглядеть в готовом документе. Можно переопределить для каждого поля отдельно."
-        >
-          <ParameterFormatSelector
-            paramType={selectedType}
-            value={fmtValue}
-            onChange={onFormatChange}
-          />
-        </Form.Item>
-      )}
-    </>
-  )
-}
-
 // ── Sortable row ──────────────────────────────────────────────────────────────
 
 interface SortableRowProps {
   parameter: Parameter
-  usedInBody: boolean
   onEdit: () => void
-  onDelete: () => void
+  onDeleteRequest: () => void
   readOnly?: boolean
 }
 
-function SortableRow({ parameter, usedInBody, onEdit, onDelete, readOnly }: SortableRowProps) {
+function SortableRow({ parameter, onEdit, onDeleteRequest, readOnly }: SortableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: parameter.code })
 
@@ -285,59 +139,305 @@ function SortableRow({ parameter, usedInBody, onEdit, onDelete, readOnly }: Sort
   }
 
   return (
-    <List.Item
+    <div
       ref={setNodeRef}
-      style={{ ...style, padding: '8px 0', alignItems: 'flex-start' }}
-      actions={readOnly ? [] : [
-        <Tooltip key="edit" title="Редактировать">
-          <Button type="text" size="small" icon={<EditOutlined />} onClick={onEdit} />
-        </Tooltip>,
-        usedInBody ? (
-          <Popconfirm
-            key="del"
-            title="Параметр используется в теле шаблона"
-            description="При удалении ноды parameter_field для этого параметра останутся в тексте. Продолжить?"
-            okText="Удалить"
-            cancelText="Отмена"
-            okButtonProps={{ danger: true }}
-            onConfirm={onDelete}
-          >
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        ) : (
-          <Popconfirm key="del" title="Удалить параметр?" okText="Да" cancelText="Нет" onConfirm={onDelete}>
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        ),
-      ]}
+      style={{ ...style, padding: '8px 0', display: 'flex', alignItems: 'flex-start', gap: 8 }}
     >
-      <Space size={4} align="start">
-        {/* Drag handle */}
-        <span
-          {...attributes}
-          {...(readOnly ? {} : listeners)}
-          data-testid="drag-handle"
-          style={{ cursor: readOnly ? 'default' : 'grab', color: '#bbb', padding: '2px 4px', display: 'flex', alignItems: 'center' }}
-        >
-          <HolderOutlined />
-        </span>
+      {/* Drag handle */}
+      <span
+        {...attributes}
+        {...(readOnly ? {} : listeners)}
+        data-testid="drag-handle"
+        style={{ cursor: readOnly ? 'default' : 'grab', color: '#bbb', padding: '2px 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+      >
+        <GripVertical className="size-4" />
+      </span>
 
-        <Space direction="vertical" size={2}>
-          <Space size={6}>
-            <Text strong style={{ fontSize: 13 }}>{parameter.label}</Text>
-            {parameter.required && <Badge dot color="red" title="Обязательный" />}
-          </Space>
-          <Space size={6}>
-            <Tag color={TYPE_COLOR[parameter.type]} style={{ fontSize: 11, lineHeight: '18px' }}>
-              {parameter.type}
-            </Tag>
-            <Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace' }}>
-              {parameter.code}
-            </Text>
-          </Space>
-        </Space>
-      </Space>
-    </List.Item>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{parameter.label}</span>
+          {parameter.required && <span className="size-2 rounded-full bg-red-500 inline-block" title="Обязательный" />}
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+          <Badge variant="outline" className={`text-[11px] ${TYPE_CLASSES[parameter.type] ?? ''}`}>
+            {parameter.type}
+          </Badge>
+          <span style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--ink-3)' }}>
+            {parameter.code}
+          </span>
+        </div>
+      </div>
+
+      {!readOnly && (
+        <div className="flex gap-0.5 shrink-0">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-sm" onClick={onEdit}>
+                  <Pencil className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Редактировать</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <Button variant="ghost" size="icon-sm" onClick={onDeleteRequest}>
+            <Trash2 className="size-3.5 text-destructive" />
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Parameter form (inside modal) ─────────────────────────────────────────────
+
+interface ParameterFormInnerProps {
+  values: ParameterFormValues
+  onChange: (v: ParameterFormValues) => void
+  existingCodes: string[]
+  editingCode?: string
+  errors: Record<string, string>
+}
+
+function ParameterFormFields({ values, onChange, existingCodes, editingCode, errors }: ParameterFormInnerProps) {
+  const [directories, setDirectories] = useState<DirectoryListItem[]>([])
+  const [dirFields, setDirFields] = useState<DirectoryField[]>([])
+  const [fieldsLoading, setFieldsLoading] = useState(false)
+
+  // Load directory list once when DIRECTORY type is selected
+  useEffect(() => {
+    if (values.type !== 'DIRECTORY') return
+    directoriesApi.list()
+      .then(setDirectories)
+  }, [values.type])
+
+  // Load directory fields when a directory is selected
+  useEffect(() => {
+    if (!values.directoryId) { setDirFields([]); return }
+    setFieldsLoading(true)
+    directoriesApi.getById(values.directoryId)
+      .then(d => setDirFields(d.fields))
+      .finally(() => setFieldsLoading(false))
+  }, [values.directoryId])
+
+  const set = (partial: Partial<ParameterFormValues>) => onChange({ ...values, ...partial })
+
+  const codeError =
+    !values.code
+      ? 'Введите код'
+      : !CODE_PATTERN.test(values.code)
+        ? 'Только строчные латинские буквы, цифры и _'
+        : existingCodes.includes(values.code) && values.code !== editingCode
+          ? 'Код уже используется'
+          : null
+
+  return (
+    <div className="space-y-4">
+      {/* Code */}
+      <div className="space-y-1.5">
+        <Label htmlFor="param-code">
+          Код <span className="text-destructive">*</span>
+          <span className="text-xs text-muted-foreground ml-1">(snake_case, только латиница: client_name)</span>
+        </Label>
+        <Input
+          id="param-code"
+          value={values.code}
+          onChange={e => set({ code: e.target.value })}
+          placeholder="client_name"
+          className={`font-mono ${codeError ? 'border-destructive' : ''}`}
+        />
+        {codeError && <p className="text-xs text-destructive">{codeError}</p>}
+      </div>
+
+      {/* Label */}
+      <div className="space-y-1.5">
+        <Label htmlFor="param-label">Название <span className="text-destructive">*</span></Label>
+        <Input
+          id="param-label"
+          value={values.label}
+          onChange={e => set({ label: e.target.value })}
+          placeholder="ФИО клиента"
+        />
+        {errors.label && <p className="text-xs text-destructive">{errors.label}</p>}
+      </div>
+
+      {/* Type */}
+      <div className="space-y-1.5">
+        <Label>Тип <span className="text-destructive">*</span></Label>
+        <Select value={values.type} onValueChange={(v: ParameterType) => set({ type: v, options: v === 'SELECT' ? (values.options ?? []) : [] })}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Выберите тип" />
+          </SelectTrigger>
+          <SelectContent>
+            {TYPE_OPTIONS.map(t => (
+              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Required */}
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="param-required"
+          checked={values.required}
+          onCheckedChange={(checked) => set({ required: checked === true })}
+        />
+        <Label htmlFor="param-required" className="font-normal">Обязательный</Label>
+      </div>
+
+      {/* SELECT options */}
+      {values.type === 'SELECT' && (
+        <div className="space-y-1.5">
+          <Label>Варианты</Label>
+          {values.options.map((opt, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                value={opt}
+                onChange={e => {
+                  const opts = [...values.options]
+                  opts[i] = e.target.value
+                  set({ options: opts })
+                }}
+                placeholder="Вариант"
+              />
+              <Button variant="ghost" size="icon-sm" onClick={() => set({ options: values.options.filter((_, j) => j !== i) })}>
+                <Trash2 className="size-3.5 text-destructive" />
+              </Button>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={() => set({ options: [...values.options, ''] })}>
+            <Plus className="mr-1 size-3.5" /> Добавить вариант
+          </Button>
+        </div>
+      )}
+
+      {/* DIRECTORY fields */}
+      {values.type === 'DIRECTORY' && (
+        <>
+          <div className="space-y-1.5">
+            <Label>Справочник <span className="text-destructive">*</span></Label>
+            <Select
+              value={values.directoryId ?? ''}
+              onValueChange={v => set({ directoryId: v || undefined, directoryFields: [] })}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Выберите справочник" />
+              </SelectTrigger>
+              <SelectContent>
+                {directories.map(d => (
+                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {values.directoryId && (
+            <div className="space-y-1.5">
+              <Label>
+                Поля для подстановки
+                <span className="text-xs text-muted-foreground ml-1">(будут доступны в теле шаблона как отдельные параметры)</span>
+              </Label>
+              {fieldsLoading ? (
+                <p className="text-sm text-muted-foreground">Загрузка...</p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {dirFields.map(f => (
+                    <label key={f.key} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={values.directoryFields.includes(f.key)}
+                        onCheckedChange={(checked) => {
+                          const next = checked
+                            ? [...values.directoryFields, f.key]
+                            : values.directoryFields.filter(k => k !== f.key)
+                          set({ directoryFields: next })
+                        }}
+                      />
+                      <span>{f.label || f.key}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Default value (not for DIRECTORY) */}
+      {values.type !== 'DIRECTORY' && (
+        <div className="space-y-1.5">
+          <Label>Значение по умолчанию</Label>
+          {values.type === 'BOOLEAN' ? (
+            <Select value={values.defaultValue ?? ''} onValueChange={v => set({ defaultValue: v || undefined })}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Выберите..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="true">Да</SelectItem>
+                <SelectItem value="false">Нет</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : values.type === 'SELECT' ? (
+            <Input value={values.defaultValue ?? ''} onChange={e => set({ defaultValue: e.target.value })} placeholder="Один из вариантов выше" />
+          ) : (
+            <Input value={values.defaultValue ?? ''} onChange={e => set({ defaultValue: e.target.value })} placeholder={values.type === 'DATE' ? '$TODAY или дата' : 'Значение'} />
+          )}
+        </div>
+      )}
+
+      {/* Validation (TEXT/NUMBER) */}
+      {(values.type === 'TEXT' || values.type === 'NUMBER') && (
+        <>
+          {values.type === 'NUMBER' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Мин</Label>
+                <Input
+                  type="number"
+                  value={values.validationMin ?? ''}
+                  onChange={e => set({ validationMin: e.target.value ? Number(e.target.value) : undefined })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Макс</Label>
+                <Input
+                  type="number"
+                  value={values.validationMax ?? ''}
+                  onChange={e => set({ validationMax: e.target.value ? Number(e.target.value) : undefined })}
+                />
+              </div>
+            </div>
+          )}
+          {values.type === 'TEXT' && (
+            <div className="space-y-1.5">
+              <Label>Паттерн (regex)</Label>
+              <Input
+                value={values.validationPattern ?? ''}
+                onChange={e => set({ validationPattern: e.target.value || undefined })}
+                placeholder="^[А-ЯЁ].*"
+                className="font-mono"
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Format selector */}
+      {(values.type === 'DATE' || values.type === 'NUMBER' || values.type === 'FIO') && (
+        <div className="space-y-1.5">
+          <Label>
+            Формат отображения
+            <span className="text-xs text-muted-foreground ml-1">(как значение будет выглядеть в готовом документе)</span>
+          </Label>
+          <ParameterFormatSelector
+            paramType={values.type}
+            value={values.format ?? null}
+            onChange={fmt => set({ format: fmt })}
+          />
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -354,8 +454,11 @@ interface Props {
 export default function ParameterPanel({ parameters, onChange, usedCodes, readOnly }: Props) {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingCode, setEditingCode] = useState<string | null>(null)
-  const [formatDraft, setFormatDraft] = useState<ParameterFormat | null>(null)
-  const [form] = Form.useForm<ParameterFormValues>()
+  const [deleteParamCode, setDeleteParamCode] = useState<string | null>(null)
+  const [formValues, setFormValues] = useState<ParameterFormValues>({
+    code: '', label: '', type: 'TEXT', required: false, options: [], directoryFields: [], format: null,
+  })
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -373,24 +476,34 @@ export default function ParameterPanel({ parameters, onChange, usedCodes, readOn
   // ── Open add modal ──
   const openAdd = () => {
     setEditingCode(null)
-    setFormatDraft(null)
-    form.resetFields()
-    form.setFieldsValue({ type: 'TEXT', required: false, options: [] })
+    setFormValues({ code: '', label: '', type: 'TEXT', required: false, options: [], directoryFields: [], format: null })
+    setFormErrors({})
     setModalOpen(true)
   }
 
   // ── Open edit modal ──
   const openEdit = (param: Parameter) => {
     setEditingCode(param.code)
-    setFormatDraft(param.format ?? null)
-    form.setFieldsValue(parameterToForm(param))
+    setFormValues(parameterToForm(param))
+    setFormErrors({})
     setModalOpen(true)
   }
 
   // ── Save ──
-  const handleSave = async () => {
-    const values = await form.validateFields()
-    const next = formToParameter({ ...values, format: formatDraft })
+  const handleSave = () => {
+    // Validate
+    const errors: Record<string, string> = {}
+    if (!formValues.code.trim()) errors.code = 'Введите код'
+    else if (!CODE_PATTERN.test(formValues.code)) errors.code = 'Только строчные латинские буквы, цифры и _'
+    else if (existingCodes.includes(formValues.code) && formValues.code !== editingCode) errors.code = 'Код уже используется'
+    if (!formValues.label.trim()) errors.label = 'Введите название'
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors)
+      return
+    }
+
+    const next = formToParameter({ ...formValues, format: formValues.format })
 
     if (editingCode) {
       onChange(parameters.map((p) => (p.code === editingCode ? next : p)))
@@ -408,62 +521,79 @@ export default function ParameterPanel({ parameters, onChange, usedCodes, readOn
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <Text strong>Параметры ({parameters.length})</Text>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>Параметры ({parameters.length})</span>
         {!readOnly && (
-          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAdd}>
-            Добавить
+          <Button size="sm" onClick={openAdd}>
+            <Plus className="mr-1 size-3.5" /> Добавить
           </Button>
         )}
       </div>
 
       {parameters.length === 0 ? (
-        <Text type="secondary" style={{ fontSize: 13 }}>
+        <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>
           {readOnly ? 'Нет параметров.' : 'Нет параметров. Нажмите «Добавить» чтобы создать первый.'}
-        </Text>
+        </span>
       ) : (
         <div style={{ flex: 1, overflow: 'auto' }}>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={parameters.map((p) => p.code)} strategy={verticalListSortingStrategy}>
-              <List
-                size="small"
-                dataSource={parameters}
-                rowKey="code"
-                renderItem={(param) => (
+              {parameters.map((param) => (
                   <SortableRow
                     key={param.code}
                     parameter={param}
-                    usedInBody={usedCodes.has(param.code)}
                     onEdit={() => openEdit(param)}
-                    onDelete={() => handleDelete(param.code)}
+                    onDeleteRequest={() => setDeleteParamCode(param.code)}
                     readOnly={readOnly}
                   />
-                )}
-              />
+              ))}
             </SortableContext>
           </DndContext>
         </div>
       )}
 
-      <Modal
-        title={editingCode ? 'Редактировать параметр' : 'Новый параметр'}
-        open={modalOpen}
-        onOk={handleSave}
-        onCancel={() => setModalOpen(false)}
-        okText="Сохранить"
-        cancelText="Отмена"
-        destroyOnHidden
-        width={480}
-      >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <ParameterFormFields
-            form={form}
-            existingCodes={existingCodes}
-            editingCode={editingCode ?? undefined}
-            formatValue={formatDraft}
-            onFormatChange={setFormatDraft}
-          />
-        </Form>
-      </Modal>
+      <AlertDialog open={deleteParamCode !== null} onOpenChange={(open) => { if (!open) setDeleteParamCode(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteParamCode && usedCodes.has(deleteParamCode)
+                ? 'Параметр используется в теле шаблона'
+                : 'Удалить параметр?'}
+            </AlertDialogTitle>
+            {deleteParamCode && usedCodes.has(deleteParamCode) && (
+              <AlertDialogDescription>
+                При удалении ноды parameter_field для этого параметра останутся в тексте. Продолжить?
+              </AlertDialogDescription>
+            )}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteParamCode(null)}>Отмена</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => { if (deleteParamCode) handleDelete(deleteParamCode); setDeleteParamCode(null) }}>
+              {deleteParamCode && usedCodes.has(deleteParamCode) ? 'Удалить' : 'Да'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={modalOpen} onOpenChange={(open) => { if (!open) setModalOpen(false) }}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>{editingCode ? 'Редактировать параметр' : 'Новый параметр'}</DialogTitle>
+          </DialogHeader>
+          <div className="mt-4">
+            <ParameterFormFields
+              values={formValues}
+              onChange={setFormValues}
+              existingCodes={existingCodes}
+              editingCode={editingCode ?? undefined}
+              errors={formErrors}
+            />
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setModalOpen(false)}>Отмена</Button>
+            <Button onClick={handleSave}>Сохранить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

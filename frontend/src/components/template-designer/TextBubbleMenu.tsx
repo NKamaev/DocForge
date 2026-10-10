@@ -1,23 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, ColorPicker, Dropdown, Space, Tooltip } from 'antd'
-import type { MenuProps } from 'antd'
 import type { Editor } from '@tiptap/react'
 import { useEditorState } from '@tiptap/react'
 import { BubbleMenuPlugin } from '@tiptap/extension-bubble-menu'
 import { PluginKey } from '@tiptap/pm/state'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { ColorPicker } from '@/components/ui/color-picker'
 import {
-  BoldOutlined,
-  ItalicOutlined,
-  LinkOutlined,
-  PlusSquareOutlined,
-  StrikethroughOutlined,
-  UnderlineOutlined,
-} from '@ant-design/icons'
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
+  Bold,
+  Italic,
+  Link,
+  Plus,
+  Strikethrough,
+  Underline,
+} from 'lucide-react'
 import type { Parameter } from '../../types/template'
 
-// Keep a reference to the BubbleMenuView for cleanup
-// (the plugin holds it internally — just need to unregister via key)
 const BUBBLE_MENU_KEY = new PluginKey('textBubbleMenu')
 
 interface Props {
@@ -30,10 +40,8 @@ export default function TextBubbleMenu({ editor, parameters = [] }: Props) {
   const [ready, setReady] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
 
-  // Register BubbleMenuPlugin once on mount
   useEffect(() => {
     const element = containerRef.current
-    // Make the element invisible until placed (plugin controls visibility)
     element.style.visibility = 'hidden'
     element.style.position = 'absolute'
     element.style.zIndex = '100'
@@ -45,7 +53,6 @@ export default function TextBubbleMenu({ editor, parameters = [] }: Props) {
       element,
       shouldShow: ({ state, from, to }) => {
         if (from === to) return false
-        // Don't show over table selections
         const { doc } = state
         const resolvedFrom = doc.resolve(from)
         for (let d = resolvedFrom.depth; d > 0; d--) {
@@ -67,7 +74,6 @@ export default function TextBubbleMenu({ editor, parameters = [] }: Props) {
     }
   }, [editor])
 
-  // Observe editor state to re-render menu content
   const editorState = useEditorState({
     editor,
     selector: ({ editor: e }) => ({
@@ -81,63 +87,11 @@ export default function TextBubbleMenu({ editor, parameters = [] }: Props) {
     }),
   })
 
-  const paramMenuItems: MenuProps['items'] = parameters.flatMap((p) => {
-    if (p.type === 'DIRECTORY' && p.directoryFields?.length) {
-      return p.directoryFields.map((fieldKey) => ({
-        key: `${p.code}__${fieldKey}`,
-        label: `${p.label} → ${fieldKey}`,
-        onClick: () =>
-          editor.chain().focus().insertParameterField({
-            parameterCode: `${p.code}__${fieldKey}`,
-            display: `${p.label} → ${fieldKey}`,
-          }).run(),
-      }))
-    }
-    return [{
-      key: p.code,
-      label: p.label,
-      onClick: () =>
-        editor.chain().focus().insertParameterField({ parameterCode: p.code, display: p.label }).run(),
-    }]
-  })
-
-  const linkMenuItems: MenuProps['items'] = [
-    {
-      key: 'link-input',
-      label: (
-        <div style={{ display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
-          <input
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
-            placeholder="https://..."
-            style={{ flex: 1, border: '1px solid #d9d9d9', borderRadius: 4, padding: '2px 6px', outline: 'none', fontSize: 12 }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                const href = linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`
-                editor.chain().focus().setLink({ href, target: '_blank' }).run()
-                setLinkUrl('')
-              }
-            }}
-          />
-          <Button
-            size="small"
-            type="primary"
-            onClick={() => {
-              const href = linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`
-              editor.chain().focus().setLink({ href, target: '_blank' }).run()
-              setLinkUrl('')
-            }}
-          >ОК</Button>
-        </div>
-      ),
-    },
-    ...(editorState.isLink ? [{
-      key: 'remove-link',
-      label: 'Удалить ссылку',
-      danger: true,
-      onClick: () => editor.chain().focus().unsetLink().run(),
-    }] : []),
-  ]
+  const setLink = () => {
+    const href = linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`
+    editor.chain().focus().setLink({ href, target: '_blank' }).run()
+    setLinkUrl('')
+  }
 
   if (!ready) return null
 
@@ -155,87 +109,198 @@ export default function TextBubbleMenu({ editor, parameters = [] }: Props) {
         userSelect: 'none',
       }}
     >
-      <Space size={2}>
-        <Tooltip title="Жирный">
-          <Button
-            size="small"
-            type={editorState.isBold ? 'primary' : 'default'}
-            icon={<BoldOutlined />}
-            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBold().run() }}
-          />
+      <div className="flex items-center gap-0.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={editorState.isBold ? 'default' : 'ghost'}
+              size="icon-sm"
+              className="h-8 w-8"
+              onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBold().run() }}
+              data-testid="bubble-bold"
+            >
+              <Bold className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Жирный</TooltipContent>
         </Tooltip>
-        <Tooltip title="Курсив">
-          <Button
-            size="small"
-            type={editorState.isItalic ? 'primary' : 'default'}
-            icon={<ItalicOutlined />}
-            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleItalic().run() }}
-          />
-        </Tooltip>
-        <Tooltip title="Подчёркнутый">
-          <Button
-            size="small"
-            type={editorState.isUnderline ? 'primary' : 'default'}
-            icon={<UnderlineOutlined />}
-            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run() }}
-          />
-        </Tooltip>
-        <Tooltip title="Зачёркнутый">
-          <Button
-            size="small"
-            type={editorState.isStrike ? 'primary' : 'default'}
-            icon={<StrikethroughOutlined />}
-            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleStrike().run() }}
-          />
-        </Tooltip>
-      </Space>
 
-      <div style={{ width: 1, background: '#d9d9d9', height: 20, margin: '0 4px' }} />
-
-      <Tooltip title="Цвет текста">
-        <ColorPicker
-          size="small"
-          value={editorState.textColor}
-          onChange={(color) => editor.chain().focus().setColor(color.toHexString()).run()}
-          onClear={() => editor.chain().focus().unsetColor().run()}
-          allowClear
-        />
-      </Tooltip>
-
-      <div style={{ width: 1, background: '#d9d9d9', height: 20, margin: '0 4px' }} />
-
-      <Dropdown menu={{ items: linkMenuItems }} trigger={['click']} placement="bottom">
-        <Tooltip title="Ссылка">
-          <Button
-            size="small"
-            type={editorState.isLink ? 'primary' : 'default'}
-            icon={<LinkOutlined />}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={editorState.isItalic ? 'default' : 'ghost'}
+              size="icon-sm"
+              className="h-8 w-8"
+              onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleItalic().run() }}
+              data-testid="bubble-italic"
+            >
+              <Italic className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Курсив</TooltipContent>
         </Tooltip>
-      </Dropdown>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={editorState.isUnderline ? 'default' : 'ghost'}
+              size="icon-sm"
+              className="h-8 w-8"
+              onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run() }}
+              data-testid="bubble-underline"
+            >
+              <Underline className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Подчёркнутый</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={editorState.isStrike ? 'default' : 'ghost'}
+              size="icon-sm"
+              className="h-8 w-8"
+              onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleStrike().run() }}
+              data-testid="bubble-strike"
+            >
+              <Strikethrough className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Зачёркнутый</TooltipContent>
+        </Tooltip>
+      </div>
+
+      <div className="w-px h-5 bg-border mx-1" />
+
+      <ColorPicker
+        value={editorState.textColor}
+        onChange={(color) => editor.chain().focus().setColor(color).run()}
+        onClear={() => editor.chain().focus().unsetColor().run()}
+        allowClear
+        data-testid="bubble-color-text"
+      />
+
+      <div className="w-px h-5 bg-border mx-1" />
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={editorState.isLink ? 'default' : 'ghost'}
+                size="icon-sm"
+                className="h-8 w-8"
+                data-testid="bubble-link"
+              >
+                <Link className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Ссылка</TooltipContent>
+          </Tooltip>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-80 p-2">
+          <div className="flex items-center gap-2">
+            <Input
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              placeholder="https://..."
+              className="h-8 text-sm"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setLink()
+                }
+              }}
+            />
+            <Button
+              size="sm"
+              onClick={setLink}
+            >
+              ОК
+            </Button>
+          </div>
+          {editorState.isLink && (
+            <DropdownMenuItem
+              variant="destructive"
+              className="mt-1 cursor-pointer"
+              onClick={() => editor.chain().focus().unsetLink().run()}
+            >
+              Удалить ссылку
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {parameters.length > 0 && (
-        <Dropdown menu={{ items: paramMenuItems }} trigger={['click']} placement="bottom">
-          <Tooltip title="Вставить параметр">
-            <Button size="small" icon={<PlusSquareOutlined />} />
-          </Tooltip>
-        </Dropdown>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="h-8 w-8"
+                  data-testid="bubble-insert-param"
+                >
+                  <Plus className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Вставить параметр</TooltipContent>
+            </Tooltip>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            {parameters.flatMap((p) => {
+              if (p.type === 'DIRECTORY' && p.directoryFields?.length) {
+                return p.directoryFields.map((fieldKey) => (
+                  <DropdownMenuItem
+                    key={`${p.code}__${fieldKey}`}
+                    onClick={() =>
+                      editor.chain().focus().insertParameterField({
+                        parameterCode: `${p.code}__${fieldKey}`,
+                        display: `${p.label} → ${fieldKey}`,
+                      }).run()
+                    }
+                  >
+                    {p.label} → {fieldKey}
+                  </DropdownMenuItem>
+                ))
+              }
+              return [(
+                <DropdownMenuItem
+                  key={p.code}
+                  onClick={() =>
+                    editor.chain().focus().insertParameterField({ parameterCode: p.code, display: p.label }).run()
+                  }
+                >
+                  {p.label}
+                </DropdownMenuItem>
+              )]
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
 
-      <Tooltip title={editorState.selectionEmpty ? 'Выделите текст' : 'Обернуть в условный текст'}>
-        <Button
-          size="small"
-          disabled={editorState.selectionEmpty}
-          style={{ fontSize: 11, padding: '0 6px' }}
-          onMouseDown={(e) => {
-            e.preventDefault()
-            editor.chain().focus()
-              .wrapInConditionalInline({ label: 'Условный текст', condition: { type: 'simple', expression: '' } })
-              .run()
-          }}
-        >
-          [если]
-        </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-[11px] h-8 px-2"
+            disabled={editorState.selectionEmpty}
+            onMouseDown={(e) => {
+              e.preventDefault()
+              editor.chain().focus()
+                .wrapInConditionalInline({ label: 'Условный текст', condition: { type: 'simple', expression: '' } })
+                .run()
+            }}
+            data-testid="bubble-conditional"
+          >
+            [если]
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {editorState.selectionEmpty ? 'Выделите текст' : 'Обернуть в условный текст'}
+        </TooltipContent>
       </Tooltip>
     </div>
   )

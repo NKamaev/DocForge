@@ -79,7 +79,11 @@ public class DocumentPermissionServiceImpl implements DocumentPermissionService 
     @Override
     @Transactional(readOnly = true)
     public List<DocumentMemberDTO> listMembers(UUID documentId, UUID requestingUserId) {
-        return documentMemberRepository.findByDocumentId(documentId).stream()
+        DocumentRegistry reg = registryRepository.findById(documentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Документ не найден: " + documentId));
+
+        var directMembers = documentMemberRepository.findByDocumentId(documentId).stream()
+                .filter(m -> !m.getUserId().equals(reg.getOwnerId()))
                 .map(m -> {
                     User user = userRepository.findById(m.getUserId()).orElse(null);
                     return new DocumentMemberDTO(
@@ -92,5 +96,20 @@ public class DocumentPermissionServiceImpl implements DocumentPermissionService 
                     );
                 })
                 .toList();
+
+        User owner = userRepository.findById(reg.getOwnerId()).orElse(null);
+        var ownerMember = new DocumentMemberDTO(
+                reg.getOwnerId(),
+                owner != null ? owner.getLogin() : null,
+                owner != null ? owner.getDisplayName() : null,
+                DocumentRole.OWNER.name(),
+                "DIRECT",
+                reg.getCreatedAt()
+        );
+
+        var result = new java.util.ArrayList<DocumentMemberDTO>();
+        result.add(ownerMember);
+        result.addAll(directMembers);
+        return result;
     }
 }

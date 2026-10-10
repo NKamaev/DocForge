@@ -7,7 +7,12 @@ public record TemplateVersionDTO(
         UUID id,
         UUID templateId,
         int versionNumber,
+        int majorVersion,
+        int minorVersion,
         OffsetDateTime createdAt,
         UUID createdBy,
-        String comment
+        String comment,
+        String bumpType,
+        String autoDescription,
+        Integer rollbackFrom
 ) {}

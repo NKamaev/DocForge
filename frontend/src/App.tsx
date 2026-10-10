@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { ToastContainer, TooltipProvider } from '@/components/ui'
 import { useAuthStore } from './store/authStore'
 import { authApi } from './api/authApi'
 import LoginPage from './pages/LoginPage'
@@ -30,32 +31,35 @@ export default function App() {
   }, [isAuthenticated, user, setUser, logout])
 
   return (
-    <div
-      data-density="regular"
-      data-theme="light"
-      data-fonts="grotesk"
-      style={{ "--brand-h": "232" } as React.CSSProperties}
-    >
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        path="/"
-        element={
-          <PrivateRoute>
-            <AppLayout />
-          </PrivateRoute>
-        }
+    <TooltipProvider>
+      <div
+        data-density="regular"
+        data-theme="light"
+        data-fonts="grotesk"
+        style={{ "--brand-h": "232" } as React.CSSProperties}
       >
-        <Route index element={<HomePage />} />
-        <Route path="templates" element={<TemplatesPage />} />
-        <Route path="templates/:id/edit" element={<TemplateDesignerPage />} />
-        <Route path="documents" element={<DocumentsPage />} />
-        <Route path="documents/:id/fill" element={<QuestionnairePage />} />
-        <Route path="directories" element={<DirectoriesPage />} />
-        <Route path="directories/:id" element={<DirectoryDetailPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-    </div>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/"
+            element={
+              <PrivateRoute>
+                <AppLayout />
+              </PrivateRoute>
+            }
+          >
+            <Route index element={<HomePage />} />
+            <Route path="templates" element={<TemplatesPage />} />
+            <Route path="templates/:id/edit" element={<TemplateDesignerPage />} />
+            <Route path="documents" element={<DocumentsPage />} />
+            <Route path="documents/:id/fill" element={<QuestionnairePage />} />
+            <Route path="directories" element={<DirectoriesPage />} />
+            <Route path="directories/:id" element={<DirectoryDetailPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+      <ToastContainer />
+    </TooltipProvider>
   )
 }

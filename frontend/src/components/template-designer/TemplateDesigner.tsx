@@ -29,14 +29,32 @@ import { ParagraphSpacingExtension } from './extensions/ParagraphSpacingExtensio
 import { SearchReplaceExtension } from './extensions/SearchReplaceExtension'
 import { PageBreakNode } from './extensions/PageBreakNode'
 import { SlashCommandExtension, buildSlashCommands, type SlashCommand } from './extensions/SlashCommandExtension'
-import { Dropdown, Popconfirm, notification } from 'antd'
-import { FileWordOutlined, FilePdfOutlined } from '@ant-design/icons'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  showToast,
+} from '@/components/ui'
 import { templatesApi } from '../../api/templatesApi'
 import { foldersApi } from '../../api/foldersApi'
 import type { DocumentFormatting, Parameter, Phrasing, Questionnaire, Script, Template } from '../../types/template'
 import type { Folder } from '../../types/folder'
 import { DesignerContext } from './DesignerContext'
-import { Select } from 'antd'
 import EditorToolbar from './EditorToolbar'
 import TableBubbleMenu from './TableBubbleMenu'
 import TextBubbleMenu from './TextBubbleMenu'
@@ -50,7 +68,13 @@ import QuestionnairePanel from './QuestionnairePanel'
 import PhrasingsPanel from './PhrasingsPanel'
 import { PhrasingsRefNode } from './extensions/PhrasingsRefNode'
 import SlashCommandMenu from './SlashCommandMenu'
+import SaveBumpDialog from './SaveBumpDialog'
+import VersionHistoryPanel from './VersionHistoryPanel'
 import { Icon } from '../Icon'
+
+function showNotification(type: 'success' | 'error' | 'warning', message: string) {
+  showToast(message, type === 'error' ? 'error' : 'success')
+}
 import './TemplateDesigner.css'
 
 // ── ScrollableTabs ────────────────────────────────────────────────────────────
@@ -154,7 +178,7 @@ function formattingToCssVars(f: DocumentFormatting): React.CSSProperties {
 
 function buildExtensions(paramsRef: RefObject<Parameter[]>, onImageClickRef: RefObject<(() => void) | null>) {
   return [
-    StarterKit,
+    StarterKit.configure({ link: false, strike: false }),
     Table.configure({ resizable: true }),
     TableRow,
     ExtendedTableCell,
@@ -298,6 +322,10 @@ export default function TemplateDesigner() {
   const paramsRef = useRef<Parameter[]>([])
   const onImageClickRef = useRef<(() => void) | null>(null)
 
+  // Versioning state
+  const [bumpDialogOpen, setBumpDialogOpen] = useState(false)
+  const [versionRefreshKey, setVersionRefreshKey] = useState(0)
+
   // Ref to always hold current state for autosave closure
   // Keep paramsRef in sync for slash commands closure
   useEffect(() => { paramsRef.current = parameters }, [parameters])
@@ -366,11 +394,11 @@ export default function TemplateDesigner() {
         }
         setIsDirty(false)
       })
-      .catch(() => notification.error({ message: 'Не удалось загрузить шаблон' }))
+      .catch(() => showNotification('error', 'Не удалось загрузить шаблон'))
       .finally(() => setLoading(false))
   }, [id, editor])
 
-  // ── Save ───────────────────────────────────────────────────────────────────
+  // ── Save (silent, no version — for autosave) ───────────────────────────────
   const save = useCallback(async (silent = false) => {
     const { parameters, questionnaire, scripts, phrasings, editorJson, template, formatting, defaultFolderId } = stateRef.current
     if (!id || !template) return
@@ -389,13 +417,79 @@ export default function TemplateDesigner() {
         defaultFolderId,
       })
       setIsDirty(false)
-      if (!silent) notification.success({ message: 'Шаблон сохранён', duration: 2 })
+      if (!silent) showNotification('success', 'Шаблон сохранён')
     } catch {
-      if (!silent) notification.error({ message: 'Ошибка при сохранении' })
+      if (!silent) showNotification('error', 'Ошибка при сохранении')
     } finally {
       setSaving(false)
     }
   }, [id])
+
+  // ── Manual save with version bump dialog ────────────────────────────────────
+  const handleManualSave = useCallback(() => {
+    if (!id || published) return
+    // First silently save current content
+    save(true)
+      .then(() => {
+        setBumpDialogOpen(true)
+      })
+      .catch(() => {
+        showNotification('error', 'Не удалось сохранить шаблон перед созданием версии')
+      })
+  }, [id, published, save])
+
+  // ── Confirm version save ────────────────────────────────────────────────────
+  const handleVersionConfirm = useCallback(async (bumpType: 'MAJOR' | 'MINOR', comment: string) => {
+    if (!id) return
+    const { parameters, questionnaire, scripts, phrasings, editorJson, template, formatting, defaultFolderId } = stateRef.current
+    if (!template) return
+    setSaving(true)
+    try {
+      // First save the content
+      await templatesApi.updateTemplate(id, {
+        name: template.name,
+        description: template.description ?? undefined,
+        category: template.category ?? undefined,
+        parameters,
+        questionnaire: questionnaire ?? undefined,
+        body: editorJson as Record<string, unknown>,
+        scripts,
+        formatting,
+        phrasings,
+        defaultFolderId,
+      })
+      // Then create the version
+      const result = await templatesApi.saveVersion(id, { bumpType, comment: comment || undefined })
+      setTemplate(result.template)
+      setPublished(result.template.published)
+      setIsDirty(false)
+      setBumpDialogOpen(false)
+      setVersionRefreshKey((k) => k + 1)
+      showNotification('success', `Сохранена версия v${result.version.majorVersion}.${result.version.minorVersion}`)
+    } catch {
+      showNotification('error', 'Ошибка при сохранении версии')
+    } finally {
+      setSaving(false)
+    }
+  }, [id])
+
+  // ── Rollback ────────────────────────────────────────────────────────────────
+  const handleRollback = useCallback(async (versionNumber: number) => {
+    if (!id) return
+    const result = await templatesApi.rollback(id, versionNumber)
+    setTemplate(result.template)
+    setParameters(result.template.parameters ?? [])
+    setQuestionnaire(result.template.questionnaire)
+    setScripts(result.template.scripts ?? [])
+    setPhrasings(result.template.phrasings ?? [])
+    if (result.template.formatting) setFormatting({ ...DEFAULT_FORMATTING, ...result.template.formatting })
+    if (editor && result.template.body) {
+      editor.commands.setContent(result.template.body as Parameters<typeof editor.commands.setContent>[0])
+      setEditorJson(editor.getJSON())
+    }
+    setIsDirty(false)
+    setVersionRefreshKey((k) => k + 1)
+  }, [id, editor])
 
   const handlePublish = useCallback(async () => {
     if (!id) return
@@ -405,9 +499,9 @@ export default function TemplateDesigner() {
         ? await templatesApi.unpublishTemplate(id)
         : await templatesApi.publishTemplate(id)
       setPublished(updated.published ?? false)
-      notification.success({ message: published ? 'Шаблон снят с публикации — создание документов закрыто' : 'Шаблон опубликован — теперь можно создавать документы', duration: 2 })
+      showNotification('success', published ? 'Шаблон снят с публикации — создание документов закрыто' : 'Шаблон опубликован — теперь можно создавать документы')
     } catch {
-      notification.error({ message: published ? 'Не удалось снять шаблон с публикации' : 'Не удалось опубликовать шаблон' })
+      showNotification('error', published ? 'Не удалось снять шаблон с публикации' : 'Не удалось опубликовать шаблон')
     } finally {
       setPublishing(false)
     }
@@ -426,7 +520,7 @@ export default function TemplateDesigner() {
       a.click()
       URL.revokeObjectURL(url)
     } catch {
-      notification.error({ message: `Ошибка экспорта в ${format.toUpperCase()}` })
+      showNotification('error', `Ошибка экспорта в ${format.toUpperCase()}`)
     }
   }, [id])
 
@@ -451,7 +545,7 @@ export default function TemplateDesigner() {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault()
-        if (!published) save()
+        if (!published) handleManualSave()
       }
       if (!published && (e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault()
@@ -460,7 +554,7 @@ export default function TemplateDesigner() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [save, published])
+  }, [handleManualSave, published])
 
   // ── Resizable side panel ──────────────────────────────────────────────────
   const startDrag = useCallback((e: React.MouseEvent) => {
@@ -521,6 +615,21 @@ export default function TemplateDesigner() {
       ),
     },
     {
+      key: 'history',
+      label: 'История',
+      children: id ? (
+        <VersionHistoryPanel
+          templateId={id}
+          onRollback={handleRollback}
+          refreshKey={versionRefreshKey}
+        />
+      ) : (
+        <div className="empty" style={{ padding: 24 }}>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Нет данных</div>
+        </div>
+      ),
+    },
+    {
       key: 'settings',
       label: 'Настройки',
       children: (
@@ -528,25 +637,29 @@ export default function TemplateDesigner() {
           <div style={{ marginBottom: 8, fontWeight: 500, fontSize: 13 }}>Папка по умолчанию</div>
           <Select
             value={defaultFolderId ?? ''}
-            onChange={v => {
+            onValueChange={v => {
               setDefaultFolderId(v === '' ? null : v)
               setIsDirty(true)
             }}
-            options={[
-              { value: '', label: 'Не задана' },
-              ...folders.map(f => ({ value: f.id, label: f.name })),
-            ]}
-            style={{ width: '100%' }}
             disabled={published}
-            placeholder="Выберите папку"
-          />
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Выберите папку" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">Не задана</SelectItem>
+              {folders.map(f => (
+                <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-3)' }}>
             При создании документа из этого шаблона папка будет предзаполнена.
           </div>
         </div>
       ),
     },
-  ], [parameters, handleParametersChange, usedCodes, questionnaire, handleQuestionnaireChange, phrasings, handlePhrasingsChange, editor, published, defaultFolderId, folders])
+  ], [parameters, handleParametersChange, usedCodes, questionnaire, handleQuestionnaireChange, phrasings, handlePhrasingsChange, editor, published, defaultFolderId, folders, id, handleRollback, versionRefreshKey])
 
   if (loading) {
     return (
@@ -568,7 +681,9 @@ export default function TemplateDesigner() {
             <Icon name="chev-left" size={16} />
           </button>
           <h2>{template?.name ?? 'Шаблон'}</h2>
-          <span className="tag" style={{ flexShrink: 0 }}>v1.0</span>
+          <span className="tag" style={{ flexShrink: 0 }}>
+            v{template?.majorVersion ?? 1}.{template?.minorVersion ?? 0}
+          </span>
           {isDirty && !published && (
             <span className="unsaved"><Icon name="alert" size={11} /> Не сохранено</span>
           )}
@@ -594,52 +709,71 @@ export default function TemplateDesigner() {
                 <Icon name="settings" size={13} />
               </button>
             )}
-            <Dropdown
-              menu={{
-                items: [
-                  { key: 'docx', label: 'Экспорт в DOCX', icon: <FileWordOutlined />, onClick: () => handleExport('docx') },
-                  { key: 'pdf', label: 'Экспорт в PDF', icon: <FilePdfOutlined />, onClick: () => handleExport('pdf') },
-                ],
-              }}
-            >
-              <button className="btn sm icon-only" title="Экспорт DOCX/PDF">
-                <Icon name="download" size={13} />
-              </button>
-            </Dropdown>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="btn sm icon-only" title="Экспорт DOCX/PDF">
+                  <Icon name="download" size={13} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleExport('docx')}>
+                  <Icon name="download" size={13} /> Экспорт в DOCX
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport('pdf')}>
+                  <Icon name="download" size={13} /> Экспорт в PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             {!published ? (
               <>
                 <button
                   className="btn sm primary"
                   disabled={!isDirty || saving}
-                  onClick={() => save()}
+                  onClick={handleManualSave}
                   title="Сохранить · ⌘S"
                 >
                   <Icon name="save" size={13} /> Сохранить
                 </button>
-                <Popconfirm
-                  title="Опубликовать шаблон?"
-                  description="По шаблону можно будет создавать документы."
-                  okText="Опубликовать"
-                  cancelText="Отмена"
-                  onConfirm={handlePublish}
-                >
-                  <button className="btn sm success icon-only" disabled={publishing} title="Опубликовать шаблон">
-                    <Icon name="publish" size={13} />
-                  </button>
-                </Popconfirm>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button className="btn sm success icon-only" disabled={publishing} title="Опубликовать шаблон">
+                      <Icon name="publish" size={13} />
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Опубликовать шаблон?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        По шаблону можно будет создавать документы.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Отмена</AlertDialogCancel>
+                      <AlertDialogAction onClick={handlePublish}>Опубликовать</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </>
             ) : (
-              <Popconfirm
-                title="Снять с публикации?"
-                description="По шаблону нельзя будет создавать документы."
-                okText="Да, снять"
-                cancelText="Отмена"
-                onConfirm={handlePublish}
-              >
-                <button className="btn sm danger icon-only" disabled={publishing} title="Снять с публикации">
-                  <Icon name="lock" size={13} />
-                </button>
-              </Popconfirm>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button className="btn sm danger icon-only" disabled={publishing} title="Снять с публикации">
+                    <Icon name="lock" size={13} />
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Снять с публикации?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      По шаблону нельзя будет создавать документы.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Отмена</AlertDialogCancel>
+                    <AlertDialogAction onClick={handlePublish}>Да, снять</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
           </div>
         </div>
@@ -651,14 +785,23 @@ export default function TemplateDesigner() {
             <span>
               <b className="b-strong">Шаблон опубликован.</b> Редактирование заблокировано — все документы, созданные после, наследуют эту версию.
             </span>
-            <Popconfirm
-              title="Снять с публикации?"
-              okText="Да, снять"
-              cancelText="Отмена"
-              onConfirm={handlePublish}
-            >
-              <button className="btn xs">Снять с публикации</button>
-            </Popconfirm>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button className="btn xs">Снять с публикации</button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Снять с публикации?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    По шаблону нельзя будет создавать документы.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Отмена</AlertDialogCancel>
+                  <AlertDialogAction onClick={handlePublish}>Да, снять</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         )}
 
@@ -709,6 +852,7 @@ export default function TemplateDesigner() {
                 ['parameters', 'Параметры'],
                 ['questionnaire', 'Опросный лист'],
                 ['phrasings', 'Формулировки'],
+                ['history', 'История'],
                 ['scripts', 'Скрипты'],
               ]}
               activeKey={sidebarTab}
@@ -734,6 +878,15 @@ export default function TemplateDesigner() {
       {editor && (
         <ImageUploadModal open={imageOpen} onClose={() => setImageOpen(false)} editor={editor} />
       )}
+      <SaveBumpDialog
+        open={bumpDialogOpen}
+        onClose={() => setBumpDialogOpen(false)}
+        templateId={id!}
+        templateName={template?.name ?? ''}
+        majorVersion={template?.majorVersion ?? 1}
+        minorVersion={template?.minorVersion ?? 0}
+        onConfirm={handleVersionConfirm}
+      />
       <PageSettingsDrawer
         open={pageSettingsOpen}
         onClose={() => setPageSettingsOpen(false)}

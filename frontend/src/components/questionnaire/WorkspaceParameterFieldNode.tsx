@@ -2,7 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import { Node, mergeAttributes } from '@tiptap/core'
 import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react'
 import type { ReactNodeViewProps } from '@tiptap/react'
-import { Tooltip } from 'antd'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui'
 import type { Parameter } from '../../types/template'
 import type { ParameterFormat } from '../../types/templateModel'
 import type { Questionnaire } from '../../types/document'
@@ -80,42 +84,45 @@ function WorkspaceParameterFieldView({ node, editor }: ReactNodeViewProps) {
 
   const pageInfo = findParamPage(storage?.questionnaire ?? null, parameterCode)
   const tooltipTitle = (
-    <div>
-      <div><strong>{param?.label || display || parameterCode}</strong></div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span style={{ fontWeight: 500 }}>{param?.label || display || parameterCode}</span>
       {pageInfo && (
-        <div style={{ color: '#aaa', fontSize: 11 }}>
+        <span style={{ opacity: 0.6 }}>
           Стр. {pageInfo.pageIndex}: {pageInfo.pageTitle}
-        </div>
+        </span>
       )}
     </div>
   )
 
   return (
     <NodeViewWrapper as="span" style={{ display: 'inline' }}>
-      <Tooltip title={tooltipTitle} mouseEnterDelay={0.4}>
-        <span
-          contentEditable={false}
-          style={{
-            display: 'inline',
-            background: bg,
-            border: `1.5px solid ${borderColor}`,
-            borderRadius: 4,
-            padding: '1px 5px',
-            fontSize: 'inherit',
-            fontFamily: 'inherit',
-            lineHeight: 1.5,
-            transition: 'all 0.2s',
-            boxShadow: isHighlighted ? '0 0 0 2px rgba(22,119,255,0.2)' : undefined,
-            verticalAlign: 'baseline',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            cursor: 'pointer',
-          }}
-          onClick={handleLabelClick}
-          onMouseDown={stopProp}
-        >
-          {isEmpty ? `[${display || parameterCode}]` : displayVal}
-        </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            contentEditable={false}
+            style={{
+              display: 'inline',
+              background: bg,
+              border: `1.5px solid ${borderColor}`,
+              borderRadius: 4,
+              padding: '1px 5px',
+              fontSize: 'inherit',
+              fontFamily: 'inherit',
+              lineHeight: 1.5,
+              transition: 'all 0.2s',
+              boxShadow: isHighlighted ? '0 0 0 2px rgba(22,119,255,0.2)' : undefined,
+              verticalAlign: 'baseline',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              cursor: 'pointer',
+            }}
+            onClick={handleLabelClick}
+            onMouseDown={stopProp}
+          >
+            {isEmpty ? `[${display || parameterCode}]` : displayVal}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{tooltipTitle}</TooltipContent>
       </Tooltip>
     </NodeViewWrapper>
   )

@@ -33,6 +33,12 @@ public class TemplateRegistry {
     @Column(nullable = false)
     private int version = 1;
 
+    @Column(name = "major_version", nullable = false)
+    private int majorVersion = 1;
+
+    @Column(name = "minor_version", nullable = false)
+    private int minorVersion = 0;
+
     @Column(name = "is_published", nullable = false)
     private boolean published = false;
 

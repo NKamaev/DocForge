@@ -8,8 +8,9 @@ describe('PublishedBanner', () => {
     expect(screen.getByText(/шаблон в режиме только для чтения/i)).toBeInTheDocument()
   })
 
-  it('renders the lock icon (role img)', () => {
+  it('renders the lock icon', () => {
     render(<PublishedBanner />)
-    expect(document.querySelector('.anticon-lock')).not.toBeNull()
+    // lucide-react Lock renders as an SVG
+    expect(document.querySelector('svg.lucide.lucide-lock')).not.toBeNull()
   })
 })

@@ -8,7 +8,6 @@ import com.docforge.template.model.Script;
 
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.UUID;
 import java.util.Map;
 import java.util.UUID;
 
@@ -23,6 +22,8 @@ public record TemplateResponse(
         String description,
         String category,
         int version,
+        int majorVersion,
+        int minorVersion,
         boolean published,
         UUID ownerId,
         OffsetDateTime createdAt,

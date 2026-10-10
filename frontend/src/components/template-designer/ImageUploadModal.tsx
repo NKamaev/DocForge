@@ -1,9 +1,24 @@
-import { useState } from 'react'
-import { Button, Input, Modal, Tabs, Upload, notification, Image } from 'antd'
-import { InboxOutlined } from '@ant-design/icons'
-import type { UploadFile, UploadProps } from 'antd'
+import { useState, useRef } from 'react'
+import {
+  Button,
+  Input,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  showToast,
+} from '@/components/ui'
+import { Upload } from 'lucide-react'
 import type { Editor } from '@tiptap/react'
 import { uploadsApi } from '../../api/uploadsApi'
+
+function showNotification(type: 'success' | 'error', message: string) {
+  showToast(message, type)
+}
 
 interface Props {
   open: boolean
@@ -14,13 +29,14 @@ interface Props {
 export default function ImageUploadModal({ open, onClose, editor }: Props) {
   const [uploading, setUploading] = useState(false)
   const [uploadedUrl, setUploadedUrl] = useState<string | null>(null)
-  const [fileList, setFileList] = useState<UploadFile[]>([])
   const [urlValue, setUrlValue] = useState('')
+  const [isDragOver, setIsDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleClose = () => {
     setUploadedUrl(null)
-    setFileList([])
     setUrlValue('')
+    setIsDragOver(false)
     onClose()
   }
 
@@ -30,116 +46,159 @@ export default function ImageUploadModal({ open, onClose, editor }: Props) {
     handleClose()
   }
 
-  const uploadProps: UploadProps = {
-    name: 'file',
-    accept: 'image/*',
-    maxCount: 1,
-    fileList,
-    beforeUpload: async (file) => {
-      setUploading(true)
-      setUploadedUrl(null)
-      try {
-        const res = await uploadsApi.uploadImage(file)
-        // Prefix with backend base URL so img src resolves correctly
-        const fullUrl = `http://localhost:8080${res.url}`
-        setUploadedUrl(fullUrl)
-        setFileList([{ ...file, status: 'done', url: fullUrl, uid: res.id }])
-      } catch {
-        notification.error({ message: 'Не удалось загрузить изображение' })
-        setFileList([])
-      } finally {
-        setUploading(false)
-      }
-      return false // prevent antd default upload
-    },
-    onRemove: () => {
-      setUploadedUrl(null)
-      setFileList([])
-    },
+  const handleFileSelect = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      showNotification('error', 'Выберите изображение')
+      return
+    }
+
+    setUploading(true)
+    setUploadedUrl(null)
+
+    try {
+      const res = await uploadsApi.uploadImage(file)
+      const fullUrl = `http://localhost:8080${res.url}`
+      setUploadedUrl(fullUrl)
+    } catch {
+      showNotification('error', 'Не удалось загрузить изображение')
+    } finally {
+      setUploading(false)
+    }
   }
 
-  const tabs = [
-    {
-      key: 'upload',
-      label: 'Загрузить',
-      children: (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Upload.Dragger {...uploadProps}>
-            <p className="ant-upload-drag-icon">
-              <InboxOutlined />
-            </p>
-            <p className="ant-upload-text">Перетащите изображение или нажмите для выбора</p>
-            <p className="ant-upload-hint">Поддерживаются JPEG, PNG, GIF, WebP. Максимум 10 МБ.</p>
-          </Upload.Dragger>
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }
 
-          {uploadedUrl && (
-            <div style={{ textAlign: 'center' }}>
-              <Image
-                src={uploadedUrl}
-                alt="preview"
-                style={{ maxHeight: 200, maxWidth: '100%', objectFit: 'contain', borderRadius: 4 }}
-                preview={false}
-              />
-            </div>
-          )}
+  const handleDragLeave = () => {
+    setIsDragOver(false)
+  }
 
-          <Button
-            type="primary"
-            disabled={!uploadedUrl || uploading}
-            loading={uploading}
-            onClick={() => uploadedUrl && insertImage(uploadedUrl)}
-            block
-          >
-            Вставить
-          </Button>
-        </div>
-      ),
-    },
-    {
-      key: 'url',
-      label: 'По URL',
-      children: (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Input
-            placeholder="https://example.com/image.png"
-            value={urlValue}
-            onChange={(e) => setUrlValue(e.target.value)}
-            onPressEnter={() => insertImage(urlValue)}
-          />
-          {urlValue && (
-            <div style={{ textAlign: 'center' }}>
-              <Image
-                src={urlValue}
-                alt="preview"
-                style={{ maxHeight: 200, maxWidth: '100%', objectFit: 'contain', borderRadius: 4 }}
-                preview={false}
-                fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-              />
-            </div>
-          )}
-          <Button
-            type="primary"
-            disabled={!urlValue.trim()}
-            onClick={() => insertImage(urlValue)}
-            block
-          >
-            Вставить
-          </Button>
-        </div>
-      ),
-    },
-  ]
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      handleFileSelect(files[0])
+    }
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      handleFileSelect(files[0])
+    }
+  }
 
   return (
-    <Modal
-      title="Вставить изображение"
-      open={open}
-      onCancel={handleClose}
-      footer={null}
-      width={480}
-      destroyOnHidden
-    >
-      <Tabs items={tabs} />
-    </Modal>
+    <Dialog open={open} onOpenChange={(open) => !open && handleClose()}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Вставить изображение</DialogTitle>
+        </DialogHeader>
+
+        <Tabs defaultValue="upload" className="mt-2">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="upload">Загрузить</TabsTrigger>
+            <TabsTrigger value="url">По URL</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="upload" className="mt-4">
+            <div className="flex flex-col gap-4">
+              <div
+                className={`flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                  isDragOver
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-primary/50 hover:bg-muted/50'
+                }`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleInputChange}
+                />
+                <Upload className="size-12 text-muted-foreground mb-2" />
+                <p className="text-sm font-medium">
+                  Перетащите изображение или нажмите для выбора
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Поддерживаются JPEG, PNG, GIF, WebP. Максимум 10 МБ.
+                </p>
+              </div>
+
+              {uploading && (
+                <div className="text-center py-4">
+                  <p className="text-sm text-muted-foreground">Загрузка...</p>
+                </div>
+              )}
+
+              {uploadedUrl && !uploading && (
+                <div className="text-center">
+                  <img
+                    src={uploadedUrl}
+                    alt="preview"
+                    className="max-h-[200px] max-w-full object-contain rounded-md mx-auto"
+                  />
+                </div>
+              )}
+
+              <Button
+                type="button"
+                disabled={!uploadedUrl || uploading}
+                onClick={() => uploadedUrl && insertImage(uploadedUrl)}
+                className="w-full"
+              >
+                {uploading ? 'Загрузка...' : 'Вставить'}
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="url" className="mt-4">
+            <div className="flex flex-col gap-3">
+              <Input
+                placeholder="https://example.com/image.png"
+                value={urlValue}
+                onChange={(e) => setUrlValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    insertImage(urlValue)
+                  }
+                }}
+              />
+
+              {urlValue && (
+                <div className="text-center">
+                  <img
+                    src={urlValue}
+                    alt="preview"
+                    className="max-h-[200px] max-w-full object-contain rounded-md mx-auto"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                    }}
+                  />
+                </div>
+              )}
+
+              <Button
+                type="button"
+                disabled={!urlValue.trim()}
+                onClick={() => insertImage(urlValue)}
+                className="w-full"
+              >
+                Вставить
+              </Button>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
   )
 }

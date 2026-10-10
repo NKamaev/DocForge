@@ -1,13 +1,26 @@
 import { useState } from 'react'
-import { Button, List, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd'
-import { DeleteOutlined, EditOutlined, InsertRowAboveOutlined, PlusOutlined } from '@ant-design/icons'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Badge,
+  Button,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui'
+import { Pencil, Plus, Trash2, ArrowUpFromLine } from 'lucide-react'
 import type { Editor } from '@tiptap/react'
 import PhrasingEditorModal from './PhrasingEditorModal'
 import PhrasingsRefInsertModal from './PhrasingsRefInsertModal'
 import type { Phrasing } from '../../types/templateModel'
 import type { Parameter } from '../../types/template'
-
-const { Text } = Typography
 
 interface Props {
   phrasings: Phrasing[]
@@ -22,6 +35,7 @@ export default function PhrasingsPanel({ phrasings, parameters, editor, onChange
   const [editing, setEditing] = useState<Phrasing | null>(null)
   const [insertModalOpen, setInsertModalOpen] = useState(false)
   const [insertInitialIds, setInsertInitialIds] = useState<string[]>([])
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const openCreate = () => { setEditing(null); setModalOpen(true) }
   const openEdit   = (p: Phrasing) => { setEditing(p); setModalOpen(true) }
@@ -36,8 +50,10 @@ export default function PhrasingsPanel({ phrasings, parameters, editor, onChange
     setModalOpen(false)
   }
 
-  const handleDelete = (id: string) => {
-    onChange(phrasings.filter(p => p.id !== id))
+  const handleDelete = () => {
+    if (!deleteConfirmId) return
+    onChange(phrasings.filter(p => p.id !== deleteConfirmId))
+    setDeleteConfirmId(null)
   }
 
   const handleInsert = (p: Phrasing) => {
@@ -54,64 +70,84 @@ export default function PhrasingsPanel({ phrasings, parameters, editor, onChange
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Text strong>Формулировки</Text>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>Формулировки</span>
         {!readOnly && (
-          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            Добавить
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="mr-1 size-3.5" /> Добавить
           </Button>
         )}
       </div>
 
       {phrasings.length === 0 ? (
-        <Text type="secondary" style={{ fontSize: 12 }}>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
           Нет формулировок. Нажмите «Добавить», чтобы создать именованный список вариантов текста с условиями.
-        </Text>
+        </span>
       ) : (
-        <List
-          dataSource={phrasings}
-          renderItem={p => (
-            <List.Item
-              style={{ padding: '6px 0' }}
-              actions={readOnly ? [] : [
-                <Tooltip title="Вставить в текст">
-                  <Button
-                    size="small"
-                    type="text"
-                    icon={<InsertRowAboveOutlined />}
-                    onClick={() => handleInsert(p)}
-                    disabled={!editor}
-                  />
-                </Tooltip>,
-                <Tooltip title="Редактировать">
-                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(p)} />
-                </Tooltip>,
-                <Popconfirm
-                  title="Удалить формулировку?"
-                  description="Ноды phrasingsRef в шаблоне потеряют ссылку."
-                  okText="Удалить"
-                  cancelText="Отмена"
-                  okType="danger"
-                  onConfirm={() => handleDelete(p.id)}
-                >
-                  <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-                </Popconfirm>,
-              ]}
-            >
-              <Space direction="vertical" size={0} style={{ flex: 1, overflow: 'hidden' }}>
-                <Text ellipsis style={{ maxWidth: 180 }}>{p.name}</Text>
-                <Space size={4} wrap>
-                  <Tag style={{ fontSize: 11 }}>{p.variants.length} вар.</Tag>
+        <div>
+          {phrasings.map(p => (
+            <div key={p.id} style={{ padding: '6px 0', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid var(--line)' }}>
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <span style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180, display: 'block' }}>
+                  {p.name}
+                </span>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Badge variant="outline" style={{ fontSize: 11 }}>{p.variants.length} вар.</Badge>
                   {p.description && (
-                    <Text type="secondary" style={{ fontSize: 11 }} ellipsis>
+                    <span style={{ fontSize: 11, color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {p.description}
-                    </Text>
+                    </span>
                   )}
-                </Space>
-              </Space>
-            </List.Item>
-          )}
-        />
+                </div>
+              </div>
+
+              {!readOnly && (
+                <div className="flex gap-0.5 shrink-0">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" onClick={() => handleInsert(p)} disabled={!editor}>
+                          <ArrowUpFromLine className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Вставить в текст</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" onClick={() => openEdit(p)}>
+                          <Pencil className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Редактировать</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+
+                  <Button variant="ghost" size="icon-sm" onClick={() => setDeleteConfirmId(p.id)}>
+                    <Trash2 className="size-3.5 text-destructive" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
+
+      <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить формулировку?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Ноды phrasingsRef в шаблоне потеряют ссылку.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteConfirmId(null)}>Отмена</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>Удалить</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <PhrasingEditorModal
         open={modalOpen}

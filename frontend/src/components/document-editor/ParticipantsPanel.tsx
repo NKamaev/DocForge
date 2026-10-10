@@ -1,4 +1,9 @@
-import { Tooltip } from 'antd'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui'
 import type { CollaborationUser } from '../../hooks/useCollaboration'
 
 interface Props {
@@ -19,68 +24,78 @@ export default function ParticipantsPanel({
   currentUserColor,
 }: Props) {
   return (
+    <TooltipProvider>
     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
       {/* Current user */}
       {currentUserName && (
-        <Tooltip title={`${currentUserName} (вы)`}>
-          <div style={{ position: 'relative' }}>
-            <Avatar name={currentUserName} color={currentUserColor ?? '#888'} />
-            {/* Online indicator */}
-            <span style={{
-              position: 'absolute',
-              bottom: 0,
-              right: 0,
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: isConnected ? '#52c41a' : '#bfbfbf',
-              border: '1.5px solid #fff',
-            }} />
-          </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div style={{ position: 'relative' }}>
+              <Avatar name={currentUserName} color={currentUserColor ?? '#888'} />
+              {/* Online indicator */}
+              <span style={{
+                position: 'absolute',
+                bottom: 0,
+                right: 0,
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: isConnected ? '#52c41a' : '#bfbfbf',
+                border: '1.5px solid #fff',
+              }} />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>{currentUserName} (вы)</TooltipContent>
         </Tooltip>
       )}
 
       {/* Remote users — max 3 visible */}
       {connectedUsers.slice(0, 3).map(u => (
-        <Tooltip key={u.clientId} title={u.name}>
-          <div style={{ position: 'relative' }}>
-            <Avatar name={u.name} color={u.color} />
-            <span style={{
-              position: 'absolute',
-              bottom: 0,
-              right: 0,
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: '#52c41a',
-              border: '1.5px solid #fff',
-            }} />
-          </div>
+        <Tooltip key={u.clientId}>
+          <TooltipTrigger asChild>
+            <div style={{ position: 'relative' }}>
+              <Avatar name={u.name} color={u.color} />
+              <span style={{
+                position: 'absolute',
+                bottom: 0,
+                right: 0,
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: '#52c41a',
+                border: '1.5px solid #fff',
+              }} />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>{u.name}</TooltipContent>
         </Tooltip>
       ))}
 
       {/* Overflow badge: "+N" with tooltip listing hidden users */}
       {connectedUsers.length > 3 && (
-        <Tooltip title={connectedUsers.slice(3).map(u => u.name).join(', ')}>
-          <div style={{
-            width: 28,
-            height: 28,
-            borderRadius: '50%',
-            background: '#8c8c8c',
-            color: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 11,
-            fontWeight: 600,
-            flexShrink: 0,
-            border: '2px solid #fff',
-            boxShadow: '0 1px 3px rgba(0,0,0,.2)',
-            cursor: 'default',
-            userSelect: 'none',
-          }}>
-            +{connectedUsers.length - 3}
-          </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: '#8c8c8c',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 11,
+              fontWeight: 600,
+              flexShrink: 0,
+              border: '2px solid #fff',
+              boxShadow: '0 1px 3px rgba(0,0,0,.2)',
+              cursor: 'default',
+              userSelect: 'none',
+            }}>
+              +{connectedUsers.length - 3}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>{connectedUsers.slice(3).map(u => u.name).join(', ')}</TooltipContent>
         </Tooltip>
       )}
 
@@ -89,6 +104,7 @@ export default function ParticipantsPanel({
         <span style={{ fontSize: 11, color: '#8c8c8c' }}>офлайн</span>
       )}
     </div>
+    </TooltipProvider>
   )
 }
 

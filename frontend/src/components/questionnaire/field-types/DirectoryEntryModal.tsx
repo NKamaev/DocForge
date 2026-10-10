@@ -1,109 +1,172 @@
-import { useEffect } from 'react'
-import { DatePicker, Form, Input, InputNumber, Modal, Select, Switch, notification } from 'antd'
-import dayjs from 'dayjs'
+import { useEffect, useState } from 'react'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { DatePicker } from '@/components/ui/date-picker'
 import { directoriesApi } from '../../../api/directoriesApi'
 import type { Directory, DirectoryEntry, DirectoryEntryRequest } from '../../../types/directory'
+
+function showNotification(type: 'success' | 'error', message: string) {
+  console.log(`[${type.toUpperCase()}]`, message)
+}
 
 interface Props {
   open: boolean
   directory: Directory
-  entry?: DirectoryEntry         // undefined → create mode, set → edit mode
+  entry?: DirectoryEntry
   onClose: () => void
   onSaved: (entry: DirectoryEntry) => void
 }
 
+interface FormValues {
+  [key: string]: unknown
+}
+
 export default function DirectoryEntryModal({ open, directory, entry, onClose, onSaved }: Props) {
-  const [form] = Form.useForm()
+  const [formValues, setFormValues] = useState<FormValues>({})
   const isEdit = Boolean(entry)
 
   useEffect(() => {
     if (open) {
       if (entry) {
-        // Preprocess dates for DatePicker
-        const vals: Record<string, unknown> = {}
+        const vals: FormValues = {}
         for (const field of directory.fields) {
           const v = entry.values[field.key]
-          if (field.type === 'DATE' && typeof v === 'string' && v) {
-            vals[field.key] = dayjs(v)
-          } else {
-            vals[field.key] = v ?? ''
-          }
+          vals[field.key] = v ?? ''
         }
-        form.setFieldsValue(vals)
+        setFormValues(vals)
       } else {
-        form.resetFields()
+        const vals: FormValues = {}
+        for (const field of directory.fields) {
+          vals[field.key] = ''
+        }
+        setFormValues(vals)
       }
     }
-  }, [open, entry, directory, form])
+  }, [open, entry, directory])
 
-  const handleOk = async () => {
+  const handleFieldChange = (key: string, value: unknown) => {
+    setFormValues(prev => ({ ...prev, [key]: value }))
+  }
+
+  const handleSave = async () => {
     try {
-      const raw = await form.validateFields()
       const values: Record<string, unknown> = {}
       for (const field of directory.fields) {
-        const v = raw[field.key]
-        if (field.type === 'DATE' && v && typeof v === 'object' && 'toISOString' in (v as object)) {
-          values[field.key] = (v as typeof dayjs.prototype).format('YYYY-MM-DD')
-        } else {
-          values[field.key] = v ?? ''
-        }
+        const v = formValues[field.key]
+        values[field.key] = v ?? ''
       }
       const payload: DirectoryEntryRequest = { values }
       let updated: { entries: DirectoryEntry[] }
       if (isEdit && entry) {
         updated = await directoriesApi.updateEntry(directory.id, entry.id, payload)
         const saved = updated.entries.find(e => e.id === entry.id)!
-        notification.success({ message: 'Запись обновлена' })
+        showNotification('success', 'Запись обновлена')
         onSaved(saved)
       } else {
         updated = await directoriesApi.addEntry(directory.id, payload)
         const saved = updated.entries[updated.entries.length - 1]
-        notification.success({ message: 'Запись создана' })
+        showNotification('success', 'Запись создана')
         onSaved(saved)
       }
       onClose()
     } catch {
-      // validation error — stay open
+      // validation error - stay open
     }
   }
 
+  const renderField = (field: { key: string; label?: string; type?: string; options?: string[] }) => {
+    const value = formValues[field.key]
+
+    if (field.type === 'BOOLEAN') {
+      return (
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={Boolean(value)}
+            onCheckedChange={(checked) => handleFieldChange(field.key, checked)}
+          />
+          <Label className="text-sm">{field.label || field.key}</Label>
+        </div>
+      )
+    }
+
+    if (field.type === 'NUMBER') {
+      return (
+        <Input
+          type="number"
+          value={String(value ?? '')}
+          onChange={(e) => handleFieldChange(field.key, e.target.value ? Number(e.target.value) : '')}
+        />
+      )
+    }
+
+    if (field.type === 'DATE') {
+      return (
+        <DatePicker
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(date) => handleFieldChange(field.key, date)}
+        />
+      )
+    }
+
+    if (field.type === 'SELECT' && field.options?.length) {
+      return (
+        <Select
+          value={String(value ?? '')}
+          onValueChange={(val) => handleFieldChange(field.key, val)}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Выберите значение" />
+          </SelectTrigger>
+          <SelectContent>
+            {field.options.map(opt => (
+              <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )
+    }
+
+    return (
+      <Input
+        value={String(value ?? '')}
+        onChange={(e) => handleFieldChange(field.key, e.target.value)}
+      />
+    )
+  }
+
   return (
-    <Modal
-      title={isEdit ? 'Редактировать запись' : 'Создать запись'}
-      open={open}
-      onOk={handleOk}
-      onCancel={onClose}
-      okText={isEdit ? 'Сохранить' : 'Создать'}
-      cancelText="Отмена"
-      destroyOnHidden
-      width={480}
-    >
-      <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
-        {directory.fields.map(field => (
-          <Form.Item
-            key={field.key}
-            name={field.key}
-            label={field.label || field.key}
-            rules={[]}
-          >
-            {field.type === 'BOOLEAN' ? (
-              <Switch />
-            ) : field.type === 'NUMBER' ? (
-              <InputNumber style={{ width: '100%' }} />
-            ) : field.type === 'DATE' ? (
-              <DatePicker style={{ width: '100%' }} />
-            ) : field.type === 'SELECT' && field.options?.length ? (
-              <Select
-                options={field.options.map(o => ({ value: o, label: o }))}
-                allowClear
-                showSearch
-              />
-            ) : (
-              <Input />
-            )}
-          </Form.Item>
-        ))}
-      </Form>
-    </Modal>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>
+            {isEdit ? 'Редактировать запись' : 'Создать запись'}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 mt-2">
+          {directory.fields.map(field => (
+            <div key={field.key} className="space-y-2">
+              <Label htmlFor={`field-${field.key}`}>
+                {field.label || field.key}
+              </Label>
+              {renderField(field)}
+            </div>
+          ))}
+        </div>
+
+        <DialogFooter className="mt-6">
+          <Button variant="outline" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button onClick={handleSave}>
+            {isEdit ? 'Сохранить' : 'Создать'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

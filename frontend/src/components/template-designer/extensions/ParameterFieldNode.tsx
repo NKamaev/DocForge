@@ -2,14 +2,11 @@ import { useState } from 'react'
 import { Node, mergeAttributes } from '@tiptap/core'
 import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react'
 import type { ReactNodeViewProps } from '@tiptap/react'
-import { Popover, Typography } from 'antd'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import type { ParameterFormat, ParameterType } from '../../../types/templateModel'
 import { useDesignerContext } from '../DesignerContext'
 import ParameterFormatSelector from '../ParameterFormatSelector'
 
-const { Text } = Typography
-
-// ── Command type augmentation ─────────────────────────────────────────────────
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     parameterField: {
@@ -17,8 +14,6 @@ declare module '@tiptap/core' {
     }
   }
 }
-
-// ── Format label helper ───────────────────────────────────────────────────────
 
 const CASE_ABBR: Record<string, string> = {
   NOMINATIVE:    'ИМ',
@@ -41,8 +36,6 @@ function formatLabel(fmt: ParameterFormat | null | undefined): string | null {
   return parts.length > 0 ? parts.join(' / ') : null
 }
 
-// ── React component rendered inside the editor ────────────────────────────────
-
 function ParameterFieldView({ node, updateAttributes }: ReactNodeViewProps) {
   const { parameterCode, display, format } = node.attrs as {
     parameterCode: string
@@ -60,10 +53,10 @@ function ParameterFieldView({ node, updateAttributes }: ReactNodeViewProps) {
   }
 
   const popoverContent = param ? (
-    <div style={{ width: 320 }}>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+    <div className="w-80">
+      <p className="text-xs text-muted-foreground mb-2">
         Переопределяет формат только для этого поля. Оставьте пустым — будет использован формат параметра.
-      </Text>
+      </p>
       <ParameterFormatSelector
         paramType={param.type as ParameterType}
         value={format}
@@ -72,50 +65,60 @@ function ParameterFieldView({ node, updateAttributes }: ReactNodeViewProps) {
     </div>
   ) : null
 
-  return (
-    <NodeViewWrapper
-      as="span"
-      style={{ display: 'inline' }}
+  const fieldElement = (
+    <span
+      data-parameter-code={parameterCode}
+      style={{
+        display: 'inline-flex',
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        background: '#E6F1FB',
+        border: `1px solid ${popoverOpen ? '#1677FF' : '#85B7EB'}`,
+        borderRadius: 4,
+        padding: '2px 6px',
+        fontSize: 13,
+        cursor: published ? 'default' : 'pointer',
+        userSelect: 'none',
+        fontFamily: 'sans-serif',
+        lineHeight: 1.3,
+        verticalAlign: 'middle',
+        transition: 'border-color 0.15s',
+      }}
     >
-      <Popover
-        open={!published && popoverOpen && !!popoverContent}
-        onOpenChange={published ? undefined : setPopoverOpen}
-        content={popoverContent}
-        title={`Формат поля: ${display}`}
-        trigger={published ? [] : 'click'}
-        placement="bottomLeft"
-        destroyTooltipOnHide
-      >
-        <span
-          data-parameter-code={parameterCode}
-          style={{
-            display: 'inline-flex',
-            flexDirection: 'column',
-            alignItems: 'flex-start',
-            background: '#E6F1FB',
-            border: `1px solid ${popoverOpen ? '#1677FF' : '#85B7EB'}`,
-            borderRadius: 4,
-            padding: '2px 6px',
-            fontSize: 13,
-            cursor: published ? 'default' : 'pointer',
-            userSelect: 'none',
-            fontFamily: 'sans-serif',
-            lineHeight: 1.3,
-            verticalAlign: 'middle',
-            transition: 'border-color 0.15s',
-          }}
+      <span>[{display}]</span>
+      {label && (
+        <span style={{ fontSize: 10, color: '#4096FF', lineHeight: 1 }}>{label}</span>
+      )}
+    </span>
+  )
+
+  if (published || !popoverContent) {
+    return (
+      <NodeViewWrapper as="span" style={{ display: 'inline' }}>
+        {fieldElement}
+      </NodeViewWrapper>
+    )
+  }
+
+  return (
+    <NodeViewWrapper as="span" style={{ display: 'inline' }}>
+      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+        <PopoverTrigger asChild>
+          {fieldElement}
+        </PopoverTrigger>
+        <PopoverContent 
+          side="bottom" 
+          align="start"
+          className="p-4"
         >
-          <span>[{display}]</span>
-          {label && (
-            <span style={{ fontSize: 10, color: '#4096FF', lineHeight: 1 }}>{label}</span>
-          )}
-        </span>
+          <div className="text-sm font-medium mb-2">Формат поля: {display}</div>
+          {popoverContent}
+        </PopoverContent>
       </Popover>
     </NodeViewWrapper>
   )
 }
 
-// ── TipTap Node definition ────────────────────────────────────────────────────
 export const ParameterFieldNode = Node.create({
   name: 'parameterField',
   group: 'inline',

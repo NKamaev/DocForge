@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Снимок тела документа (ревизия) в MongoDB.
+ * Снимок тела документа (редакция) в MongoDB.
  * _id совпадает с document_revision.id в PostgreSQL.
  */
 @org.springframework.data.mongodb.core.mapping.Document(collection = "document_revisions")
@@ -31,7 +31,7 @@ public class DocumentRevisionBody {
     @Field("revision_number")
     private int revisionNumber;
 
-    /** Снимок current_body на момент сохранения ревизии */
+    /** Снимок current_body на момент сохранения редакции */
     private Object body;
 
     /** Снимок answers на момент сохранения ревизии */

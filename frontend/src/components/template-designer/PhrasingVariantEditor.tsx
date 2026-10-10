@@ -1,15 +1,20 @@
 import { useState } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { Button, Dropdown, Space, Tag, Tooltip } from 'antd'
-import type { MenuProps } from 'antd'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
-  ArrowDownOutlined,
-  ArrowUpOutlined,
-  DeleteOutlined,
-  FilterOutlined,
-  PlusSquareOutlined,
-} from '@ant-design/icons'
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { ChevronUp, ChevronDown, Trash2, Filter, Plus } from 'lucide-react'
 import { ParameterFieldNode } from './extensions/ParameterFieldNode'
 import ConditionBuilder from './ConditionBuilder'
 import type { PhrasingVariant } from '../../types/templateModel'
@@ -66,26 +71,6 @@ export default function PhrasingVariantEditor({
     },
   })
 
-  const paramMenuItems: MenuProps['items'] = parameters.length === 0
-    ? [{ key: 'none', label: 'Нет параметров в шаблоне', disabled: true }]
-    : parameters.flatMap((p) => {
-        if (p.type === 'DIRECTORY' && p.directoryFields && p.directoryFields.length > 0) {
-          return p.directoryFields.map((fieldKey) => ({
-            key: `${p.code}__${fieldKey}`,
-            label: <span><span style={{ fontWeight: 500 }}>{p.label} → {fieldKey}</span></span>,
-            onClick: () => editor?.chain().focus().insertParameterField({
-              parameterCode: `${p.code}__${fieldKey}`,
-              display: `${p.label} → ${fieldKey}`,
-            }).run(),
-          }))
-        }
-        return [{
-          key: p.code,
-          label: <span><span style={{ fontWeight: 500 }}>{p.label}</span><span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>{p.code}</span></span>,
-          onClick: () => editor?.chain().focus().insertParameterField({ parameterCode: p.code, display: p.label }).run(),
-        }]
-      })
-
   const conditionLabel = variant.condition
     ? (variant.condition.type === 'PYTHON'
         ? `Python: ${variant.condition.expression ?? ''}`
@@ -110,55 +95,141 @@ export default function PhrasingVariantEditor({
         background: isDefault ? '#F0F7FF' : '#FAFAFA',
       }}
     >
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <Space size={4}>
-          <span style={{ fontSize: 12, color: '#8c8c8c' }}>Вариант {index + 1}</span>
-          {isDefault && <Tag color="blue" style={{ fontSize: 11 }}>Умолчание</Tag>}
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground">Вариант {index + 1}</span>
+          {isDefault && <Badge variant="outline" className="text-[11px]">Умолчание</Badge>}
           {conditionLabel != null && (
-            <Tag
-              color="orange"
-              style={{ fontSize: 11, cursor: 'pointer', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            <Badge
+              variant="default"
+              className="text-[11px] max-w-[200px] truncate cursor-pointer"
               onClick={() => setConditionOpen(true)}
             >
-              <FilterOutlined /> {conditionLabel}
-            </Tag>
+              <Filter className="size-3 mr-1" />
+              {conditionLabel}
+            </Badge>
           )}
           {conditionLabel == null && (
-            <Button size="small" type="dashed" icon={<FilterOutlined />} onClick={() => setConditionOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-[11px]"
+              onClick={() => setConditionOpen(true)}
+            >
+              <Filter className="size-3 mr-1" />
               Добавить условие
             </Button>
           )}
           {conditionLabel != null && (
-            <Tooltip title="Изменить условие">
-              <Button size="small" type="text" icon={<FilterOutlined />} onClick={() => setConditionOpen(true)} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="h-7 w-7"
+                  onClick={() => setConditionOpen(true)}
+                >
+                  <Filter className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Изменить условие</TooltipContent>
             </Tooltip>
           )}
-        </Space>
-        <Space size={4}>
-          <Tooltip title="Переместить вверх">
-            <Button size="small" type="text" icon={<ArrowUpOutlined />} onClick={onMoveUp} disabled={isFirst} />
+        </div>
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="h-7 w-7"
+                onClick={onMoveUp}
+                disabled={isFirst}
+              >
+                <ChevronUp className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Переместить вверх</TooltipContent>
           </Tooltip>
-          <Tooltip title="Переместить вниз">
-            <Button size="small" type="text" icon={<ArrowDownOutlined />} onClick={onMoveDown} disabled={isLast} />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="h-7 w-7"
+                onClick={onMoveDown}
+                disabled={isLast}
+              >
+                <ChevronDown className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Переместить вниз</TooltipContent>
           </Tooltip>
-          <Tooltip title="Удалить вариант">
-            <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={onDelete} />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="h-7 w-7 text-destructive"
+                onClick={onDelete}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Удалить вариант</TooltipContent>
           </Tooltip>
-        </Space>
+        </div>
       </div>
 
-      {/* Mini editor */}
-      <div style={{ border: '1px solid #d9d9d9', borderRadius: 4, background: '#fff' }}>
-        <div style={{ borderBottom: '1px solid #f0f0f0', padding: '2px 6px' }}>
-          <Dropdown menu={{ items: paramMenuItems }} trigger={['click']} placement="bottomLeft">
-            <Button size="small" type="text" icon={<PlusSquareOutlined />} style={{ fontSize: 12, color: '#1677ff' }}>
-              Параметр
-            </Button>
-          </Dropdown>
+      <div className="border border-border rounded-md bg-background">
+        <div className="border-b border-muted px-1.5 py-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-[12px] text-primary"
+              >
+                <Plus className="size-3 mr-1" />
+                Параметр
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {parameters.length === 0 ? (
+                <DropdownMenuItem disabled>Нет параметров в шаблоне</DropdownMenuItem>
+              ) : (
+                parameters.flatMap((p) => {
+                  if (p.type === 'DIRECTORY' && p.directoryFields && p.directoryFields.length > 0) {
+                    return p.directoryFields.map((fieldKey) => (
+                      <DropdownMenuItem
+                        key={`${p.code}__${fieldKey}`}
+                        onClick={() => editor?.chain().focus().insertParameterField({
+                          parameterCode: `${p.code}__${fieldKey}`,
+                          display: `${p.label} → ${fieldKey}`,
+                        }).run()}
+                      >
+                        <span className="font-medium">{p.label} → {fieldKey}</span>
+                      </DropdownMenuItem>
+                    ))
+                  }
+                  return [(
+                    <DropdownMenuItem
+                      key={p.code}
+                      onClick={() => editor?.chain().focus().insertParameterField({ parameterCode: p.code, display: p.label }).run()}
+                    >
+                      <span className="font-medium">{p.label}</span>
+                      <span className="ml-2 text-muted-foreground text-xs">{p.code}</span>
+                    </DropdownMenuItem>
+                  )]
+                })
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div
-          style={{ padding: '4px 8px', minHeight: 36, fontSize: 13, cursor: 'text' }}
+          className="p-1.5 min-h-[36px] text-sm cursor-text"
           onClick={() => editor?.commands.focus()}
         >
           <EditorContent editor={editor} />
@@ -166,7 +237,7 @@ export default function PhrasingVariantEditor({
       </div>
 
       {isDefault && (
-        <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 4 }}>
+        <div className="text-[11px] text-muted-foreground mt-1">
           Вариант без условия — показывается если ни один другой вариант не подошёл.
         </div>
       )}

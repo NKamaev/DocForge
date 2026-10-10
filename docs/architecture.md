@@ -47,13 +47,13 @@
 - Совместное редактирование (real-time, несколько пользователей)
 - Экспорт DOCX и PDF
 - Базовая аутентификация (логин/пароль)
+- Версионирование шаблонов (семантические версии)
 - Docker-контейнеризация
 
 **Вне MVP (запланировано):**
 - Ролевая модель с гранулярными правами (абзац, вопрос)
 - Статусная модель документа
 - Настройка отображения элементов интерфейса
-- Версионирование шаблонов и документов
 - Импорт шаблонов из DOCX
 
 ---
@@ -164,7 +164,7 @@
 | Frontend | React 18 + TypeScript | Компонентная архитектура, экосистема. |
 | Редактор | TipTap 3 (ProseMirror) | WYSIWYG с коллаборацией. Кастомные ноды для параметров. |
 | Real-time sync | Yjs + y-websocket | CRDT для конфликт-свободной синхронизации. Нативная интеграция с TipTap. |
-| UI-компоненты | Ant Design 5 | Готовые формы, таблицы, модалки. Быстрая генерация через Claude Code. |
+| UI-компоненты | shadcn/ui + Tailwind | Миграция с Ant Design завершена. |
 | Экспорт DOCX | Apache POI 5 (XWPF) | Java-нативная генерация из TipTap JSON. |
 | Экспорт PDF | openhtmltopdf + PDFBox | TipTap JSON → HTML → PDF. |
 | Хранение изображений | Локальная ФС (`./uploads/images`) | POST /api/uploads/images, GET /api/uploads/images/{filename}. |
@@ -619,7 +619,7 @@ GET    /api/documents/{id}               # Получить документ
 DELETE /api/documents/{id}               # Удалить документ
 
 # --- Опросный лист ---
-GET    /api/documents/{id}/questionnaire           # Текущее состояние опросного листа (с учётом видимости)
+GET    /api/documents/{id}/questionnaire           # Текущее состояние опросного листа (с учётом видимости); требует DocumentPermission.READ
 PUT    /api/documents/{id}/questionnaire/answers    # Сохранить ответы
 
 # --- Генерация ---
@@ -1044,6 +1044,7 @@ public class YjsWebSocketHandler implements WebSocketHandler {
 - Левая панель (420px): опросный лист — вопросы, шаги, навигация.
 - Правая панель (flex: 1): заголовок с кнопками DOCX/PDF/История + `DocumentWorkspace`.
 - Дебаунс-автосохранение ответов (500ms) через `PUT /api/documents/{id}/questionnaire/answers`.
+- **Обработка ошибок загрузки**: `Promise.all([loadQ, loadT])` анализирует статус ошибки и устанавливает `loadError` (`access_denied` | `not_found` | `unknown`). При 403 → «Нет доступа / Документ не доступен для просмотра. Обратитесь к владельцу документа для получения приглашения.». При 404 → «Ошибка / Опросный лист не найден». При прочих → «Ошибка / Опросный лист не найден».
 - **Planned**: сохранение тела документа (`PUT /api/documents/{id}/body`) при изменении текста + создание ревизии.
 
 **`DocumentWorkspace` (компонент):**
@@ -1051,6 +1052,7 @@ public class YjsWebSocketHandler implements WebSocketHandler {
 - Начальный контент: `renderPreview(templateBody, answers, parameters, { showAllConditionals: true })` — если `current_body` уже есть (документ ранее генерировался) — **TODO**: загружать `current_body` вместо templateBody (см. TASK-006).
 - Ответы → storage → no-op dispatch → re-render node views (без `setContent`, курсор не прыгает).
 - `EditorToolbar` (из `template-designer/`) — более полный, чем в DocumentEditor.
+- **Guard-фикс**: гвард `if (!templateBody)` изменён на `if (!templateBody && initialBody == null)`. Если у документа есть `currentBody` (передан как `initialBody`), редактор отображается даже при отсутствии `templateBody` (например, когда шаблон обновился после создания документа, или API шаблона недоступен).
 
 **`WorkspaceParameterFieldNode` (TipTap extension):**
 - Читает значение из `editor.storage.parameterField.answers[paramCode]` (не из node.attrs).
@@ -1064,11 +1066,12 @@ public class YjsWebSocketHandler implements WebSocketHandler {
 - `parameterField` → остаётся нодой, получает атрибут `value` для инициализации.
 - Используется только для первоначальной установки контента (`setContent`).
 
-**Известные gap-ы (отслеживаются в TASK-006):**
-- `/fill` не сохраняет свободные правки текста документа в `current_body` → правки теряются при перезагрузке.
-- `/fill` не загружает `current_body`, если документ уже был сгенерирован → каждый раз рендерит шаблон заново.
-- `/fill` не имеет Yjs-коллаборации (нет `useCollaboration`, нет `ParticipantsPanel`).
+**Известные gap-ы:**
+- **TASK-006**: `/fill` не сохраняет свободные правки текста документа в `current_body` → правки теряются при перезагрузке.
+- **TASK-006**: `/fill` не загружает `current_body`, если документ уже был сгенерирован → каждый раз рендерит шаблон заново.
+- **TASK-006**: `/fill` не имеет Yjs-коллаборации (нет `useCollaboration`, нет `ParticipantsPanel`).
 - ~~Кнопка «История ревизий» и создание ревизий при сохранении отсутствуют~~ — **исправлено в BUG-005**: кнопка добавлена, ревизии создаются автоматически при каждом автосохранении ответов (debounce 500ms → `saveRevision()`). Исследование нагрузки и очистки — TASK-007.
+- **TASK-059**: `/fill` не имеет кнопки «Доступ» (ShareDialog). Компонент `ShareDialog` существует и подключён на `DocumentsPage`, но отсутствует на странице `/fill` (`QuestionnairePage`). Нужно добавить кнопку «Доступ» в тулбар `QuestionnairePage` и интегрировать диалог.
 
 ### 5.5 Генерация документа
 
@@ -1156,27 +1159,19 @@ public class DocxExporter {
 ```java
 public class PdfExporter {
 
-    // Стратегия: генерируем DOCX → конвертируем через LibreOffice headless
-    // Это даёт максимальную точность передачи форматирования
+    // Стратегия: TipTap JSON → HTML → openhtmltopdf → PDF
 
     public byte[] export(TipTapDocument document, DocumentFormatting formatting) {
-        byte[] docx = docxExporter.export(document, formatting);
+        String html = convertToHtml(document, formatting);
+        ByteArrayOutputStream os = new ByteArrayOutputStream();
 
-        Path tempDocx = Files.createTempFile("doc-", ".docx");
-        Files.write(tempDocx, docx);
+        try (PdfRendererBuilder builder = new PdfRendererBuilder()) {
+            builder.withHtmlContent(html, null);
+            builder.toStream(os);
+            builder.run();
+        }
 
-        // LibreOffice headless conversion
-        ProcessBuilder pb = new ProcessBuilder(
-            "libreoffice", "--headless", "--convert-to", "pdf",
-            "--outdir", tempDocx.getParent().toString(),
-            tempDocx.toString()
-        );
-        pb.start().waitFor(30, TimeUnit.SECONDS);
-
-        Path pdfPath = tempDocx.resolveSibling(
-            tempDocx.getFileName().toString().replace(".docx", ".pdf")
-        );
-        return Files.readAllBytes(pdfPath);
+        return os.toByteArray();
     }
 }
 ```
@@ -1260,12 +1255,62 @@ docforge/
 │   │   │       ├── DocxExporter.java
 │   │   │       └── PdfExporter.java
 │   │   │
-│   │   └── collaboration/
+│   │   ├── directory/
+│   │   │   ├── README.md
+│   │   │   ├── DirectoryController.java
+│   │   │   ├── DirectoryService.java
+│   │   │   ├── DirectoryServiceImpl.java
+│   │   │   ├── DirectoryRegistryRepository.java   # JPA (PostgreSQL)
+│   │   │   ├── DirectoryDocumentRepository.java   # MongoDB
+│   │   │   ├── DirectorySchemaFieldRepository.java
+│   │   │   ├── model/
+│   │   │   └── dto/
+│   │   │
+│   │   ├── export/
+│   │   │   ├── README.md
+│   │   │   ├── ExportController.java
+│   │   │   ├── DocxExportService.java
+│   │   │   ├── DocxExportServiceImpl.java
+│   │   │   ├── PdfExportService.java
+│   │   │   ├── PdfExportServiceImpl.java
+│   │   │   └── NodeResolver.java
+│   │   │
+│   │   ├── audit/
+│   │   │   ├── README.md
+│   │   │   ├── AuditService.java
+│   │   │   ├── AuditServiceImpl.java
+│   │   │   └── AuditLogRepository.java
+│   │   │
+│   │   ├── upload/
+│   │   │   ├── README.md
+│   │   │   ├── ImageUploadController.java
+│   │   │   ├── ImageStorageService.java
+│   │   │   ├── LocalImageStorageService.java
+│   │   │   └── dto/
+│   │   │
+│   │   ├── feedback/
+│   │   │   ├── README.md
+│   │   │   └── FeedbackController.java
+│   │   │
+│   │   ├── security/
+│   │   │   ├── README.md
+│   │   │   ├── JwtAuthFilter.java
+│   │   │   ├── JwtTokenProvider.java
+│   │   │   ├── SecurityConfig.java
+│   │   │   └── UserDetailsServiceImpl.java
+│   │   │
+│   │   └── common/
 │   │       ├── README.md
-│   │       ├── YjsWebSocketHandler.java
-│   │       ├── CollaborationService.java
-│   │       ├── YjsDocumentStore.java
-│   │       └── AwarenessManager.java
+│   │       ├── exception/
+│   │       │   ├── GlobalExceptionHandler.java
+│   │       │   ├── ValidationException.java
+│   │       │   ├── NotFoundException.java
+│   │       │   ├── AccessDeniedException.java
+│   │       │   └── ConflictException.java
+│   │       └── format/
+│   │           ├── DateFormatter.java
+│   │           ├── NumberFormatter.java
+│   │           └── FioFormatter.java
 │   │
 │   └── src/main/resources/
 │       ├── application.yml
@@ -1274,7 +1319,18 @@ docforge/
 │           ├── V001__users.sql
 │           ├── V002__template_registry.sql
 │           ├── V003__document_registry.sql
-│           └── V004__audit_log.sql
+│           ├── V004__audit_log.sql
+│           ├── V005__directories.sql
+│           ├── V006__directory_field_type.sql
+│           ├── V008__template_version.sql
+│           ├── V009__document_snapshot_ref.sql
+│           ├── V010__document_revision.sql
+│           ├── V011__add_folders.sql
+│           ├── V012__rbac_members.sql
+│           ├── V013__folder_parent.sql
+│           ├── V014__default_admin_user.sql
+│           ├── V015__template_versioning_semver.sql
+│           └── V016__template_version_semver_columns.sql
 │
 ├── frontend/
 │   ├── package.json
@@ -1383,7 +1439,7 @@ cd frontend && npm run dev
 - State management — Zustand.
 - API-вызовы — через файлы в api/, возвращают типизированные промисы.
 - Типы — в types/, экспортируются как interfaces.
-- UI-библиотека — Ant Design.
+- UI-библиотека — shadcn/ui + Tailwind.
 - Редактор — TipTap. Кастомные extensions в extensions/.
 
 ### Именование
@@ -1423,90 +1479,91 @@ cd frontend && npm run dev
 ### 7.1 docker-compose.yml
 
 ```yaml
-version: '3.9'
-
 services:
-  # ── Приложение ──
-  app:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      SPRING_PROFILES_ACTIVE: docker
-      POSTGRES_HOST: postgres
-      MONGO_HOST: mongo
-      REDIS_HOST: redis
-    depends_on:
-      postgres:
-        condition: service_healthy
-      mongo:
-        condition: service_started
-      redis:
-        condition: service_started
-
-  # ── PostgreSQL ──
   postgres:
     image: postgres:16-alpine
+    container_name: docforge-postgres
     environment:
       POSTGRES_DB: docforge
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app_secret
+      POSTGRES_USER: docforge
+      POSTGRES_PASSWORD: docforge
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d docforge"]
+      test: ["CMD-SHELL", "pg_isready -U docforge"]
       interval: 5s
+      timeout: 5s
       retries: 5
 
-  # ── MongoDB ──
   mongo:
     image: mongo:7
+    container_name: docforge-mongo
     environment:
+      MONGO_INITDB_ROOT_USERNAME: docforge
+      MONGO_INITDB_ROOT_PASSWORD: docforge
       MONGO_INITDB_DATABASE: docforge
     ports:
       - "27017:27017"
     volumes:
-      - mongodata:/data/db
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  # ── Redis ──
   redis:
     image: redis:7-alpine
+    container_name: docforge-redis
     ports:
       - "6379:6379"
     volumes:
-      - redisdata:/data
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
-  pgdata:
-  mongodata:
-  redisdata:
+  postgres_data:
+  mongo_data:
+  redis_data:
 ```
 
 ### 7.2 Dockerfile (multi-stage)
 
 ```dockerfile
-# ── Stage 1: Build frontend ──
+# ── Stage 1: Build frontend ──────────────────────────────────────────────────
 FROM node:20-alpine AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
-COPY frontend/ ./
+COPY frontend/ .
 RUN npm run build
 
-# ── Stage 2: Build backend ──
-FROM gradle:8-jdk21 AS backend-build
-WORKDIR /app/backend
-COPY backend/ ./
-COPY --from=frontend-build /app/frontend/dist ./src/main/resources/static
-RUN gradle bootJar --no-daemon
-
-# ── Stage 3: Runtime ──
-FROM eclipse-temurin:21-jre-alpine
-RUN apk add --no-cache libreoffice
+# ── Stage 2: Build backend ────────────────────────────────────────────────────
+FROM eclipse-temurin:21-jdk-alpine AS backend-build
 WORKDIR /app
-COPY --from=backend-build /app/backend/build/libs/*.jar app.jar
+COPY backend/gradlew backend/settings.gradle.kts backend/build.gradle.kts ./
+COPY backend/gradle ./gradle
+RUN chmod +x gradlew && ./gradlew dependencies --no-daemon -q
+
+COPY backend/src ./src
+RUN ./gradlew bootJar --no-daemon -q
+
+# ── Stage 3: Runtime ──────────────────────────────────────────────────────────
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+
+COPY --from=backend-build /app/build/libs/docforge.jar app.jar
+COPY --from=frontend-build /app/frontend/dist /app/static
+
+ENV SPRING_PROFILES_ACTIVE=docker
+ENV SPRING_WEB_RESOURCES_STATIC_LOCATIONS=file:/app/static/
+
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
@@ -1594,7 +1651,7 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 
 Задачи:
 - DocxExporter: обход TipTap JSON → Apache POI XWPF.
-- PdfExporter: DOCX → LibreOffice headless → PDF.
+- PdfExporter: TipTap JSON → HTML → openhtmltopdf → PDF.
 - Frontend: кнопки экспорта, индикатор загрузки, скачивание файла.
 - Обработка ошибок конвертации.
 
@@ -1713,22 +1770,23 @@ CREATE TABLE dictionaries (
 
 ### 10.2 Безопасность
 - Аутентификация: JWT, refresh-token.
+- **Permission check**: все эндпоинты документов, включая `GET /api/documents/{id}/questionnaire`, проверяют `DocumentPermission.READ` перед выдачей данных. Раньше questionnaire отдавал данные любому аутентифицированному пользователю.
 - Python-скрипты: GraalPython sandbox — нет доступа к FS, сети, Java-классам.
 - Валидация входных данных на уровне DTO (Jakarta Validation).
 - CORS — настраиваемый whitelist.
 - Пароли — BCrypt.
 
 ### 10.3 Мониторинг (MVP-минимум)
-- Spring Boot Actuator: health, metrics.
-- Структурированное логирование (JSON).
 - Аудит-лог в PostgreSQL.
+- Структурированное логирование (JSON).
 
 ### 10.4 Ограничения MVP
-- Нет версионирования шаблонов (только текущая версия).
+- Версионирование шаблонов реализовано (TemplateVersion + TemplateSnapshot, семантические версии).
 - Нет импорта шаблонов из DOCX.
 - Нет мобильной адаптации (десктоп-first).
 - Один инстанс приложения (нет горизонтального масштабирования WebSocket без Redis pub/sub, который уже заложен).
 - Нет SSO / LDAP (только локальные пользователи).
+- **TASK-059**: На странице `/fill` (QuestionnairePage) отсутствует кнопка «Доступ» (ShareDialog), хотя сам компонент существует и подключён на странице списка документов. Запланировано: добавить ShareDialog на `/fill`.
 
 ---
 

@@ -72,7 +72,8 @@ public class DocumentController {
     ) {
         UUID ownerId = ownerResolver.resolve(userDetails.getUsername());
         DocumentResponse response = documentService.create(
-                request.templateId(), request.name(), ownerId, request.folderId());
+                request.templateId(), request.name(), ownerId, request.folderId(),
+                request.templateVersionNumber());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -122,7 +123,13 @@ public class DocumentController {
 
     /** GET /api/documents/{id}/questionnaire — текущее состояние с видимостью */
     @GetMapping("/{id}/questionnaire")
-    public ResponseEntity<QuestionnaireResponse> getQuestionnaire(@PathVariable UUID id) {
+    public ResponseEntity<QuestionnaireResponse> getQuestionnaire(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.READ))
+            throw new AccessDeniedException("Нет доступа к документу");
         return ResponseEntity.ok(documentService.getQuestionnaire(id));
     }
 
@@ -213,7 +220,7 @@ public class DocumentController {
         }
     }
 
-    // ── Revisions ─────────────────────────────────────────────────────────────
+    // ── Editions ──────────────────────────────────────────────────────────────
 
     /** GET /api/documents/{id}/revisions */
     @GetMapping("/{id}/revisions")
@@ -230,7 +237,7 @@ public class DocumentController {
         return ResponseEntity.ok(documentService.getRevisionBody(id, revNum));
     }
 
-    /** POST /api/documents/{id}/revisions — сохранить ревизию вручную */
+    /** POST /api/documents/{id}/revisions — сохранить редакцию вручную */
     @PostMapping("/{id}/revisions")
     public ResponseEntity<DocumentRevisionDTO> saveRevision(
             @PathVariable UUID id,
@@ -247,6 +254,16 @@ public class DocumentController {
             @PathVariable int revNum
     ) {
         return ResponseEntity.ok(documentService.restoreRevision(id, revNum));
+    }
+
+    /** GET /api/documents/{id}/revisions/{revNum}/diff — diff с предыдущей или указанной редакцией */
+    @GetMapping("/{id}/revisions/{revNum}/diff")
+    public ResponseEntity<RevisionDiffResponse> getRevisionDiff(
+            @PathVariable UUID id,
+            @PathVariable int revNum,
+            @RequestParam(required = false) Integer compareTo
+    ) {
+        return ResponseEntity.ok(documentService.computeRevisionDiff(id, revNum, compareTo));
     }
 
     // ── Participants ──────────────────────────────────────────────────────────

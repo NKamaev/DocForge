@@ -5,6 +5,7 @@ import { documentsApi } from '../api/documentsApi'
 import type { DocumentListItem } from '../types/document'
 import { Icon } from './Icon'
 import { BrandMark } from './BrandMark'
+import { ErrorReportButton } from './ErrorReportButton'
 
 const NAV_ITEMS = [
   { key: '/', icon: 'home', label: 'Главная' },
@@ -82,6 +83,7 @@ export default function AppLayout() {
         </div>
 
         <div className="topbar-right">
+          <ErrorReportButton />
           <button className="icon-btn" title="Помощь">
             <Icon name="info" size={16} />
           </button>

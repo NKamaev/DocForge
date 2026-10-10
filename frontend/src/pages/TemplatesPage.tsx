@@ -1,10 +1,27 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, startTransition } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Popconfirm, Tooltip, message } from 'antd'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  showToast,
+} from '@/components/ui'
 import { templatesApi } from '../api/templatesApi'
 import type { TemplateListItem } from '../types/template'
 import CreateTemplateModal from '../components/template-list/CreateTemplateModal'
 import { Icon } from '../components/Icon'
+
+function showNotification(type: 'success' | 'error', message: string) {
+  showToast(message, type)
+}
 
 type Filter = 'all' | 'published' | 'draft'
 
@@ -15,6 +32,11 @@ export default function TemplatesPage() {
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
+  const publishingRef = useRef(false)
+  const [dialogState, setDialogState] = useState<{ type: 'publish' | 'delete'; template: TemplateListItem } | null>(null)
+  const dialogOpen = dialogState !== null
+  const dialogType = dialogState?.type
+  const dialogTemplate = dialogState?.template
 
   const load = async () => {
     setLoading(true)
@@ -22,7 +44,7 @@ export default function TemplatesPage() {
       const data = await templatesApi.getTemplates({ page: 0, size: 100 })
       setItems(data.content)
     } catch {
-      message.error('Не удалось загрузить шаблоны')
+      showNotification('error', 'Не удалось загрузить шаблоны')
     } finally {
       setLoading(false)
     }
@@ -30,30 +52,52 @@ export default function TemplatesPage() {
 
   useEffect(() => { load() }, [])
 
-  const handlePublish = async (id: string, currentlyPublished: boolean) => {
+  const handlePublish = async (template: TemplateListItem) => {
+    if (publishingRef.current) return
+    publishingRef.current = true
     try {
-      if (currentlyPublished) {
-        await templatesApi.unpublishTemplate(id)
-        message.success('Шаблон снят с публикации')
-      } else {
-        await templatesApi.publishTemplate(id)
-        message.success('Шаблон опубликован')
-      }
-      load()
-    } catch {
-      message.error('Ошибка')
+      const updated = template.published
+        ? await templatesApi.unpublishTemplate(template.id)
+        : await templatesApi.publishTemplate(template.id)
+
+      startTransition(() => {
+        setItems(prev => prev.map(t =>
+          t.id === updated.id
+            ? { ...t, published: updated.published as boolean }
+            : t
+        ))
+      })
+      showToast(template.published ? 'Шаблон снят с публикации' : 'Шаблон опубликован', 'success')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      showToast(detail ?? (template.published ? 'Не удалось снять шаблон с публикации' : 'Не удалось опубликовать шаблон'), 'error')
+    } finally {
+      publishingRef.current = false
     }
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (template: TemplateListItem) => {
     try {
-      await templatesApi.deleteTemplate(id)
-      message.success('Шаблон удалён')
-      load()
+      await templatesApi.deleteTemplate(template.id)
+      startTransition(() => {
+        setItems(prev => prev.filter(t => t.id !== template.id))
+      })
+      showToast('Шаблон удалён', 'success')
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      message.error(detail ?? 'Не удалось удалить шаблон')
+      showToast(detail ?? 'Не удалось удалить шаблон', 'error')
     }
+  }
+
+  const handleDialogConfirm = async () => {
+    if (!dialogState) return
+    const { type, template } = dialogState
+    if (type === 'publish') {
+      await handlePublish(template)
+    } else {
+      await handleDelete(template)
+    }
+    setDialogState(null)
   }
 
   const published = items.filter((t) => t.published)
@@ -135,7 +179,7 @@ export default function TemplatesPage() {
                         {t.name}
                       </div>
                       <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
-                        v1.0
+                        v{t.majorVersion ?? 1}.{t.minorVersion ?? 0}
                       </div>
                     </div>
                   </div>
@@ -151,37 +195,40 @@ export default function TemplatesPage() {
                 <td className="muted tabular">{new Date(t.createdAt).toLocaleDateString('ru-RU')}</td>
                 <td>
                   <div className="row-actions">
-                    <Tooltip title="Открыть редактор">
-                      <button className="btn xs icon-only" onClick={() => navigate(`/templates/${t.id}/edit`)}>
-                        <Icon name="edit" size={14} />
-                      </button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button className="btn xs icon-only" onClick={() => navigate(`/templates/${t.id}/edit`)}>
+                          <Icon name="edit" size={14} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Открыть редактор</TooltipContent>
                     </Tooltip>
-                    <Popconfirm
-                      title={t.published ? 'Снять с публикации?' : 'Опубликовать шаблон?'}
-                      okText={t.published ? 'Да, снять' : 'Опубликовать'}
-                      cancelText="Отмена"
-                      onConfirm={() => handlePublish(t.id, t.published)}
-                    >
-                      <Tooltip title={t.published ? 'Снять с публикации' : 'Опубликовать шаблон'}>
-                        <button className={`btn xs icon-only ${t.published ? 'warning' : 'success'}`}>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          className={`btn xs icon-only ${t.published ? 'warning' : 'success'}`}
+                          onClick={() => setDialogState({ type: 'publish', template: t })}
+                        >
                           <Icon name={t.published ? 'x' : 'check'} size={14} />
                         </button>
-                      </Tooltip>
-                    </Popconfirm>
-                    <Popconfirm
-                      title="Удалить шаблон?"
-                      description="Это действие нельзя отменить."
-                      okText="Удалить"
-                      cancelText="Отмена"
-                      okButtonProps={{ danger: true }}
-                      onConfirm={() => handleDelete(t.id)}
-                    >
-                      <Tooltip title="Удалить шаблон">
-                        <button className="btn xs icon-only danger">
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t.published ? 'Снять с публикации' : 'Опубликовать шаблон'}
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          className="btn xs icon-only danger"
+                          onClick={() => setDialogState({ type: 'delete', template: t })}
+                        >
                           <Icon name="trash" size={14} />
                         </button>
-                      </Tooltip>
-                    </Popconfirm>
+                      </TooltipTrigger>
+                      <TooltipContent>Удалить шаблон</TooltipContent>
+                    </Tooltip>
                   </div>
                 </td>
               </tr>
@@ -198,6 +245,34 @@ export default function TemplatesPage() {
           </span>
         </div>
       </div>
+
+      <AlertDialog open={dialogOpen} onOpenChange={(open) => { if (!open) setDialogState(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {dialogType === 'publish'
+                ? (dialogTemplate?.published ? 'Снять с публикации?' : 'Опубликовать шаблон?')
+                : 'Удалить шаблон?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {dialogType === 'publish'
+                ? (dialogTemplate?.published ? 'Шаблон перестанет быть доступен для создания новых документов.' : 'Шаблон станет доступен для просмотра и создания документов.')
+                : 'Шаблон и все связанные с ним данные будут безвозвратно удалены.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              className={dialogType === 'delete' ? 'bg-destructive hover:bg-destructive/90' : ''}
+              onClick={handleDialogConfirm}
+            >
+              {dialogType === 'publish'
+                ? (dialogTemplate?.published ? 'Да, снять' : 'Опубликовать')
+                : 'Удалить'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <CreateTemplateModal
         open={modalOpen}

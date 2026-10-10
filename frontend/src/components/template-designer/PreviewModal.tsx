@@ -1,5 +1,5 @@
-import { Modal } from 'antd'
 import { EditorContent, useEditor } from '@tiptap/react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui'
 import StarterKit from '@tiptap/starter-kit'
 import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
@@ -29,7 +29,7 @@ import { useEffect } from 'react'
 import './TemplateDesigner.css'
 
 const PREVIEW_EXTENSIONS = [
-  StarterKit,
+  StarterKit.configure({ link: false }),
   Table.configure({ resizable: false }),
   TableRow,
   ExtendedTableCell,
@@ -100,19 +100,23 @@ export default function PreviewModal({ open, onClose, content, formatting }: Pro
     cursor: 'default',
   } as React.CSSProperties
 
+  const dialogWidth = `${w + 120}mm`
+
   return (
-    <Modal
-      title="Предпросмотр шаблона"
-      open={open}
-      onCancel={onClose}
-      footer={null}
-      width={`${w + 120}mm`}
-      style={{ top: 24 }}
-      styles={{ body: { padding: '24px 48px', background: '#f5f5f5', maxHeight: '80vh', overflowY: 'auto' } }}
-    >
-      <div className="tiptap-page" style={pageStyle}>
-        <EditorContent editor={editor} />
-      </div>
-    </Modal>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent 
+        className="sm:max-w-none p-0"
+        style={{ width: dialogWidth, maxWidth: '95vw' }}
+      >
+        <DialogHeader className="px-6 pt-4 pb-2">
+          <DialogTitle>Предпросмотр шаблона</DialogTitle>
+        </DialogHeader>
+        <div className="px-6 pb-6 overflow-y-auto" style={{ maxHeight: '75vh', background: '#f5f5f5' }}>
+          <div className="tiptap-page" style={pageStyle}>
+            <EditorContent editor={editor} />
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

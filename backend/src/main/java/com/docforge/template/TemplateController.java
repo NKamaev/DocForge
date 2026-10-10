@@ -1,6 +1,10 @@
 package com.docforge.template;
 
 import com.docforge.template.dto.CreateTemplateRequest;
+import com.docforge.template.dto.DiffResult;
+import com.docforge.template.dto.RollbackResponse;
+import com.docforge.template.dto.SaveVersionRequest;
+import com.docforge.template.dto.SaveVersionResponse;
 import com.docforge.template.dto.ScriptTestRequest;
 import com.docforge.template.dto.ScriptTestResult;
 import com.docforge.template.dto.TemplateListItemResponse;
@@ -102,5 +106,30 @@ public class TemplateController {
             @PathVariable int versionNumber
     ) {
         return ResponseEntity.ok(templateService.getSnapshot(id, versionNumber));
+    }
+
+    @PostMapping("/{id}/versions")
+    public ResponseEntity<SaveVersionResponse> saveVersion(
+            @PathVariable UUID id,
+            @Valid @RequestBody SaveVersionRequest request
+    ) {
+        return ResponseEntity.ok(templateService.saveVersion(id, request));
+    }
+
+    @PostMapping("/{id}/rollback/{versionNumber}")
+    public ResponseEntity<RollbackResponse> rollback(
+            @PathVariable UUID id,
+            @PathVariable int versionNumber
+    ) {
+        return ResponseEntity.ok(templateService.rollback(id, versionNumber));
+    }
+
+    @GetMapping("/{id}/versions/diff")
+    public ResponseEntity<DiffResult> getDiff(
+            @PathVariable UUID id,
+            @RequestParam int from,
+            @RequestParam int to
+    ) {
+        return ResponseEntity.ok(templateService.getDiff(id, from, to));
     }
 }

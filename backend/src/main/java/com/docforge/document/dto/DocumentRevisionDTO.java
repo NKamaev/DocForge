@@ -6,8 +6,9 @@ import java.util.UUID;
 public record DocumentRevisionDTO(
         UUID id,
         UUID documentId,
-        int revisionNumber,
+        int editionNumber,
         UUID savedBy,
+        String authorName,
         OffsetDateTime savedAt,
         String comment
 ) {}

@@ -7,6 +7,11 @@ import type {
   PageResponse,
   TemplateListParams,
   TemplateSnapshot,
+  TemplateVersionDTO,
+  SaveVersionRequest,
+  SaveVersionResponse,
+  RollbackResponse,
+  DiffResult,
 } from '../types/template'
 
 export const templatesApi = {
@@ -46,5 +51,27 @@ export const templatesApi = {
   getSnapshot: (templateId: string, versionNumber: number): Promise<TemplateSnapshot> =>
     api
       .get<TemplateSnapshot>(`/templates/${templateId}/versions/${versionNumber}`)
+      .then((r) => r.data),
+
+  // ── Versioning ──────────────────────────────────────────────────────────────
+
+  getVersions: (templateId: string): Promise<TemplateVersionDTO[]> =>
+    api
+      .get<TemplateVersionDTO[]>(`/templates/${templateId}/versions`)
+      .then((r) => r.data),
+
+  saveVersion: (templateId: string, data: SaveVersionRequest): Promise<SaveVersionResponse> =>
+    api
+      .post<SaveVersionResponse>(`/templates/${templateId}/versions`, data)
+      .then((r) => r.data),
+
+  rollback: (templateId: string, versionNumber: number): Promise<RollbackResponse> =>
+    api
+      .post<RollbackResponse>(`/templates/${templateId}/rollback/${versionNumber}`)
+      .then((r) => r.data),
+
+  getDiff: (templateId: string, from: number, to: number): Promise<DiffResult> =>
+    api
+      .get<DiffResult>(`/templates/${templateId}/versions/diff`, { params: { from, to } })
       .then((r) => r.data),
 }

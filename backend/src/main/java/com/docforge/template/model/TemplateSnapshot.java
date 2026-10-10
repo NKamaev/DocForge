@@ -1,5 +1,6 @@
 package com.docforge.template.model;
 
+import com.docforge.template.ParameterTypeSupplier;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,7 +24,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TemplateSnapshot {
+public class TemplateSnapshot implements ParameterTypeSupplier {
 
     @Id
     private UUID id;
@@ -33,6 +34,12 @@ public class TemplateSnapshot {
 
     @Field("version_number")
     private int versionNumber;
+
+    @Field("major_version")
+    private int majorVersion;
+
+    @Field("minor_version")
+    private int minorVersion;
 
     private List<Parameter> parameters;
 

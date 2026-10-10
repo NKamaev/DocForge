@@ -8,5 +8,6 @@ import java.util.UUID;
 public record CreateDocumentRequest(
         @NotNull UUID templateId,
         @NotBlank String name,
-        UUID folderId
+        UUID folderId,
+        Integer templateVersionNumber
 ) {}

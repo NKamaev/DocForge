@@ -1,15 +1,23 @@
 import { useState, useEffect } from 'react'
-import { Button, Input, Modal, Space, Typography } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import {
+  Button,
+  Input,
+  Textarea,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Label,
+} from '@/components/ui'
+import { Plus } from 'lucide-react'
 import PhrasingVariantEditor from './PhrasingVariantEditor'
 import type { Phrasing, PhrasingVariant } from '../../types/templateModel'
 import type { Parameter } from '../../types/template'
 
-const { Text } = Typography
-
 interface Props {
   open: boolean
-  initial: Phrasing | null  // null = создание нового
+  initial: Phrasing | null
   parameters: Parameter[]
   onSave: (phrasing: Phrasing) => void
   onClose: () => void
@@ -50,7 +58,6 @@ export default function PhrasingEditorModal({ open, initial, parameters, onSave,
 
   const addVariant = () => {
     setVariants(vs => {
-      // Новый вариант вставляется перед последним (дефолтным), если последний null
       const last = vs[vs.length - 1]
       const hasDefault = last && last.condition == null
       if (hasDefault) {
@@ -77,68 +84,78 @@ export default function PhrasingEditorModal({ open, initial, parameters, onSave,
   }
 
   return (
-    <Modal
-      title={initial ? 'Редактировать формулировку' : 'Новая формулировка'}
-      open={open}
-      onOk={handleSave}
-      onCancel={onClose}
-      okText="Сохранить"
-      cancelText="Отмена"
-      okButtonProps={{ disabled: !name.trim() }}
-      destroyOnHidden
-      width={680}
-    >
-      <Space direction="vertical" style={{ width: '100%', marginTop: 12 }} size={12}>
-        <div>
-          <Text strong>Название *</Text>
-          <Input
-            autoFocus
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="Неустойка"
-            style={{ marginTop: 4 }}
-          />
-        </div>
+    <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[680px]">
+        <DialogHeader>
+          <DialogTitle>
+            {initial ? 'Редактировать формулировку' : 'Новая формулировка'}
+          </DialogTitle>
+        </DialogHeader>
 
-        <div>
-          <Text strong>Описание</Text>
-          <Input.TextArea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="Необязательное описание"
-            rows={2}
-            style={{ marginTop: 4 }}
-          />
-        </div>
-
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <Text strong>Варианты</Text>
-            <Button size="small" icon={<PlusOutlined />} onClick={addVariant}>
-              Добавить вариант
-            </Button>
-          </div>
-          {variants.map((v, i) => (
-            <PhrasingVariantEditor
-              key={v.id}
-              variant={v}
-              index={i}
-              isFirst={i === 0}
-              isLast={i === variants.length - 1}
-              isDefault={v.condition == null}
-              parameters={parameters}
-              onChange={updated => updateVariant(i, updated)}
-              onDelete={() => deleteVariant(i)}
-              onMoveUp={() => moveVariant(i, 'up')}
-              onMoveDown={() => moveVariant(i, 'down')}
+        <div className="mt-4 flex flex-col gap-3">
+          <div className="space-y-2">
+            <Label htmlFor="phrasing-name">
+              Название <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="phrasing-name"
+              autoFocus
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Неустойка"
             />
-          ))}
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            Порядок важен: берётся первый вариант, чьё условие выполнено.
-            Вариант без условия — умолчание (рекомендуется ставить последним).
-          </Text>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="phrasing-description">Описание</Label>
+            <Textarea
+              id="phrasing-description"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Необязательное описание"
+              rows={2}
+            />
+          </div>
+
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <Label className="text-base font-semibold">Варианты</Label>
+              <Button variant="outline" size="sm" onClick={addVariant}>
+                <Plus className="size-4 mr-1" />
+                Добавить вариант
+              </Button>
+            </div>
+            {variants.map((v, i) => (
+              <PhrasingVariantEditor
+                key={v.id}
+                variant={v}
+                index={i}
+                isFirst={i === 0}
+                isLast={i === variants.length - 1}
+                isDefault={v.condition == null}
+                parameters={parameters}
+                onChange={updated => updateVariant(i, updated)}
+                onDelete={() => deleteVariant(i)}
+                onMoveUp={() => moveVariant(i, 'up')}
+                onMoveDown={() => moveVariant(i, 'down')}
+              />
+            ))}
+            <p className="text-xs text-muted-foreground mt-2">
+              Порядок важен: берётся первый вариант, чьё условие выполнено.
+              Вариант без условия — умолчание (рекомендуется ставить последним).
+            </p>
+          </div>
         </div>
-      </Space>
-    </Modal>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button onClick={handleSave} disabled={!name.trim()}>
+            Сохранить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

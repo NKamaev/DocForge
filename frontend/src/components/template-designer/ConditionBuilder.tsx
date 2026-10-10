@@ -1,18 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Button, DatePicker, Divider, Input, InputNumber, Modal,
-  Popconfirm, Radio, Select, Space, Switch, Tooltip, Typography,
-} from 'antd'
-import { DeleteOutlined, PlusOutlined, ExperimentOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
+  Button,
+  Input,
+  Switch,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Separator,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui'
+import { Trash2, Plus, Play } from 'lucide-react'
+import { DatePicker } from '@/components/ui/date-picker'
 import type { Condition, ParameterType } from '../../types/templateModel'
 import type { Parameter } from '../../types/template'
 import type { DirectoryField } from '../../types/directory'
 import { directoriesApi } from '../../api/directoriesApi'
-
-const { Text } = Typography
-
-// ── Operator definitions ──────────────────────────────────────────────────────
 
 type Operator = '==' | '!=' | '>' | '<' | '>=' | '<=' | 'in' | 'not_in' | 'is_empty' | 'is_not_empty'
 
@@ -45,8 +57,6 @@ function operatorsFor(param: Parameter | undefined): typeof ALL_OPERATORS {
   }
 }
 
-// ── Internal row type ─────────────────────────────────────────────────────────
-
 let _rowId = 0
 const newRowId = () => `row-${++_rowId}`
 
@@ -57,10 +67,8 @@ interface ConditionRow {
   paramCode: string
   operator: Operator
   value: string
-  connector: Connector  // connector between this and the NEXT row
+  connector: Connector
 }
-
-// ── Expression serialisation ──────────────────────────────────────────────────
 
 function rowsToExpression(rows: ConditionRow[]): string {
   return rows.map((row, i) => {
@@ -72,7 +80,6 @@ function rowsToExpression(rows: ConditionRow[]): string {
   }).join(' ')
 }
 
-// Best-effort parse: "code op value CONNECTOR code op value ..."
 function expressionToRows(expr: string): ConditionRow[] {
   if (!expr.trim()) return []
   const tokens = expr.trim().split(/\s+/)
@@ -91,8 +98,6 @@ function expressionToRows(expr: string): ConditionRow[] {
   return rows.length ? rows : []
 }
 
-// ── Value input — adapts to parameter type ────────────────────────────────────
-
 function ValueInput({ param, operator, value, onChange }: {
   param: Parameter | undefined
   operator: Operator
@@ -100,52 +105,43 @@ function ValueInput({ param, operator, value, onChange }: {
   onChange: (v: string) => void
 }) {
   const op = ALL_OPERATORS.find((o) => o.value === operator)
-  if (op?.noValue) return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>
+  if (op?.noValue) return <span className="text-muted-foreground text-xs">—</span>
 
   if (!param || param.type === 'TEXT' || param.type === 'FIO') {
     if (operator === 'in' || operator === 'not_in') {
       return (
-        <Select
-          mode="tags" size="small" style={{ minWidth: 120 }}
-          value={value ? value.split(',').map((s) => s.trim()) : []}
-          onChange={(vals: string[]) => onChange(vals.join(', '))}
-          placeholder="Введите варианты"
-          open={false}
-          tokenSeparators={[',']}
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Введите варианты (через запятую)"
+          className="w-[120px] h-7 text-xs"
         />
       )
     }
-    return <Input size="small" value={value} onChange={(e) => onChange(e.target.value)} style={{ width: 120 }} />
+    return <Input value={value} onChange={(e) => onChange(e.target.value)} className="w-[120px] h-7 text-xs" />
   }
 
   if (param.type === 'NUMBER') {
     return (
-      <InputNumber
-        size="small" style={{ width: 90 }}
-        value={value ? Number(value) : undefined}
-        onChange={(v) => onChange(v != null ? String(v) : '')}
+      <Input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-[90px] h-7 text-xs"
       />
     )
   }
 
   if (param.type === 'DATE') {
-    return (
-      <DatePicker
-        size="small" style={{ width: 130 }}
-        value={value ? dayjs(value) : null}
-        onChange={(d) => onChange(d ? d.format('YYYY-MM-DD') : '')}
-        format="DD.MM.YYYY"
-      />
-    )
+    return <DatePicker value={value} onChange={onChange} />
   }
 
   if (param.type === 'BOOLEAN') {
     return (
       <Switch
-        size="small"
+        size="sm"
         checked={value === 'true'}
-        onChange={(checked) => onChange(String(checked))}
-        checkedChildren="Да" unCheckedChildren="Нет"
+        onCheckedChange={(checked) => onChange(String(checked))}
       />
     )
   }
@@ -154,29 +150,32 @@ function ValueInput({ param, operator, value, onChange }: {
     const options = (param.options ?? []).map((o) => ({ value: o, label: o }))
     if (operator === 'in' || operator === 'not_in') {
       return (
-        <Select
-          mode="multiple" size="small" style={{ minWidth: 120 }}
-          value={value ? value.split(',').map((s) => s.trim()) : []}
-          onChange={(vals: string[]) => onChange(vals.join(', '))}
-          options={options}
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Введите варианты (через запятую)"
+          className="w-[120px] h-7 text-xs"
         />
       )
     }
     return (
-      <Select
-        size="small" style={{ width: 120 }}
-        value={value || undefined}
-        onChange={onChange}
-        options={options}
-        allowClear
-      />
+      <Select value={value || undefined} onValueChange={onChange}>
+        <SelectTrigger size="sm" className="w-[120px]">
+          <SelectValue placeholder="Выберите" />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     )
   }
 
-  return <Input size="small" value={value} onChange={(e) => onChange(e.target.value)} style={{ width: 120 }} />
+  return <Input value={value} onChange={(e) => onChange(e.target.value)} className="w-[120px] h-7 text-xs" />
 }
-
-// ── Simple mode builder ───────────────────────────────────────────────────────
 
 function SimpleBuilder({ rows, parameters, dirFields, onChange }: {
   rows: ConditionRow[]
@@ -184,7 +183,6 @@ function SimpleBuilder({ rows, parameters, dirFields, onChange }: {
   dirFields: Map<string, DirectoryField[]>
   onChange: (rows: ConditionRow[]) => void
 }) {
-  // Expand DIRECTORY params into virtual Parameter objects for each sub-field
   const expandedParams = useMemo<Parameter[]>(() => {
     const result: Parameter[] = []
     for (const p of parameters) {
@@ -225,74 +223,110 @@ function SimpleBuilder({ rows, parameters, dirFields, onChange }: {
 
         return (
           <div key={row.id}>
-            {/* Connector between rows */}
             {i > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
-                <Radio.Group
-                  size="small"
-                  value={rows[i - 1].connector}
-                  onChange={(e) => update(rows[i - 1].id, { connector: e.target.value as Connector })}
-                  optionType="button"
-                  buttonStyle="solid"
-                  options={[{ value: 'AND', label: 'И' }, { value: 'OR', label: 'ИЛИ' }]}
-                />
+              <div className="flex justify-center my-1">
+                <div className="flex border border-input rounded-md overflow-hidden">
+                  <button
+                    className={`px-3 py-1 text-sm font-medium transition-colors ${
+                      rows[i - 1].connector === 'AND'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-background hover:bg-muted'
+                    }`}
+                    onClick={() => update(rows[i - 1].id, { connector: 'AND' })}
+                  >
+                    И
+                  </button>
+                  <button
+                    className={`px-3 py-1 text-sm font-medium transition-colors ${
+                      rows[i - 1].connector === 'OR'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-background hover:bg-muted'
+                    }`}
+                    onClick={() => update(rows[i - 1].id, { connector: 'OR' })}
+                  >
+                    ИЛИ
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* Row */}
-            <Space size={4} style={{ width: '100%' }}>
+            <div className="flex items-center gap-1 mb-1">
               <Select
-                size="small" style={{ width: 130 }}
-                options={paramOptions}
                 value={row.paramCode || undefined}
-                onChange={(v) => update(row.id, { paramCode: v, value: '', operator: '==' })}
-                placeholder="Параметр"
-                showSearch
-                filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-              />
+                onValueChange={(v) => update(row.id, { paramCode: v, value: '', operator: '==' })}
+              >
+                <SelectTrigger size="sm" className="w-[130px]">
+                  <SelectValue placeholder="Параметр" />
+                </SelectTrigger>
+                <SelectContent>
+                  {paramOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               <Select
-                size="small" style={{ width: 120 }}
-                options={ops}
                 value={row.operator}
-                onChange={(v) => update(row.id, { operator: v as Operator, value: '' })}
-              />
+                onValueChange={(v) => update(row.id, { operator: v as Operator, value: '' })}
+              >
+                <SelectTrigger size="sm" className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ops.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               <ValueInput
                 param={param}
                 operator={row.operator}
                 value={row.value}
                 onChange={(v) => update(row.id, { value: v })}
               />
-              <Tooltip title="Удалить строку">
-                <Button
-                  type="text" size="small" danger
-                  icon={<DeleteOutlined />}
-                  onClick={() => removeRow(row.id)}
-                  disabled={rows.length === 1}
-                />
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-8 w-8 text-destructive"
+                    onClick={() => removeRow(row.id)}
+                    disabled={rows.length === 1}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Удалить строку</TooltipContent>
               </Tooltip>
-            </Space>
+            </div>
           </div>
         )
       })}
 
       <Button
-        type="dashed" size="small" icon={<PlusOutlined />}
+        variant="outline"
+        size="sm"
+        className="mt-2 w-full"
         onClick={addRow}
-        style={{ marginTop: 8, width: '100%' }}
       >
+        <Plus className="size-4 mr-1" />
         Добавить условие
       </Button>
 
       {rows.length > 0 && (
-        <div style={{ marginTop: 10, padding: '6px 10px', background: '#f5f5f5', borderRadius: 4, fontFamily: 'monospace', fontSize: 12, color: '#595959' }}>
+        <div className="mt-2.5 p-1.5 bg-muted rounded-md font-mono text-xs text-muted-foreground">
           {rowsToExpression(rows)}
         </div>
       )}
     </div>
   )
 }
-
-// ── Main component ────────────────────────────────────────────────────────────
 
 export interface ConditionBuilderProps {
   open: boolean
@@ -307,26 +341,23 @@ export default function ConditionBuilder({ open, condition, parameters, onSave, 
   const [rows, setRows] = useState<ConditionRow[]>([])
   const [pythonCode, setPythonCode] = useState('')
   const [dirFields, setDirFields] = useState<Map<string, DirectoryField[]>>(new Map())
+  const [testDialogOpen, setTestDialogOpen] = useState(false)
 
-  // Initialise state when modal opens
   useEffect(() => {
     if (!open) return
 
-    // Reset stale directory data from previous open
     setDirFields(new Map())
 
     const isSimple = condition.type !== 'PYTHON'
     setMode(isSimple ? 'simple' : 'python')
     if (isSimple) {
       const parsed = expressionToRows(condition.expression ?? '')
-      // Use first non-DIRECTORY param as default, or empty string; addRow uses expandedParams[0]
       const defaultCode = parameters.find((p) => p.type !== 'DIRECTORY')?.code ?? parameters[0]?.code ?? ''
       setRows(parsed.length ? parsed : [{ id: newRowId(), paramCode: defaultCode, operator: '==', value: '', connector: 'AND' }])
     } else {
       setPythonCode(condition.expression ?? '')
     }
 
-    // Fetch directory definitions for DIRECTORY parameters
     const dirParams = parameters.filter((p) => p.type === 'DIRECTORY' && p.directoryId)
     if (dirParams.length === 0) return
 
@@ -343,7 +374,7 @@ export default function ConditionBuilder({ open, condition, parameters, onSave, 
       })
 
     return () => { cancelled = true }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open])
 
   const handleSave = () => {
     if (mode === 'simple') {
@@ -358,63 +389,98 @@ export default function ConditionBuilder({ open, condition, parameters, onSave, 
   const pythonPlaceholder = `# Доступные переменные: ${paramList || 'параметры шаблона'}\n# Результат — переменная result (bool)\nresult = `
 
   return (
-    <Modal
-      title="Настройка условия"
-      open={open}
-      onOk={handleSave}
-      onCancel={onClose}
-      okText="Сохранить"
-      cancelText="Отмена"
-      destroyOnHidden
-      width={560}
-    >
-      <div style={{ marginTop: 12 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <Radio.Group
-            value={mode}
-            onChange={(e) => setMode(e.target.value as 'simple' | 'python')}
-            optionType="button"
-            buttonStyle="solid"
-            options={[
-              { value: 'simple', label: 'Визуальный' },
-              { value: 'python', label: 'Python-скрипт' },
-            ]}
-          />
-          {mode === 'simple' && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Условие видимости: выполняется когда все / одно из правил истинно
-            </Text>
-          )}
-        </div>
+    <>
+      <Dialog open={open} onOpenChange={onClose}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Настройка условия</DialogTitle>
+          </DialogHeader>
 
-        <Divider style={{ margin: '0 0 16px' }} />
+          <div className="mt-3">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex border border-input rounded-md overflow-hidden">
+                <button
+                  className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                    mode === 'simple'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-background hover:bg-muted'
+                  }`}
+                  onClick={() => setMode('simple')}
+                >
+                  Визуальный
+                </button>
+                <button
+                  className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                    mode === 'python'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-background hover:bg-muted'
+                  }`}
+                  onClick={() => setMode('python')}
+                >
+                  Python-скрипт
+                </button>
+              </div>
 
-        {mode === 'simple' ? (
-          <SimpleBuilder rows={rows} parameters={parameters} dirFields={dirFields} onChange={setRows} />
-        ) : (
-          <div>
-            <Input.TextArea
-              rows={7}
-              value={pythonCode}
-              onChange={(e) => setPythonCode(e.target.value)}
-              placeholder={pythonPlaceholder}
-              style={{ fontFamily: 'monospace', fontSize: 13 }}
-            />
-            <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
-              <Popconfirm
-                title="Тестирование скрипта"
-                description="Функция тестирования будет доступна в следующей версии."
-                showCancel={false}
-                okText="Понятно"
-              >
-                <Button size="small" icon={<ExperimentOutlined />}>
-                  Тестировать
-                </Button>
-              </Popconfirm>
+              {mode === 'simple' && (
+                <span className="text-muted-foreground text-xs">
+                  Условие видимости: выполняется когда все / одно из правил истинно
+                </span>
+              )}
             </div>
+
+            <Separator className="my-4" />
+
+            {mode === 'simple' ? (
+              <SimpleBuilder rows={rows} parameters={parameters} dirFields={dirFields} onChange={setRows} />
+            ) : (
+              <div>
+                <textarea
+                  rows={7}
+                  value={pythonCode}
+                  onChange={(e) => setPythonCode(e.target.value)}
+                  placeholder={pythonPlaceholder}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <div className="mt-2 flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setTestDialogOpen(true)}
+                  >
+                    <Play className="size-4 mr-1" />
+                    Тестировать
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-    </Modal>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose}>
+              Отмена
+            </Button>
+            <Button onClick={handleSave}>
+              Сохранить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={testDialogOpen} onOpenChange={setTestDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Тестирование скрипта</DialogTitle>
+            <DialogDescription>
+              Функция тестирования будет доступна в следующей версии.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setTestDialogOpen(false)}>
+              Понятно
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

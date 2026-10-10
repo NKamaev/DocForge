@@ -195,22 +195,33 @@ class FolderPermissionServiceTest {
     @DisplayName("listMembers() maps members with user info")
     void listMembers_mapsWithUserInfo() {
         UUID folderId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         FolderMember m = member(folderId, userId, "VIEWER");
+
+        User owner = new User();
+        owner.setId(ownerId);
+        owner.setLogin("owner");
+        owner.setDisplayName("Owner");
 
         User user = new User();
         user.setId(userId);
         user.setLogin("alice");
         user.setDisplayName("Alice");
 
+        when(folderRepository.findById(folderId)).thenReturn(Optional.of(folder(folderId, ownerId)));
         when(folderMemberRepository.findByFolderId(folderId)).thenReturn(List.of(m));
+        when(userRepository.findById(ownerId)).thenReturn(Optional.of(owner));
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
 
         List<FolderMemberDTO> result = service.listMembers(folderId, UUID.randomUUID());
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).userLogin()).isEqualTo("alice");
-        assertThat(result.get(0).role()).isEqualTo("VIEWER");
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).userId()).isEqualTo(ownerId);
+        assertThat(result.get(0).userLogin()).isEqualTo("owner");
+        assertThat(result.get(0).role()).isEqualTo("OWNER");
+        assertThat(result.get(1).userLogin()).isEqualTo("alice");
+        assertThat(result.get(1).role()).isEqualTo("VIEWER");
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────

@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react'
 import { Node, mergeAttributes } from '@tiptap/core'
 import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react'
 import type { ReactNodeViewProps } from '@tiptap/react'
-import { Tooltip } from 'antd'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui'
 import { autoNumberingPluginKey } from './NumberedClauseNode'
 
 // ── Command augmentation ──────────────────────────────────────────────────────
@@ -60,21 +64,24 @@ function ClauseRefView({ node, editor }: ReactNodeViewProps) {
   if (!label) {
     return (
       <NodeViewWrapper as="span" contentEditable={false}>
-        <Tooltip title="Пункт удалён или не найден">
-          <span
-            style={{
-              color: '#ff4d4f',
-              background: '#fff2f0',
-              border: '1px solid #ffccc7',
-              borderRadius: 2,
-              padding: '1px 4px',
-              fontSize: '0.9em',
-              cursor: 'default',
-              userSelect: 'none',
-            }}
-          >
-            ???
-          </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              style={{
+                color: '#ff4d4f',
+                background: '#fff2f0',
+                border: '1px solid #ffccc7',
+                borderRadius: 2,
+                padding: '1px 4px',
+                fontSize: '0.9em',
+                cursor: 'default',
+                userSelect: 'none',
+              }}
+            >
+              ???
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Пункт удалён или не найден</TooltipContent>
         </Tooltip>
       </NodeViewWrapper>
     )
@@ -82,22 +89,25 @@ function ClauseRefView({ node, editor }: ReactNodeViewProps) {
 
   return (
     <NodeViewWrapper as="span" contentEditable={false}>
-      <Tooltip title="Перейти к пункту">
-        <span
-          onClick={handleClick}
-          style={{
-            background: '#E6F4FF',
-            border: '1px solid #91CAFF',
-            borderRadius: 2,
-            padding: '1px 4px',
-            fontSize: '0.9em',
-            cursor: 'pointer',
-            userSelect: 'none',
-            color: '#0958D9',
-          }}
-        >
-          п.&nbsp;{label}
-        </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            onClick={handleClick}
+            style={{
+              background: '#E6F4FF',
+              border: '1px solid #91CAFF',
+              borderRadius: 2,
+              padding: '1px 4px',
+              fontSize: '0.9em',
+              cursor: 'pointer',
+              userSelect: 'none',
+              color: '#0958D9',
+            }}
+          >
+            п.&nbsp;{label}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>Перейти к пункту</TooltipContent>
       </Tooltip>
     </NodeViewWrapper>
   )

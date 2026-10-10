@@ -1,6 +1,10 @@
 package com.docforge.template;
 
 import com.docforge.template.dto.CreateTemplateRequest;
+import com.docforge.template.dto.DiffResult;
+import com.docforge.template.dto.RollbackResponse;
+import com.docforge.template.dto.SaveVersionRequest;
+import com.docforge.template.dto.SaveVersionResponse;
 import com.docforge.template.dto.ScriptTestRequest;
 import com.docforge.template.dto.ScriptTestResult;
 import com.docforge.template.dto.TemplateListItemResponse;
@@ -43,4 +47,13 @@ public interface TemplateService {
     Optional<TemplateSnapshot> findLatestSnapshot(UUID templateId);
 
     TemplateSnapshot getSnapshotById(UUID snapshotId);
+
+    /** Save a draft version (creates version + snapshot without publishing). */
+    SaveVersionResponse saveVersion(UUID templateId, SaveVersionRequest request);
+
+    /** Rollback template to a previous version (creates a new version). */
+    RollbackResponse rollback(UUID templateId, int versionNumber);
+
+    /** Generate diff between two snapshots. */
+    DiffResult getDiff(UUID templateId, int fromVersion, int toVersion);
 }

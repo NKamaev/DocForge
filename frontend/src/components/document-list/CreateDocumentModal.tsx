@@ -1,24 +1,34 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { FileText, History } from 'lucide-react'
 import {
-  Card,
-  Form,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Button,
   Input,
-  Modal,
-  Radio,
   Select,
-  Spin,
-  Typography,
-  notification,
-} from 'antd'
-import { FileTextOutlined } from '@ant-design/icons'
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Label,
+  Skeleton,
+} from '@/components/ui'
 import { templatesApi } from '../../api/templatesApi'
 import { documentsApi } from '../../api/documentsApi'
 import { foldersApi } from '../../api/foldersApi'
-import type { TemplateListItem } from '../../types/template'
+import type { TemplateListItem, TemplateVersionDTO } from '../../types/template'
 import type { Folder } from '../../types/folder'
 
-const { Text } = Typography
+function showNotification(type: 'success' | 'error' | 'warning', message: string) {
+  console.log(`[${type.toUpperCase()}]`, message)
+  if (type === 'error') {
+    alert(message)
+  }
+}
 
 interface Props {
   open: boolean
@@ -29,8 +39,9 @@ interface Props {
 
 export default function CreateDocumentModal({ open, onClose, defaultFolderId }: Props) {
   const navigate = useNavigate()
-  const [form] = Form.useForm<{ name: string }>()
 
+  const [name, setName] = useState('')
+  const [nameError, setNameError] = useState('')
   const [templates, setTemplates] = useState<TemplateListItem[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
   const [loadingTemplates, setLoadingTemplates] = useState(false)
@@ -38,11 +49,19 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
+  // Version selection
+  const [versions, setVersions] = useState<TemplateVersionDTO[]>([])
+  const [loadingVersions, setLoadingVersions] = useState(false)
+  const [selectedVersionNumber, setSelectedVersionNumber] = useState<number | null>(null)
+
   useEffect(() => {
     if (!open) return
     setSelectedTemplateId(null)
     setSelectedFolderId(defaultFolderId ?? null)
-    form.resetFields()
+    setName('')
+    setNameError('')
+    setVersions([])
+    setSelectedVersionNumber(null)
 
     setLoadingTemplates(true)
     Promise.all([
@@ -53,14 +72,35 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
         setTemplates(tmplRes.content)
         setFolders(folderRes)
       })
-      .catch(() => notification.error({ message: 'Не удалось загрузить данные' }))
+      .catch(() => showNotification('error', 'Не удалось загрузить данные'))
       .finally(() => setLoadingTemplates(false))
-  }, [open, form, defaultFolderId])
+  }, [open, defaultFolderId])
+
+  // When template changes, load versions
+  useEffect(() => {
+    if (!selectedTemplateId) {
+      setVersions([])
+      setSelectedVersionNumber(null)
+      return
+    }
+    setLoadingVersions(true)
+    templatesApi.getVersions(selectedTemplateId)
+      .then((v) => {
+        // Only published versions should be selectable; for the modal,
+        // show all versions but default to latest
+        setVersions(v)
+        setSelectedVersionNumber(v.length > 0 ? v[0].versionNumber : null)
+      })
+      .catch(() => {
+        setVersions([])
+        setSelectedVersionNumber(null)
+      })
+      .finally(() => setLoadingVersions(false))
+  }, [selectedTemplateId])
 
   // When template changes, pre-fill folder from template's defaultFolderId
   const handleTemplateSelect = (templateId: string) => {
     setSelectedTemplateId(templateId)
-    // Only auto-set folder if user hasn't already chosen one explicitly
     const tmpl = templates.find(t => t.id === templateId)
     if (tmpl && 'defaultFolderId' in tmpl) {
       const dfi = (tmpl as { defaultFolderId?: string | null }).defaultFolderId
@@ -70,123 +110,196 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
 
   const handleOk = async () => {
     if (!selectedTemplateId) {
-      notification.warning({ message: 'Выберите шаблон' })
+      showNotification('warning', 'Выберите шаблон')
       return
     }
-    const values = await form.validateFields()
+    if (!name.trim()) {
+      setNameError('Введите название документа')
+      return
+    }
     setCreating(true)
     try {
       const doc = await documentsApi.create({
         templateId: selectedTemplateId,
-        name: values.name,
+        name: name.trim(),
         folderId: selectedFolderId ?? null,
+        templateVersionNumber: selectedVersionNumber,
       })
       onClose()
       navigate(`/documents/${doc.id}/fill`)
     } catch {
-      notification.error({ message: 'Не удалось создать документ' })
+      showNotification('error', 'Не удалось создать документ')
     } finally {
       setCreating(false)
     }
   }
 
   const folderOptions = [
-    { value: '', label: 'Без папки' },
+    { value: '__none__', label: 'Без папки' },
     ...folders.map(f => ({ value: f.id, label: f.name })),
   ]
 
+  const handleCancel = () => {
+    onClose()
+  }
+
+  const selectedTemplate = templates.find(t => t.id === selectedTemplateId)
+
   return (
-    <Modal
-      title="Создать документ"
-      open={open}
-      onOk={handleOk}
-      onCancel={onClose}
-      okText="Создать"
-      cancelText="Отмена"
-      confirmLoading={creating}
-      width={640}
-      destroyOnHidden
-    >
-      <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
-        <Form.Item
-          name="name"
-          label="Название документа"
-          rules={[{ required: true, message: 'Введите название' }]}
-        >
-          <Input placeholder="Договор с ООО «Ромашка»" autoFocus />
-        </Form.Item>
+    <Dialog open={open} onOpenChange={(open) => !open && handleCancel()}>
+      <DialogContent className="sm:max-w-[640px]" style={{ maxWidth: 640 }}>
+        <DialogHeader>
+          <DialogTitle>Создать документ</DialogTitle>
+        </DialogHeader>
 
-        <Form.Item label="Папка">
-          <Select
-            value={selectedFolderId ?? ''}
-            onChange={v => setSelectedFolderId(v === '' ? null : v)}
-            options={folderOptions}
-            style={{ width: '100%' }}
-          />
-        </Form.Item>
-      </Form>
-
-      <Text strong>Выберите шаблон</Text>
-
-      {loadingTemplates ? (
-        <div style={{ textAlign: 'center', padding: '24px 0' }}>
-          <Spin />
-        </div>
-      ) : templates.length === 0 ? (
-        <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
-          Нет опубликованных шаблонов
-        </Text>
-      ) : (
-        <Radio.Group
-          value={selectedTemplateId}
-          onChange={e => handleTemplateSelect(e.target.value as string)}
-          style={{ width: '100%', marginTop: 12 }}
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxHeight: 280, overflowY: 'auto' }}>
-            {templates.map(t => (
-              <Radio.Button
-                key={t.id}
-                value={t.id}
-                style={{ height: 'auto', padding: 0, borderRadius: 8 }}
-              >
-                <Card
-                  size="small"
-                  style={{
-                    border: selectedTemplateId === t.id ? '2px solid #1677ff' : '1px solid transparent',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    background: selectedTemplateId === t.id ? '#e6f4ff' : undefined,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                    <FileTextOutlined
-                      style={{
-                        fontSize: 20,
-                        color: selectedTemplateId === t.id ? '#1677ff' : '#8c8c8c',
-                        flexShrink: 0,
-                        marginTop: 2,
-                      }}
-                    />
-                    <div style={{ minWidth: 0 }}>
-                      <Text strong style={{ display: 'block', color: selectedTemplateId === t.id ? '#1677ff' : undefined, wordBreak: 'break-word' }}>
-                        {t.name}
-                      </Text>
-                      {t.description && (
-                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 2 }} ellipsis>
-                          {t.description}
-                        </Text>
-                      )}
-                      {t.category && (
-                        <Text style={{ fontSize: 11, color: '#aaa' }}>{t.category}</Text>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              </Radio.Button>
-            ))}
+        <div className="mt-4 space-y-4">
+          {/* Name */}
+          <div className="space-y-2">
+            <Label htmlFor="doc-name">
+              Название документа <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="doc-name"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value)
+                if (nameError) setNameError('')
+              }}
+              placeholder="Договор с ООО «Ромашка»"
+              className={nameError ? 'border-destructive' : ''}
+            />
+            {nameError && (
+              <p className="text-xs text-destructive">{nameError}</p>
+            )}
           </div>
-        </Radio.Group>
-      )}
-    </Modal>
+
+          {/* Folder */}
+          <div className="space-y-2">
+            <Label>Папка</Label>
+            <Select
+              value={selectedFolderId ?? '__none__'}
+              onValueChange={v => setSelectedFolderId(v === '__none__' ? null : v)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Без папки" />
+              </SelectTrigger>
+              <SelectContent>
+                {folderOptions.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Template selector */}
+          <div>
+            <p className="text-sm font-medium mb-2">Выберите шаблон</p>
+
+            {loadingTemplates ? (
+              <div className="flex justify-center py-6">
+                <Skeleton className="h-8 w-full" />
+              </div>
+            ) : templates.length === 0 ? (
+              <p className="text-sm text-muted-foreground mt-3">
+                Нет опубликованных шаблонов
+              </p>
+            ) : (
+              <div
+                className="grid grid-cols-2 gap-2.5 max-h-[280px] overflow-y-auto mt-3"
+                role="radiogroup"
+              >
+                {templates.map(t => {
+                  const isSelected = selectedTemplateId === t.id
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      onClick={() => handleTemplateSelect(t.id)}
+                      className={[
+                        'flex items-start gap-2.5 rounded-lg border p-3 text-left transition-colors',
+                        isSelected
+                          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                          : 'border-border bg-card hover:border-muted-foreground/30',
+                      ].join(' ')}
+                    >
+                      <FileText
+                        className="size-5 mt-0.5 shrink-0"
+                        style={{ color: isSelected ? 'var(--primary)' : 'var(--muted-foreground)' }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className="text-sm font-medium leading-tight break-words"
+                          style={{ color: isSelected ? 'var(--primary)' : undefined }}
+                        >
+                          {t.name}
+                        </p>
+                        {t.description && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                            {t.description}
+                          </p>
+                        )}
+                        {t.category && (
+                          <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+                            {t.category}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Version selector — shown when a template is selected */}
+          {selectedTemplate && (
+            <div className="space-y-2">
+              <Label>
+                <History className="size-3.5 inline-block mr-1" />
+                Версия шаблона
+              </Label>
+              {loadingVersions ? (
+                <Skeleton className="h-9 w-full" />
+              ) : versions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Нет опубликованных версий. Будет использована текущая версия шаблона.
+                </p>
+              ) : (
+                <Select
+                  value={String(selectedVersionNumber ?? '')}
+                  onValueChange={v => setSelectedVersionNumber(v ? Number(v) : null)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Последняя версия" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {versions.map(v => (
+                      <SelectItem key={v.versionNumber} value={String(v.versionNumber)}>
+                        v{v.majorVersion}.{v.minorVersion}
+                        {v.comment ? ` — ${v.comment}` : ''}
+                        {v.bumpType === 'PUBLISH' ? ' (опубликована)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="mt-6">
+          <Button variant="outline" onClick={handleCancel}>
+            Отмена
+          </Button>
+          <Button onClick={handleOk} disabled={creating}>
+            {creating ? 'Создание...' : 'Создать'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

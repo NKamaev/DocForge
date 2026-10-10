@@ -72,7 +72,11 @@ public class FolderPermissionServiceImpl implements FolderPermissionService {
     @Override
     @Transactional(readOnly = true)
     public List<FolderMemberDTO> listMembers(UUID folderId, UUID requestingUserId) {
-        return folderMemberRepository.findByFolderId(folderId).stream()
+        Folder folder = folderRepository.findById(folderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Папка не найдена: " + folderId));
+
+        var directMembers = folderMemberRepository.findByFolderId(folderId).stream()
+                .filter(m -> !m.getUserId().equals(folder.getOwnerId()))
                 .map(m -> {
                     User user = userRepository.findById(m.getUserId()).orElse(null);
                     return new FolderMemberDTO(
@@ -84,5 +88,19 @@ public class FolderPermissionServiceImpl implements FolderPermissionService {
                     );
                 })
                 .toList();
+
+        User owner = userRepository.findById(folder.getOwnerId()).orElse(null);
+        var ownerMember = new FolderMemberDTO(
+                folder.getOwnerId(),
+                owner != null ? owner.getLogin() : null,
+                owner != null ? owner.getDisplayName() : null,
+                FolderRole.OWNER.name(),
+                folder.getCreatedAt()
+        );
+
+        var result = new java.util.ArrayList<FolderMemberDTO>();
+        result.add(ownerMember);
+        result.addAll(directMembers);
+        return result;
     }
 }

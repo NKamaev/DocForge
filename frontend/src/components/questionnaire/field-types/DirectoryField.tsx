@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Button, Select, Space, Spin, Tooltip } from 'antd'
-import { EditOutlined, PlusOutlined } from '@ant-design/icons'
+import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Skeleton } from '@/components/ui/skeleton'
 import { directoriesApi } from '../../../api/directoriesApi'
 import type { Directory, DirectoryEntry } from '../../../types/directory'
 import DirectoryEntryModal from './DirectoryEntryModal'
@@ -31,10 +33,9 @@ export default function DirectoryField({
 
   useEffect(() => { loadDirectory() }, [directoryId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (loading) return <Spin size="small" />
-  if (!directory) return <span style={{ color: '#ff4d4f' }}>Справочник не найден</span>
+  if (loading) return <Skeleton className="h-10 w-full" />
+  if (!directory) return <span className="text-destructive">Справочник не найден</span>
 
-  // Build display label from first available field
   const firstFieldKey = directory.fields[0]?.key
   const options = directory.entries.map(entry => ({
     value: entry.id,
@@ -58,6 +59,14 @@ export default function DirectoryField({
     applyEntry(entry)
   }
 
+  const handleClear = () => {
+    const changes: Record<string, unknown> = { [paramCode]: null }
+    for (const fieldKey of directoryFields) {
+      changes[`${paramCode}__${fieldKey}`] = ''
+    }
+    onMultiChange(changes)
+  }
+
   const openCreate = () => {
     setEditEntry(undefined)
     setModalOpen(true)
@@ -70,45 +79,58 @@ export default function DirectoryField({
   }
 
   const handleSaved = (saved: DirectoryEntry) => {
-    // Refresh directory to pick up new/updated entry
     loadDirectory()
-    // Auto-select saved entry
     applyEntry(saved)
   }
 
   return (
-    <>
-      <Space.Compact style={{ width: '100%' }}>
-        <Select
-          style={{ flex: 1 }}
-          value={value as string | undefined}
-          onChange={handleChange}
-          placeholder="Выберите запись из справочника"
-          options={options}
-          showSearch
-          filterOption={(input, opt) =>
-            String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())
-          }
-          allowClear
-          onClear={() => {
-            const changes: Record<string, unknown> = { [paramCode]: null }
-            for (const fieldKey of directoryFields) {
-              changes[`${paramCode}__${fieldKey}`] = ''
-            }
-            onMultiChange(changes)
-          }}
-        />
-        <Tooltip title="Создать новую запись">
-          <Button icon={<PlusOutlined />} onClick={openCreate} />
+    <TooltipProvider>
+      <div className="flex gap-1 w-full">
+        <div className="flex-1">
+          <Select
+            value={(value as string) || ''}
+            onValueChange={(v) => v ? handleChange(v) : handleClear()}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Выберите запись из справочника" />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map(opt => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="secondary" size="icon" onClick={openCreate}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Создать новую запись</TooltipContent>
         </Tooltip>
-        <Tooltip title={selectedEntry ? 'Редактировать выбранную запись' : 'Выберите запись для редактирования'}>
-          <Button
-            icon={<EditOutlined />}
-            onClick={openEdit}
-            disabled={!selectedEntry}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button 
+              variant="secondary" 
+              size="icon" 
+              onClick={openEdit}
+              disabled={!selectedEntry}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {selectedEntry ? 'Редактировать выбранную запись' : 'Выберите запись для редактирования'}
+          </TooltipContent>
         </Tooltip>
-      </Space.Compact>
+      </div>
 
       {directory && (
         <DirectoryEntryModal
@@ -119,6 +141,6 @@ export default function DirectoryField({
           onSaved={handleSaved}
         />
       )}
-    </>
+    </TooltipProvider>
   )
 }

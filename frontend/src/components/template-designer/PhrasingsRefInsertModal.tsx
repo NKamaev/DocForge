@@ -1,10 +1,19 @@
 import { useState, useEffect } from 'react'
-import { Button, Checkbox, Input, Modal, Radio, Space, Tag, Typography } from 'antd'
+import {
+  Button,
+  Checkbox,
+  Input,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  RadioGroup,
+  RadioGroupItem,
+  Label,
+  Badge,
+} from '@/components/ui'
 import type { Phrasing } from '../../types/templateModel'
-
-const { Text } = Typography
-
-// ── Separator presets ─────────────────────────────────────────────────────────
 
 interface SeparatorPreset {
   label: string
@@ -19,18 +28,13 @@ const SEPARATOR_PRESETS: SeparatorPreset[] = [
   { label: 'Абзац', value: '\n' },
 ]
 
-// ── Props ─────────────────────────────────────────────────────────────────────
-
 interface Props {
   open: boolean
   phrasings: Phrasing[]
-  /** Pre-selected phrasing IDs when opening the modal (e.g. clicked from list item) */
   initialIds?: string[]
   onInsert: (phrasingsIds: string[], displayNames: string[], separator: string) => void
   onClose: () => void
 }
-
-// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function PhrasingsRefInsertModal({
   open,
@@ -44,7 +48,6 @@ export default function PhrasingsRefInsertModal({
   const [customSeparator, setCustomSeparator] = useState('')
   const [useCustom, setUseCustom] = useState(false)
 
-  // Reset state when modal opens
   useEffect(() => {
     if (open) {
       setSelectedIds(initialIds ?? [])
@@ -74,103 +77,104 @@ export default function PhrasingsRefInsertModal({
     .join(effectiveSep === '\n' ? ' ↵ ' : effectiveSep)
 
   return (
-    <Modal
-      title="Вставить формулировки"
-      open={open}
-      onCancel={onClose}
-      footer={[
-        <Button key="cancel" onClick={onClose}>Отмена</Button>,
-        <Button
-          key="insert"
-          type="primary"
-          disabled={selectedIds.length === 0}
-          onClick={handleInsert}
-        >
-          Вставить
-        </Button>,
-      ]}
-      width={480}
-    >
-      {/* Phrasings list */}
-      <div style={{ marginBottom: 16 }}>
-        <Text strong style={{ display: 'block', marginBottom: 8 }}>Выберите формулировки</Text>
-        {phrasings.length === 0 ? (
-          <Text type="secondary">Нет формулировок</Text>
-        ) : (
-          <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            {phrasings.map(p => (
-              <div
-                key={p.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '4px 8px',
-                  border: `1px solid ${selectedIds.includes(p.id) ? '#91CAFF' : '#d9d9d9'}`,
-                  borderRadius: 4,
-                  background: selectedIds.includes(p.id) ? '#F0F7FF' : undefined,
-                  cursor: 'pointer',
-                }}
-                onClick={() => toggleId(p.id)}
-              >
-                <Space size={8}>
-                  <Checkbox checked={selectedIds.includes(p.id)} onClick={e => e.stopPropagation()} onChange={() => toggleId(p.id)} />
-                  <Text>{p.name}</Text>
-                </Space>
-                <Tag style={{ fontSize: 11 }}>{p.variants.length} вар.</Tag>
-              </div>
-            ))}
-          </Space>
-        )}
-      </div>
+    <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Вставить формулировки</DialogTitle>
+        </DialogHeader>
 
-      {/* Separator (shown only when more than one can be selected) */}
-      {selectedIds.length > 1 && (
-        <div style={{ marginBottom: 16 }}>
-          <Text strong style={{ display: 'block', marginBottom: 8 }}>Разделитель</Text>
-          <Radio.Group
-            value={useCustom ? '__custom__' : separatorValue}
-            onChange={e => {
-              if (e.target.value === '__custom__') {
-                setUseCustom(true)
-              } else {
-                setUseCustom(false)
-                setSeparatorValue(e.target.value as string)
-              }
-            }}
-          >
-            <Space direction="vertical" size={4}>
-              {SEPARATOR_PRESETS.map(preset => (
-                <Radio key={preset.value} value={preset.value}>
-                  {preset.label}
-                  <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
-                    {preset.value === '\n' ? '↵' : `"${preset.value}"`}
-                  </Text>
-                </Radio>
+        <div className="mt-4">
+          <Label className="text-base font-semibold mb-2 block">Выберите формулировки</Label>
+          {phrasings.length === 0 ? (
+            <p className="text-muted-foreground">Нет формулировок</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {phrasings.map(p => (
+                <div
+                  key={p.id}
+                  className={`flex items-center justify-between p-2 rounded-md border cursor-pointer transition-colors ${
+                    selectedIds.includes(p.id)
+                      ? 'border-primary/50 bg-primary/5'
+                      : 'border-border hover:border-primary/30'
+                  }`}
+                  onClick={() => toggleId(p.id)}
+                >
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={selectedIds.includes(p.id)}
+                      onClick={e => e.stopPropagation()}
+                      onCheckedChange={() => toggleId(p.id)}
+                    />
+                    <span>{p.name}</span>
+                  </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {p.variants.length} вар.
+                  </Badge>
+                </div>
               ))}
-              <Radio value="__custom__">
-                Другой:&nbsp;
+            </div>
+          )}
+        </div>
+
+        {selectedIds.length > 1 && (
+          <div className="mt-4">
+            <Label className="text-base font-semibold mb-2 block">Разделитель</Label>
+            <RadioGroup
+              value={useCustom ? '__custom__' : separatorValue}
+              onValueChange={value => {
+                if (value === '__custom__') {
+                  setUseCustom(true)
+                } else {
+                  setUseCustom(false)
+                  setSeparatorValue(value)
+                }
+              }}
+              className="flex flex-col gap-2"
+            >
+              {SEPARATOR_PRESETS.map(preset => (
+                <div key={preset.value} className="flex items-center gap-2">
+                  <RadioGroupItem value={preset.value} id={`preset-${preset.value}`} />
+                  <Label htmlFor={`preset-${preset.value}`} className="cursor-pointer">
+                    {preset.label}
+                    <span className="text-muted-foreground text-xs ml-1.5">
+                      {preset.value === '\n' ? '↵' : `"${preset.value}"`}
+                    </span>
+                  </Label>
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="__custom__" id="preset-custom" />
+                <Label htmlFor="preset-custom" className="cursor-pointer">
+                  Другой:
+                </Label>
                 <Input
-                  size="small"
-                  style={{ width: 120 }}
                   value={customSeparator}
                   placeholder="введите разделитель"
+                  className="w-[120px] h-8 text-xs"
                   onClick={e => { e.stopPropagation(); setUseCustom(true) }}
                   onChange={e => { setCustomSeparator(e.target.value); setUseCustom(true) }}
                 />
-              </Radio>
-            </Space>
-          </Radio.Group>
-        </div>
-      )}
+              </div>
+            </RadioGroup>
+          </div>
+        )}
 
-      {/* Preview */}
-      {selectedIds.length > 0 && (
-        <div style={{ background: '#F9F9F9', borderRadius: 4, padding: '6px 10px' }}>
-          <Text type="secondary" style={{ fontSize: 11 }}>Предпросмотр тега: </Text>
-          <Text style={{ fontSize: 12 }}>📝 {previewText}</Text>
-        </div>
-      )}
-    </Modal>
+        {selectedIds.length > 0 && (
+          <div className="mt-4 bg-muted/50 rounded-md p-2.5">
+            <span className="text-muted-foreground text-xs">Предпросмотр тега: </span>
+            <span className="text-sm">📝 {previewText}</span>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button onClick={handleInsert} disabled={selectedIds.length === 0}>
+            Вставить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

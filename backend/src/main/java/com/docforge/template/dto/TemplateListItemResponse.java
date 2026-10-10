@@ -10,5 +10,7 @@ public record TemplateListItemResponse(
         String description,
         String category,
         boolean published,
+        int majorVersion,
+        int minorVersion,
         OffsetDateTime createdAt
 ) {}

@@ -2,14 +2,17 @@ import { useRef, useState } from 'react'
 import { Node, mergeAttributes } from '@tiptap/core'
 import { ReactNodeViewRenderer, NodeViewWrapper, NodeViewContent } from '@tiptap/react'
 import type { ReactNodeViewProps } from '@tiptap/react'
-import { Button, Space, Tooltip } from 'antd'
-import { DeleteOutlined, ScissorOutlined, SettingOutlined } from '@ant-design/icons'
+import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { Settings, Scissors, Trash2 } from 'lucide-react'
 import { useDesignerContext } from '../DesignerContext'
 import ConditionBuilder from '../ConditionBuilder'
 import type { Condition } from '../../../types/templateModel'
 import type { BlockCondition } from './ConditionalBlockNode'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toCondition(bc: BlockCondition): Condition {
   return {
@@ -27,14 +30,10 @@ function fromCondition(c: Condition): BlockCondition {
   }
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
 interface ConditionalInlineAttrs {
   condition: BlockCondition
   label: string
 }
-
-// ── Command augmentation ──────────────────────────────────────────────────────
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -45,8 +44,6 @@ declare module '@tiptap/core' {
   }
 }
 
-// ── React view ────────────────────────────────────────────────────────────────
-
 function ConditionalInlineView({ node, updateAttributes, deleteNode, editor }: ReactNodeViewProps) {
   const [hovered, setHovered] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -55,8 +52,6 @@ function ConditionalInlineView({ node, updateAttributes, deleteNode, editor }: R
   const { parameters, published } = useDesignerContext()
   const attrs = node.attrs as ConditionalInlineAttrs
 
-  // Hover handlers live on NodeViewWrapper (the outermost DOM node).
-  // This avoids ProseMirror swallowing events inside the contenteditable zone.
   const startHover = () => {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
     setHovered(true)
@@ -78,7 +73,6 @@ function ConditionalInlineView({ node, updateAttributes, deleteNode, editor }: R
       onMouseEnter={startHover}
       onMouseLeave={endHover}
     >
-      {/* Visible highlighted text */}
       <span
         style={{
           display: 'inline',
@@ -97,57 +91,57 @@ function ConditionalInlineView({ node, updateAttributes, deleteNode, editor }: R
         <NodeViewContent style={{ display: 'inline' }} />
       </span>
 
-      {/* Floating controls panel — always rendered, CSS-toggled */}
       <span
         contentEditable={false}
         onMouseEnter={startHover}
         onMouseLeave={endHover}
-        style={{
-          position: 'absolute',
-          bottom: '100%',
-          left: 0,
-          marginBottom: 2,
-          background: '#fff',
-          border: '1px solid #d9d9d9',
-          borderRadius: 4,
-          padding: '2px 6px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          zIndex: 100,
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 4,
-          whiteSpace: 'nowrap',
-          opacity: panelVisible ? 1 : 0,
-          pointerEvents: panelVisible ? 'auto' : 'none',
-          transition: 'opacity 0.1s',
-        }}
+        className={cn(
+          "absolute bottom-full left-0 mb-0.5 bg-white border border-line rounded-md px-1.5 py-0.5 shadow-lg z-50 inline-flex items-center gap-1 whitespace-nowrap transition-opacity",
+          panelVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        )}
       >
-        <span style={{ fontSize: 11, color: '#595959' }}>
+        <span className="text-xs text-muted-foreground mr-1">
           {attrs.condition.type === 'python' ? 'Python' : 'Условие'}: {conditionPreview}
         </span>
-        <Space size={0}>
-          <Tooltip title="Настроить условие">
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button
-              size="small"
-              type="text"
-              icon={<SettingOutlined />}
+              variant="ghost"
+              size="icon-sm"
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
               onClick={() => setSettingsOpen(true)}
-              style={{ color: '#8C8C8C' }}
-            />
-          </Tooltip>
-          <Tooltip title="Убрать обёртку (текст сохранится)">
+            >
+              <Settings className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Настроить условие</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button
-              size="small"
-              type="text"
-              icon={<ScissorOutlined />}
+              variant="ghost"
+              size="icon-sm"
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
               onClick={() => editor.chain().focus().unwrapConditionalInline().run()}
-              style={{ color: '#8C8C8C' }}
-            />
-          </Tooltip>
-          <Tooltip title="Удалить с контентом">
-            <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={deleteNode} />
-          </Tooltip>
-        </Space>
+            >
+              <Scissors className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Убрать обёртку (текст сохранится)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={deleteNode}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Удалить с контентом</TooltipContent>
+        </Tooltip>
       </span>
 
       <ConditionBuilder
@@ -161,7 +155,7 @@ function ConditionalInlineView({ node, updateAttributes, deleteNode, editor }: R
   )
 }
 
-// ── TipTap Node definition ────────────────────────────────────────────────────
+import { cn } from '@/lib/utils'
 
 const DEFAULT_INLINE_CONDITION: BlockCondition = { type: 'simple', expression: '' }
 

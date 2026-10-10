@@ -535,7 +535,7 @@ npx shadcn@latest add button input card dialog table select checkbox radio...
 ### 6.3 Распаковка дизайна
 ```bash
 cd /home/nkamaev/Projects/DocForge-Next/docs/design
-unzip ../../DocForge.zip -d .  # распаковать дизайн
+unzip ../../archive/reference/DocForge.zip -d .  # распаковать дизайн (архивирован в docs/archive/)
 ```
 > После распаковки — показать структуру, чтобы адаптировать компоненты.
 

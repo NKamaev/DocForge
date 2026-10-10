@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
+import { MultiSelect } from '@/components/ui/multi-select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { List, ListOrdered, Table, Plus, Hash } from 'lucide-react'
+import { Icon } from '../Icon'
 import type { Editor } from '@tiptap/react'
 import { FloatingMenuPlugin } from '@tiptap/extension-floating-menu'
 import { PluginKey } from '@tiptap/pm/state'
@@ -22,6 +28,8 @@ interface Props {
 export default function FloatingInsertMenu({ editor, parameters = [] }: Props) {
   const containerRef = useRef<HTMLDivElement>(document.createElement('div'))
   const [ready, setReady] = useState(false)
+  const [paramPopover, setParamPopover] = useState(false)
+  const [selectedParams, setSelectedParams] = useState<string[]>([])
 
   useEffect(() => {
     const element = containerRef.current
@@ -56,9 +64,41 @@ export default function FloatingInsertMenu({ editor, parameters = [] }: Props) {
     }
   }, [editor])
 
-  if (!ready) return null
+  useEffect(() => {
+    if (!paramPopover) setSelectedParams([])
+  }, [paramPopover])
 
-  const firstParam = parameters[0]
+  const insertSelectedParams = () => {
+    const chain = editor.chain().focus()
+    selectedParams.forEach((code) => {
+      const p = parameters.find((par) => par.code === code)
+      if (p) {
+        if (p.type === 'DIRECTORY' && p.directoryFields && p.directoryFields.length > 0) {
+          p.directoryFields.forEach((fieldKey) => {
+            chain.insertParameterField({
+              parameterCode: `${p.code}__${fieldKey}`,
+              display: `${p.label} → ${fieldKey}`,
+            })
+          })
+        } else {
+          chain.insertParameterField({
+            parameterCode: p.code,
+            display: p.label,
+          })
+        }
+      }
+    })
+    chain.run()
+    setParamPopover(false)
+  }
+
+  const paramOptions = parameters.map((p) => ({
+    value: p.code,
+    label: p.label,
+    description: `${p.code} (${p.type})`,
+  }))
+
+  if (!ready) return null
 
   const menu = (
     <div
@@ -92,7 +132,7 @@ export default function FloatingInsertMenu({ editor, parameters = [] }: Props) {
             size="icon-xs"
             onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBulletList().run() }}
           >
-            <List className="size-2.5" />
+            <Icon name="list-ul" size={12} />
           </Button>
         </TooltipTrigger>
         <TooltipContent>Маркированный список</TooltipContent>
@@ -105,7 +145,7 @@ export default function FloatingInsertMenu({ editor, parameters = [] }: Props) {
             size="icon-xs"
             onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleOrderedList().run() }}
           >
-            <ListOrdered className="size-2.5" />
+            <Icon name="list-ol" size={12} />
           </Button>
         </TooltipTrigger>
         <TooltipContent>Нумерованный список</TooltipContent>
@@ -118,7 +158,7 @@ export default function FloatingInsertMenu({ editor, parameters = [] }: Props) {
             size="icon-xs"
             onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().insertNumberedClause(1).run() }}
           >
-            <Hash className="size-2.5" />
+            <Icon name="hash" size={12} />
           </Button>
         </TooltipTrigger>
         <TooltipContent>Нумерованный пункт (§)</TooltipContent>
@@ -134,31 +174,57 @@ export default function FloatingInsertMenu({ editor, parameters = [] }: Props) {
               editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run()
             }}
           >
-            <Table className="size-2.5" />
+            <Icon name="table" size={12} />
           </Button>
         </TooltipTrigger>
         <TooltipContent>Таблица</TooltipContent>
       </Tooltip>
 
-      {firstParam && (
-        <Tooltip>
-          <TooltipTrigger asChild>
+      {parameters.length > 0 && (
+        <Popover open={paramPopover} onOpenChange={setParamPopover}>
+          <PopoverTrigger asChild>
             <Button
               variant="ghost"
               size="icon-xs"
-              onMouseDown={(e) => {
-                e.preventDefault()
-                editor.chain().focus().insertParameterField({
-                  parameterCode: firstParam.code,
-                  display: firstParam.label,
-                }).run()
-              }}
+              onMouseDown={(e) => e.preventDefault()}
+              title="Вставить параметры"
             >
-            <Plus className="size-2.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Параметр: {firstParam.label}</TooltipContent>
-        </Tooltip>
+              <Icon name="param" size={12} />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-72 p-3" align="start">
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                Выберите параметры для вставки
+              </p>
+              <MultiSelect
+                options={paramOptions}
+                selected={selectedParams}
+                onChange={setSelectedParams}
+                placeholder="Выберите параметры..."
+                searchPlaceholder="Поиск параметра..."
+                emptyText="Нет параметров"
+                maxDisplay={10}
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setParamPopover(false)}
+                >
+                  Отмена
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={insertSelectedParams}
+                  disabled={selectedParams.length === 0}
+                >
+                  Вставить ({selectedParams.length})
+                </Button>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       )}
     </div>
   )

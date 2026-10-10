@@ -59,7 +59,7 @@ class DocumentMembersIT extends AbstractIT {
     @WithMockUser(username = "test")
     @DisplayName("owner имеет все права на созданный документ")
     void owner_hasAllPermissions() {
-        var doc = documentService.create(templateId, "Owner Doc", ownerId, null);
+        var doc = documentService.create(templateId, "Owner Doc", ownerId, null, null);
 
         assertThat(documentPermissionService.hasPermission(doc.id(), ownerId, DocumentPermission.READ)).isTrue();
         assertThat(documentPermissionService.hasPermission(doc.id(), ownerId, DocumentPermission.WRITE)).isTrue();
@@ -71,7 +71,7 @@ class DocumentMembersIT extends AbstractIT {
     @WithMockUser(username = "test")
     @DisplayName("не-member не имеет прав на документ")
     void nonMember_denied() {
-        var doc = documentService.create(templateId, "Private Doc", ownerId, null);
+        var doc = documentService.create(templateId, "Private Doc", ownerId, null, null);
 
         assertThat(documentPermissionService.hasPermission(doc.id(), editorId, DocumentPermission.READ)).isFalse();
         assertThat(documentPermissionService.getEffectiveRole(doc.id(), editorId)).isNull();
@@ -79,9 +79,21 @@ class DocumentMembersIT extends AbstractIT {
 
     @Test
     @WithMockUser(username = "test")
+    @DisplayName("listMembers() возвращает владельца даже когда нет других участников")
+    void listMembers_includesOwner() {
+        var doc = documentService.create(templateId, "Owner Only Doc", ownerId, null, null);
+
+        List<DocumentMemberDTO> members = documentPermissionService.listMembers(doc.id(), ownerId);
+        assertThat(members).hasSize(1);
+        assertThat(members.get(0).userId()).isEqualTo(ownerId);
+        assertThat(members.get(0).role()).isEqualTo("OWNER");
+    }
+
+    @Test
+    @WithMockUser(username = "test")
     @DisplayName("grantRole() выдаёт права, revokeRole() их забирает")
     void grantAndRevoke() {
-        var doc = documentService.create(templateId, "Shared Doc", ownerId, null);
+        var doc = documentService.create(templateId, "Shared Doc", ownerId, null, null);
 
         documentPermissionService.grantRole(doc.id(), editorId, DocumentRole.EDITOR, ownerId);
 
@@ -89,9 +101,11 @@ class DocumentMembersIT extends AbstractIT {
         assertThat(documentPermissionService.hasPermission(doc.id(), editorId, DocumentPermission.DELETE)).isFalse();
 
         List<DocumentMemberDTO> members = documentPermissionService.listMembers(doc.id(), ownerId);
-        assertThat(members).hasSize(1);
-        assertThat(members.get(0).userId()).isEqualTo(editorId);
-        assertThat(members.get(0).role()).isEqualTo("EDITOR");
+        assertThat(members).hasSize(2);
+        assertThat(members.get(0).userId()).isEqualTo(ownerId);
+        assertThat(members.get(0).role()).isEqualTo("OWNER");
+        assertThat(members.get(1).userId()).isEqualTo(editorId);
+        assertThat(members.get(1).role()).isEqualTo("EDITOR");
 
         documentPermissionService.revokeRole(doc.id(), editorId, ownerId);
         assertThat(documentPermissionService.hasPermission(doc.id(), editorId, DocumentPermission.READ)).isFalse();
@@ -101,8 +115,8 @@ class DocumentMembersIT extends AbstractIT {
     @WithMockUser(username = "test")
     @DisplayName("findAccessibleByUser — список включает документы где user direct_member")
     void list_includesSharedDocuments() {
-        var ownDoc = documentService.create(templateId, "Owner's Doc", ownerId, null);
-        var sharedDoc = documentService.create(templateId, "Shared with Editor", ownerId, null);
+        var ownDoc = documentService.create(templateId, "Owner's Doc", ownerId, null, null);
+        var sharedDoc = documentService.create(templateId, "Shared with Editor", ownerId, null, null);
 
         documentPermissionService.grantRole(sharedDoc.id(), editorId, DocumentRole.EDITOR, ownerId);
 
@@ -120,7 +134,7 @@ class DocumentMembersIT extends AbstractIT {
     @WithMockUser(username = "test")
     @DisplayName("getEffectiveRole() — OWNER у создателя, VIEWER у выданного")
     void getEffectiveRole_correct() {
-        var doc = documentService.create(templateId, "Role Doc", ownerId, null);
+        var doc = documentService.create(templateId, "Role Doc", ownerId, null, null);
 
         assertThat(documentPermissionService.getEffectiveRole(doc.id(), ownerId)).isEqualTo(DocumentRole.OWNER);
         assertThat(documentPermissionService.getEffectiveRole(doc.id(), editorId)).isNull();

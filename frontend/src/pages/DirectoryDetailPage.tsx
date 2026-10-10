@@ -1,18 +1,56 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Alert, Button, Card, Checkbox, DatePicker, Form, Input, InputNumber,
-  Modal, Popconfirm, Select, Space, Spin, Switch, Table, Typography, notification,
-} from 'antd'
-import {
-  PlusOutlined, DeleteOutlined, EditOutlined, HolderOutlined,
-} from '@ant-design/icons'
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Checkbox,
+  DatePicker,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Skeleton,
+  Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui'
+import { GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Icon } from '../components/Icon'
 import dayjs from 'dayjs'
 import { directoriesApi } from '../api/directoriesApi'
 import type { Directory, DirectoryEntry, DirectoryField, DirectoryFieldType } from '../types/directory'
 
-const { Text } = Typography
+function showNotification(type: 'success' | 'error', message: string) {
+  console.log(`[${type.toUpperCase()}]`, message)
+  if (type === 'error') {
+    alert(message)
+  }
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -33,10 +71,10 @@ interface FieldRowProps {
   field: DirectoryField
   existingKeys: string[]
   onChange: (updated: DirectoryField) => void
-  onDelete: () => void
+  onDeleteRequest: () => void
 }
 
-function FieldRow({ field, existingKeys, onChange, onDelete }: FieldRowProps) {
+function FieldRow({ field, existingKeys, onChange, onDeleteRequest }: FieldRowProps) {
   const keyError = !KEY_PATTERN.test(field.key)
     ? 'Только строчные буквы, цифры и _'
     : existingKeys.filter(k => k === field.key).length > 1
@@ -44,18 +82,18 @@ function FieldRow({ field, existingKeys, onChange, onDelete }: FieldRowProps) {
     : null
 
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 12 }}>
-      <HolderOutlined style={{ color: '#bfbfbf', cursor: 'grab', marginTop: 6 }} />
+    <div className="flex gap-2 items-start mb-3">
+      <GripVertical className="size-4 text-muted-foreground mt-1.5 shrink-0" />
 
       {/* Key */}
-      <div style={{ width: 150 }}>
+      <div className="w-[150px]">
         <Input
           value={field.key}
           onChange={e => onChange({ ...field, key: e.target.value })}
           placeholder="field_key"
-          style={{ fontFamily: 'monospace', borderColor: keyError ? '#ff4d4f' : undefined }}
+          className={`font-mono ${keyError ? 'border-destructive' : ''}`}
         />
-        {keyError && <div style={{ color: '#ff4d4f', fontSize: 11, marginTop: 2 }}>{keyError}</div>}
+        {keyError && <p className="text-destructive text-[11px] mt-0.5">{keyError}</p>}
       </div>
 
       {/* Label */}
@@ -63,32 +101,43 @@ function FieldRow({ field, existingKeys, onChange, onDelete }: FieldRowProps) {
         value={field.label}
         onChange={e => onChange({ ...field, label: e.target.value })}
         placeholder="Название поля"
-        style={{ width: 180 }}
+        className="w-[180px]"
       />
 
       {/* Type */}
-      <Select
-        value={field.type}
-        onChange={type => onChange({ ...field, type, options: type === 'SELECT' ? (field.options ?? []) : undefined })}
-        options={FIELD_TYPE_OPTIONS}
-        style={{ width: 120 }}
-      />
+      <Select value={field.type} onValueChange={(type: DirectoryFieldType) =>
+        onChange({ ...field, type, options: type === 'SELECT' ? (field.options ?? []) : undefined })
+      }>
+        <SelectTrigger className="w-[120px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {FIELD_TYPE_OPTIONS.map(opt => (
+            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       {/* Options (SELECT only) */}
       {field.type === 'SELECT' && (
         <Select
-          mode="tags"
-          value={field.options ?? []}
-          onChange={options => onChange({ ...field, options })}
-          placeholder="Добавьте варианты..."
-          style={{ flex: 1, minWidth: 160 }}
-          tokenSeparators={[',']}
-        />
+          value={field.options?.[0] ?? ''}
+          onValueChange={() => { /* placeholder for single-select mode */ }}
+        >
+          <SelectTrigger className="flex-1 min-w-[160px]">
+            <SelectValue placeholder="Добавьте варианты..." />
+          </SelectTrigger>
+          <SelectContent>
+            {(field.options ?? []).map((opt, i) => (
+              <SelectItem key={i} value={opt}>{opt}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
 
-      <Popconfirm title="Удалить поле?" onConfirm={onDelete} okText="Да" cancelText="Нет">
-        <Button size="small" danger icon={<DeleteOutlined />} style={{ marginTop: 2 }} />
-      </Popconfirm>
+      <Button variant="ghost" size="icon-sm" className="mt-0.5" onClick={onDeleteRequest}>
+        <Trash2 className="size-3.5 text-destructive" />
+      </Button>
     </div>
   )
 }
@@ -111,45 +160,46 @@ function FieldInput({ field, value, onChange }: {
   switch (field.type) {
     case 'NUMBER':
       return (
-        <InputNumber
-          style={{ width: '100%' }}
-          value={value as number | undefined}
-          onChange={onChange}
+        <Input
+          type="number"
+          value={value as string ?? ''}
+          onChange={e => onChange(e.target.value ? Number(e.target.value) : null)}
         />
       )
     case 'DATE':
       return (
         <DatePicker
-          style={{ width: '100%' }}
-          value={value ? dayjs(value as string) : null}
-          onChange={d => onChange(d ? d.format('YYYY-MM-DD') : null)}
-          format="DD.MM.YYYY"
+          value={value ? String(value) : undefined}
+          onChange={(d) => onChange(d || null)}
         />
       )
     case 'BOOLEAN':
       return (
         <Switch
           checked={Boolean(value)}
-          onChange={onChange}
-          checkedChildren="Да"
-          unCheckedChildren="Нет"
+          onCheckedChange={onChange}
         />
       )
     case 'SELECT':
       return (
         <Select
-          style={{ width: '100%' }}
-          value={value as string | undefined}
-          onChange={onChange}
-          options={(field.options ?? []).map(o => ({ value: o, label: o }))}
-          allowClear
-          placeholder="Выберите..."
-        />
+          value={value as string ?? ''}
+          onValueChange={onChange}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Выберите..." />
+          </SelectTrigger>
+          <SelectContent>
+            {(field.options ?? []).map((o, i) => (
+              <SelectItem key={i} value={o}>{o}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )
     default:
       return (
         <Input
-          value={value as string | undefined}
+          value={value as string ?? ''}
           onChange={e => onChange(e.target.value)}
           placeholder={field.label}
         />
@@ -175,28 +225,33 @@ function EntryModal({ open, fields, initial, onSave, onClose }: EntryModalProps)
   }
 
   return (
-    <Modal
-      title={initial ? 'Редактировать запись' : 'Новая запись'}
-      open={open}
-      onOk={handleOk}
-      onCancel={onClose}
-      confirmLoading={saving}
-      okText="Сохранить" cancelText="Отмена"
-      destroyOnHidden
-      width={520}
-    >
-      <div style={{ marginTop: 16 }}>
-        {fields.map(f => (
-          <Form.Item key={f.key} label={f.label || f.key} style={{ marginBottom: 12 }}>
-            <FieldInput
-              field={f}
-              value={values[f.key]}
-              onChange={v => setValues(prev => ({ ...prev, [f.key]: v }))}
-            />
-          </Form.Item>
-        ))}
-      </div>
-    </Modal>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>{initial ? 'Редактировать запись' : 'Новая запись'}</DialogTitle>
+        </DialogHeader>
+
+        <div className="mt-4 space-y-3">
+          {fields.map(f => (
+            <div key={f.key} className="space-y-1.5">
+              <Label>{f.label || f.key}</Label>
+              <FieldInput
+                field={f}
+                value={values[f.key]}
+                onChange={v => setValues(prev => ({ ...prev, [f.key]: v }))}
+              />
+            </div>
+          ))}
+        </div>
+
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={onClose}>Отмена</Button>
+          <Button onClick={handleOk} disabled={saving}>
+            {saving ? 'Сохранение...' : 'Сохранить'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -214,6 +269,8 @@ export default function DirectoryDetailPage() {
 
   const [entryModalOpen, setEntryModalOpen] = useState(false)
   const [editingEntry, setEditingEntry] = useState<DirectoryEntry | null>(null)
+  const [deleteFieldIdx, setDeleteFieldIdx] = useState<number | null>(null)
+  const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null)
 
   const load = () => {
     if (!id) return
@@ -223,7 +280,7 @@ export default function DirectoryDetailPage() {
         setSchemaFields(d.fields)
         setSchemaDirty(false)
       })
-      .catch(() => notification.error({ message: 'Справочник не найден' }))
+      .catch(() => showNotification('error', 'Справочник не найден'))
       .finally(() => setLoading(false))
   }
 
@@ -259,9 +316,9 @@ export default function DirectoryDetailPage() {
       setDirectory(updated)
       setSchemaFields(updated.fields)
       setSchemaDirty(false)
-      notification.success({ message: 'Схема сохранена' })
+      showNotification('success', 'Схема сохранена')
     } catch {
-      notification.error({ message: 'Ошибка сохранения схемы' })
+      showNotification('error', 'Ошибка сохранения схемы')
     } finally {
       setSavingSchema(false)
     }
@@ -290,18 +347,28 @@ export default function DirectoryDetailPage() {
       const updated = await directoriesApi.deleteEntry(id, entryId)
       setDirectory(updated)
     } catch {
-      notification.error({ message: 'Ошибка удаления записи' })
+      showNotification('error', 'Ошибка удаления записи')
     }
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  if (loading) return <div style={{ padding: 64, textAlign: 'center' }}><Spin size="large" /></div>
-  if (!directory) return <Alert type="error" message="Справочник не найден" style={{ margin: 24 }} />
+  if (loading) return (
+    <div className="flex justify-center items-center py-16">
+      <Skeleton className="h-12 w-12 rounded-full" />
+    </div>
+  )
+
+  if (!directory) return (
+    <Alert variant="destructive" className="m-6">
+      <AlertTitle>Ошибка</AlertTitle>
+      <AlertDescription>Справочник не найден</AlertDescription>
+    </Alert>
+  )
 
   const renderEntryCell = (entry: DirectoryEntry, field: DirectoryField) => {
     const v = entry.values[field.key]
-    if (v === null || v === undefined || v === '') return <Text type="secondary">—</Text>
+    if (v === null || v === undefined || v === '') return <span className="text-muted-foreground">—</span>
     if (field.type === 'BOOLEAN') return <Checkbox checked={Boolean(v)} disabled />
     if (field.type === 'DATE') return <span>{dayjs(v as string).isValid() ? dayjs(v as string).format('DD.MM.YYYY') : String(v)}</span>
     return <span>{String(v)}</span>
@@ -312,7 +379,7 @@ export default function DirectoryDetailPage() {
       title: (
         <span>
           {f.label || f.key}
-          <span style={{ color: '#999', fontSize: 11, marginLeft: 4, fontFamily: 'monospace' }}>
+          <span className="text-muted-foreground text-[11px] ml-1 font-mono">
             ({f.key})
           </span>
         </span>
@@ -325,16 +392,17 @@ export default function DirectoryDetailPage() {
       key: 'actions',
       width: 80,
       render: (_: unknown, entry: DirectoryEntry) => (
-        <Space>
-          <Button size="small" icon={<EditOutlined />} onClick={() => {
+        <div className="flex gap-1">
+          <Button variant="ghost" size="icon-sm" onClick={() => {
             setEditingEntry(entry)
             setEntryModalOpen(true)
-          }} />
-          <Popconfirm title="Удалить запись?" onConfirm={() => handleDeleteEntry(entry.id)}
-            okText="Да" cancelText="Нет">
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
+          }}>
+            <Pencil className="size-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon-sm" onClick={() => setDeleteEntryId(entry.id)}>
+            <Trash2 className="size-3.5 text-destructive" />
+          </Button>
+        </div>
       ),
     },
   ]
@@ -366,77 +434,118 @@ export default function DirectoryDetailPage() {
       </div>
 
       {/* Schema editor */}
-      <Card
-        title="Поля справочника"
-        style={{ marginBottom: 24 }}
-        extra={
-          <Space>
-            <Button icon={<PlusOutlined />} size="small" onClick={addField}>
-              Добавить поле
+      <Card className="mb-6">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Поля справочника</CardTitle>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={addField}>
+              <Plus className="mr-1 size-3.5" /> Добавить поле
             </Button>
             {schemaDirty && (
-              <Button
-                type="primary" size="small" loading={savingSchema}
-                onClick={saveSchema} disabled={!schemaValid}
-                style={{}}
-              >
-                Сохранить схему
+              <Button size="sm" onClick={saveSchema} disabled={!schemaValid || savingSchema}>
+                {savingSchema ? 'Сохранение...' : 'Сохранить схему'}
               </Button>
             )}
-          </Space>
-        }
-      >
-        {schemaFields.length === 0 ? (
-          <Text type="secondary">Нет полей. Добавьте поля, чтобы начать вносить записи.</Text>
-        ) : (
-          <>
-            {/* Header row */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 6, paddingLeft: 20 }}>
-              <Text type="secondary" style={{ width: 150, fontSize: 12 }}>Системный ключ</Text>
-              <Text type="secondary" style={{ width: 180, fontSize: 12 }}>Название</Text>
-              <Text type="secondary" style={{ width: 120, fontSize: 12 }}>Тип</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>Варианты (для списка)</Text>
-            </div>
-            {schemaFields.map((f, i) => (
-              <FieldRow
-                key={i}
-                field={f}
-                existingKeys={allKeys}
-                onChange={updated => updateField(i, updated)}
-                onDelete={() => removeField(i)}
-              />
-            ))}
-          </>
-        )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {schemaFields.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Нет полей. Добавьте поля, чтобы начать вносить записи.</p>
+          ) : (
+            <>
+              {/* Header row */}
+              <div className="flex gap-2 mb-1.5 pl-5">
+                <span className="text-xs text-muted-foreground w-[150px]">Системный ключ</span>
+                <span className="text-xs text-muted-foreground w-[180px]">Название</span>
+                <span className="text-xs text-muted-foreground w-[120px]">Тип</span>
+                <span className="text-xs text-muted-foreground">Варианты (для списка)</span>
+              </div>
+              {schemaFields.map((f, i) => (
+                <FieldRow
+                  key={i}
+                  field={f}
+                  existingKeys={allKeys}
+                  onChange={updated => updateField(i, updated)}
+                  onDeleteRequest={() => setDeleteFieldIdx(i)}
+                />
+              ))}
+            </>
+          )}
+        </CardContent>
       </Card>
 
       {/* Entries */}
-      <Card
-        title={`Записи (${directory.entries.length})`}
-        extra={
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Записи ({directory.entries.length})</CardTitle>
           <Button
-            type="primary" icon={<PlusOutlined />} size="small"
+            size="sm"
             onClick={() => { setEditingEntry(null); setEntryModalOpen(true) }}
             disabled={directory.fields.length === 0}
           >
-            Добавить запись
+            <Plus className="mr-1 size-3.5" /> Добавить запись
           </Button>
-        }
-      >
-        {directory.fields.length === 0 ? (
-          <Alert type="info" message="Сначала определите поля справочника" showIcon />
-        ) : directory.entries.length === 0 ? (
-          <Text type="secondary">Нет записей</Text>
-        ) : (
-          <Table
-            dataSource={directory.entries}
-            columns={entryColumns}
-            rowKey="id"
-            pagination={false}
-            size="small"
-          />
-        )}
+        </CardHeader>
+        <CardContent>
+          {directory.fields.length === 0 ? (
+            <Alert>
+              <AlertTitle>Информация</AlertTitle>
+              <AlertDescription>Сначала определите поля справочника</AlertDescription>
+            </Alert>
+          ) : directory.entries.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Нет записей</p>
+          ) : (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {entryColumns.map((col, i) => (
+                      <TableHead key={col.key ?? i} style={{ width: 'width' in col ? col.width : undefined }}>
+                        {col.title}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {directory.entries.map(entry => (
+                    <TableRow key={entry.id}>
+                      {entryColumns.map((col, i) => (
+                        <TableCell key={col.key ?? i}>
+                          {col.render(null as unknown as never, entry)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
       </Card>
+
+      <AlertDialog open={deleteFieldIdx !== null} onOpenChange={(open) => { if (!open) setDeleteFieldIdx(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить поле?</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteFieldIdx(null)}>Нет</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => { if (deleteFieldIdx !== null) removeField(deleteFieldIdx); setDeleteFieldIdx(null) }}>Да</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteEntryId !== null} onOpenChange={(open) => { if (!open) setDeleteEntryId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить запись?</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteEntryId(null)}>Нет</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => { if (deleteEntryId) handleDeleteEntry(deleteEntryId); setDeleteEntryId(null) }}>Да</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <EntryModal
         open={entryModalOpen}

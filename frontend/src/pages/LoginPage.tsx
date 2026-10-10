@@ -1,11 +1,17 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { message } from 'antd'
 import { authApi } from '../api/authApi'
 import { useAuthStore } from '../store/authStore'
 import type { LoginRequest, RegisterRequest } from '../types/user'
 import { Icon } from '../components/Icon'
 import { BrandMark } from '../components/BrandMark'
+
+function showNotification(type: 'success' | 'error', message: string) {
+  console.log(`[${type.toUpperCase()}]`, message)
+  if (type === 'error') {
+    alert(message)
+  }
+}
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -28,20 +34,20 @@ export default function LoginPage() {
         const response = await authApi.login(req)
         setAuth(response)
         navigate('/')
-      } else {
-        if (!displayName) { message.error('Введите отображаемое имя'); return }
-        const req: RegisterRequest = { login, password, displayName, email: email || undefined }
-        const response = await authApi.register(req)
-        setAuth(response)
-        navigate('/')
-      }
-    } catch (err: unknown) {
-      if (tab === 'signin') {
-        message.error('Неверный логин или пароль')
-      } else {
-        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-        message.error(detail ?? 'Ошибка регистрации')
-      }
+       } else {
+         if (!displayName) { showNotification('error', 'Введите отображаемое имя'); return }
+         const req: RegisterRequest = { login, password, displayName, email: email || undefined }
+         const response = await authApi.register(req)
+         setAuth(response)
+         navigate('/')
+       }
+     } catch (err: unknown) {
+       if (tab === 'signin') {
+         showNotification('error', 'Неверный логин или пароль')
+       } else {
+         const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+         showNotification('error', detail ?? 'Ошибка регистрации')
+       }
     } finally {
       setLoading(false)
     }
@@ -108,10 +114,11 @@ export default function LoginPage() {
             </div>
           )}
           <div className="field">
-            <label className="field-lbl">Логин</label>
+            <label className="field-lbl" htmlFor="login-input">Логин</label>
             <div className="input-group" style={{ height: 40 }}>
               <span className="icon"><Icon name="user" size={15} /></span>
               <input
+                id="login-input"
                 placeholder="anna.sokolova"
                 value={login}
                 onChange={(e) => setLogin(e.target.value)}
@@ -136,10 +143,11 @@ export default function LoginPage() {
             </div>
           )}
           <div className="field">
-            <label className="field-lbl">Пароль</label>
+            <label className="field-lbl" htmlFor="password-input">Пароль</label>
             <div className="input-group" style={{ height: 40 }}>
               <span className="icon"><Icon name="lock" size={15} /></span>
               <input
+                id="password-input"
                 type="password"
                 placeholder="Минимум 6 символов"
                 value={password}

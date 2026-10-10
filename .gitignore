@@ -74,3 +74,11 @@ frontend/test-results/
 *.jks
 *.pem
 *.key
+
+# Local archive (pre-migration artifacts — not published)
+docs/archive/
+
+# Scratch / debug dumps
+html.txt
+frontend/docs/screenshots/toast-debug-*.png
+frontend/docs/screenshots/dialog-*.png

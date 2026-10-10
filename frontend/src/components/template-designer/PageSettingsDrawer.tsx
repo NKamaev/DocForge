@@ -1,8 +1,19 @@
-import { Col, Drawer, Form, InputNumber, Radio, Row, Select, Divider, Typography } from 'antd'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import {
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Separator,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui'
 import type { DocumentFormatting } from '../../types/template'
-
-const { Text } = Typography
 
 interface Props {
   open: boolean
@@ -25,137 +36,264 @@ const FONT_FAMILIES = [
 ]
 
 const LINE_SPACINGS = [
-  { value: 1, label: '1.0 — одинарный' },
-  { value: 1.15, label: '1.15' },
-  { value: 1.5, label: '1.5 — полуторный' },
-  { value: 2, label: '2.0 — двойной' },
+  { value: '1', label: '1.0 — одинарный' },
+  { value: '1.15', label: '1.15' },
+  { value: '1.5', label: '1.5 — полуторный' },
+  { value: '2', label: '2.0 — двойной' },
 ]
 
 export default function PageSettingsDrawer({ open, onClose, formatting, onChange }: Props) {
-  const [form] = Form.useForm<DocumentFormatting & { orientation: 'portrait' | 'landscape' }>()
+  const [local, setLocal] = useState<DocumentFormatting>(formatting)
 
   useEffect(() => {
-    if (open) {
-      form.setFieldsValue({
-        pageSize: formatting.pageSize,
-        orientation: formatting.orientation ?? 'portrait',
-        margins: formatting.margins,
-        defaultFont: formatting.defaultFont,
-        defaultFontSize: formatting.defaultFontSize,
-        lineSpacing: formatting.lineSpacing,
-        paragraphDefaults: formatting.paragraphDefaults ?? {},
-      })
-    }
-  }, [open, formatting, form])
+    if (open) setLocal(formatting)
+  }, [open, formatting])
 
-  const handleValuesChange = (_: unknown, all: typeof formatting & { orientation: 'portrait' | 'landscape' }) => {
-    onChange({
-      pageSize: all.pageSize,
-      orientation: all.orientation,
-      margins: all.margins ?? formatting.margins,
-      defaultFont: all.defaultFont,
-      defaultFontSize: all.defaultFontSize,
-      lineSpacing: all.lineSpacing,
-      paragraphDefaults: all.paragraphDefaults,
-    })
+  const update = (partial: Partial<DocumentFormatting>) => {
+    const next = { ...local, ...partial }
+    setLocal(next)
+    onChange(next)
+  }
+
+  const updateMargins = (key: 'top' | 'right' | 'bottom' | 'left', value: number) => {
+    update({ margins: { ...local.margins, [key]: value } })
+  }
+
+  const updateParagraphDefaults = (key: string, value: number | undefined) => {
+    update({ paragraphDefaults: { ...(local.paragraphDefaults ?? {}), [key]: value ?? undefined } })
   }
 
   return (
-    <Drawer
-      title="Параметры страницы"
-      open={open}
-      onClose={onClose}
-      width={360}
-      destroyOnHidden={false}
-    >
-      <Form
-        form={form}
-        layout="vertical"
-        onValuesChange={handleValuesChange}
-        size="small"
-      >
-        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+      <SheetContent side="right" className="w-[360px] sm:max-w-[360px] overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle>Параметры страницы</SheetTitle>
+        </SheetHeader>
+
+        <p className="text-xs text-muted-foreground mt-2 mb-4">
           Изменения применяются немедленно и сохраняются вместе с шаблоном.
-        </Text>
+        </p>
 
-        <Divider orientation="left" plain style={{ fontSize: 12 }}>Страница</Divider>
+        <Separator className="my-3" />
 
-        <Form.Item label="Формат" name="pageSize">
-          <Select options={PAGE_SIZES} />
-        </Form.Item>
+        {/* Page */}
+        <p className="text-xs font-medium text-muted-foreground mb-3">Страница</p>
 
-        <Form.Item label="Ориентация" name="orientation">
-          <Radio.Group optionType="button" buttonStyle="solid">
-            <Radio.Button value="portrait">Книжная</Radio.Button>
-            <Radio.Button value="landscape">Альбомная</Radio.Button>
-          </Radio.Group>
-        </Form.Item>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Формат</Label>
+            <Select value={local.pageSize} onValueChange={v => update({ pageSize: v as DocumentFormatting['pageSize'] })}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZES.map(ps => (
+                  <SelectItem key={ps.value} value={ps.value}>{ps.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <Divider orientation="left" plain style={{ fontSize: 12 }}>Поля (мм)</Divider>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <Form.Item label="Верхнее" name={['margins', 'top']}>
-            <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="мм" />
-          </Form.Item>
-          <Form.Item label="Нижнее" name={['margins', 'bottom']}>
-            <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="мм" />
-          </Form.Item>
-          <Form.Item label="Левое" name={['margins', 'left']}>
-            <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="мм" />
-          </Form.Item>
-          <Form.Item label="Правое" name={['margins', 'right']}>
-            <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="мм" />
-          </Form.Item>
+          <div className="space-y-1.5">
+            <Label>Ориентация</Label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={`flex-1 rounded-lg border px-3 py-1.5 text-sm transition-colors ${local.orientation === 'portrait' ? 'border-primary bg-primary/5 text-primary' : 'border-input hover:border-muted-foreground/30'}`}
+                onClick={() => update({ orientation: 'portrait' })}
+              >
+                Книжная
+              </button>
+              <button
+                type="button"
+                className={`flex-1 rounded-lg border px-3 py-1.5 text-sm transition-colors ${local.orientation === 'landscape' ? 'border-primary bg-primary/5 text-primary' : 'border-input hover:border-muted-foreground/30'}`}
+                onClick={() => update({ orientation: 'landscape' })}
+              >
+                Альбомная
+              </button>
+            </div>
+          </div>
         </div>
 
-        <Divider orientation="left" plain style={{ fontSize: 12 }}>Шрифт по умолчанию</Divider>
+        <Separator className="my-3" />
 
-        <Form.Item label="Гарнитура" name="defaultFont">
-          <Select options={FONT_FAMILIES} />
-        </Form.Item>
+        {/* Margins */}
+        <p className="text-xs font-medium text-muted-foreground mb-3">Поля (мм)</p>
 
-        <Form.Item label="Кегль (пт)" name="defaultFontSize">
-          <InputNumber min={6} max={72} style={{ width: '100%' }} addonAfter="пт" />
-        </Form.Item>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Верхнее</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={local.margins.top}
+                onChange={e => updateMargins('top', Number(e.target.value))}
+                min={0} max={100}
+              />
+              <span className="text-xs text-muted-foreground">мм</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Нижнее</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={local.margins.bottom}
+                onChange={e => updateMargins('bottom', Number(e.target.value))}
+                min={0} max={100}
+              />
+              <span className="text-xs text-muted-foreground">мм</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Левое</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={local.margins.left}
+                onChange={e => updateMargins('left', Number(e.target.value))}
+                min={0} max={100}
+              />
+              <span className="text-xs text-muted-foreground">мм</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Правое</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={local.margins.right}
+                onChange={e => updateMargins('right', Number(e.target.value))}
+                min={0} max={100}
+              />
+              <span className="text-xs text-muted-foreground">мм</span>
+            </div>
+          </div>
+        </div>
 
-        <Form.Item label="Межстрочный интервал" name="lineSpacing">
-          <Select options={LINE_SPACINGS} />
-        </Form.Item>
+        <Separator className="my-3" />
 
-        <Divider orientation="left" plain style={{ fontSize: 12 }}>Абзац по умолчанию</Divider>
+        {/* Font */}
+        <p className="text-xs font-medium text-muted-foreground mb-3">Шрифт по умолчанию</p>
 
-        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Гарнитура</Label>
+            <Select value={local.defaultFont} onValueChange={v => update({ defaultFont: v })}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FONT_FAMILIES.map(f => (
+                  <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Кегль (пт)</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={local.defaultFontSize}
+                onChange={e => update({ defaultFontSize: Number(e.target.value) })}
+                min={6} max={72}
+              />
+              <span className="text-xs text-muted-foreground">пт</span>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Межстрочный интервал</Label>
+            <Select
+              value={String(local.lineSpacing)}
+              onValueChange={v => update({ lineSpacing: Number(v) })}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LINE_SPACINGS.map(ls => (
+                  <SelectItem key={ls.value} value={ls.value}>{ls.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <Separator className="my-3" />
+
+        {/* Paragraph defaults */}
+        <p className="text-xs font-medium text-muted-foreground mb-3">Абзац по умолчанию</p>
+
+        <p className="text-[11px] text-muted-foreground mb-3">
           Применяются ко всем абзацам и заголовкам, у которых не задан явный отступ.
-        </Text>
+        </p>
 
-        <Row gutter={8}>
-          <Col span={12}>
-            <Form.Item label="Интервал перед" name={['paragraphDefaults', 'spaceBefore']}>
-              <InputNumber min={0} max={200} style={{ width: '100%' }} addonAfter="пт" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item label="Интервал после" name={['paragraphDefaults', 'spaceAfter']}>
-              <InputNumber min={0} max={200} style={{ width: '100%' }} addonAfter="пт" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item label="Отступ слева" name={['paragraphDefaults', 'marginLeft']}>
-              <InputNumber min={0} max={200} style={{ width: '100%' }} addonAfter="мм" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item label="Отступ справа" name={['paragraphDefaults', 'marginRight']}>
-              <InputNumber min={0} max={200} style={{ width: '100%' }} addonAfter="мм" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item label="Первая строка" name={['paragraphDefaults', 'firstLineIndent']}>
-              <InputNumber min={0} max={100} style={{ width: '100%' }} addonAfter="мм" />
-            </Form.Item>
-          </Col>
-        </Row>
-      </Form>
-    </Drawer>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Интервал перед</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={local.paragraphDefaults?.spaceBefore ?? ''}
+                onChange={e => updateParagraphDefaults('spaceBefore', e.target.value ? Number(e.target.value) : undefined)}
+                min={0} max={200}
+              />
+              <span className="text-xs text-muted-foreground">пт</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Интервал после</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={local.paragraphDefaults?.spaceAfter ?? ''}
+                onChange={e => updateParagraphDefaults('spaceAfter', e.target.value ? Number(e.target.value) : undefined)}
+                min={0} max={200}
+              />
+              <span className="text-xs text-muted-foreground">пт</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Отступ слева</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={local.paragraphDefaults?.marginLeft ?? ''}
+                onChange={e => updateParagraphDefaults('marginLeft', e.target.value ? Number(e.target.value) : undefined)}
+                min={0} max={200}
+              />
+              <span className="text-xs text-muted-foreground">мм</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Отступ справа</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={local.paragraphDefaults?.marginRight ?? ''}
+                onChange={e => updateParagraphDefaults('marginRight', e.target.value ? Number(e.target.value) : undefined)}
+                min={0} max={200}
+              />
+              <span className="text-xs text-muted-foreground">мм</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Первая строка</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={local.paragraphDefaults?.firstLineIndent ?? ''}
+                onChange={e => updateParagraphDefaults('firstLineIndent', e.target.value ? Number(e.target.value) : undefined)}
+                min={0} max={100}
+              />
+              <span className="text-xs text-muted-foreground">мм</span>
+            </div>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }

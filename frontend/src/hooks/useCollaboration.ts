@@ -46,8 +46,11 @@ export function useCollaboration(documentId: string): CollaborationState {
   // destroys and recreates the WebSocket instead of reusing a destroyed one.
   useEffect(() => {
     const serverUrl = buildWsUrl()
-    const room      = `ws/collab/${documentId}${token ? `?token=${token}` : ''}`
-    const p = new WebsocketProvider(serverUrl, room, ydoc, { connect: true })
+    const room      = `ws/collab/${documentId}`
+    const p = new WebsocketProvider(serverUrl, room, ydoc, {
+      connect: true,
+      params: token ? { token } : undefined,
+    })
     setProvider(p)
 
     const onStatus = ({ status }: { status: string }) =>
@@ -107,6 +110,9 @@ export function deduplicateByName(users: CollaborationUser[]): CollaborationUser
 /** Resolve WebSocket server URL from env var or current window location. */
 export function buildWsUrl(): string {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL as string
+  // In dev mode connect directly to backend (port 8080) instead of proxying
+  // through Vite (port 5173) — Vite's built-in WS can conflict with the proxy.
+  if (import.meta.env.DEV) return 'ws://localhost:8080'
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   return `${proto}://${window.location.host}`
 }
