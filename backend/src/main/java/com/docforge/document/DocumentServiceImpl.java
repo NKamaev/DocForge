@@ -594,31 +594,34 @@ public class DocumentServiceImpl implements DocumentService {
         Patch<String> patch = DiffUtils.diff(compareLines, targetLines);
 
         List<DiffChunk> chunks = new ArrayList<>();
-        for (AbstractDelta<String> delta : patch.getDeltas()) {
-            switch (delta.getType()) {
-                case INSERT -> {
-                    for (String line : delta.getTarget().getLines()) {
-                        chunks.add(new DiffChunk(DiffChunk.DiffChunkType.INSERT, line + "\n"));
-                    }
-                }
-                case DELETE -> {
-                    for (String line : delta.getSource().getLines()) {
-                        chunks.add(new DiffChunk(DiffChunk.DiffChunkType.DELETE, line + "\n"));
-                    }
-                }
-                case CHANGE -> {
-                    for (String line : delta.getSource().getLines()) {
-                        chunks.add(new DiffChunk(DiffChunk.DiffChunkType.DELETE, line + "\n"));
-                    }
-                    for (String line : delta.getTarget().getLines()) {
-                        chunks.add(new DiffChunk(DiffChunk.DiffChunkType.INSERT, line + "\n"));
-                    }
-                }
-            }
-        }
-
-        if (chunks.isEmpty()) {
+        if (patch.getDeltas().isEmpty()) {
             chunks.add(new DiffChunk(DiffChunk.DiffChunkType.EQUAL, targetText));
+        } else {
+            int sourceCursor = 0;
+            for (AbstractDelta<String> delta : patch.getDeltas()) {
+                int sourceStart = delta.getSource().getPosition();
+                if (sourceStart > sourceCursor) {
+                    appendChunk(chunks, DiffChunk.DiffChunkType.EQUAL,
+                            compareLines.subList(sourceCursor, sourceStart));
+                }
+                switch (delta.getType()) {
+                    case INSERT -> appendChunk(chunks, DiffChunk.DiffChunkType.INSERT,
+                            delta.getTarget().getLines());
+                    case DELETE -> appendChunk(chunks, DiffChunk.DiffChunkType.DELETE,
+                            delta.getSource().getLines());
+                    case CHANGE -> {
+                        appendChunk(chunks, DiffChunk.DiffChunkType.DELETE,
+                                delta.getSource().getLines());
+                        appendChunk(chunks, DiffChunk.DiffChunkType.INSERT,
+                                delta.getTarget().getLines());
+                    }
+                }
+                sourceCursor = sourceStart + delta.getSource().size();
+            }
+            if (sourceCursor < compareLines.size()) {
+                appendChunk(chunks, DiffChunk.DiffChunkType.EQUAL,
+                        compareLines.subList(sourceCursor, compareLines.size()));
+            }
         }
 
         return new RevisionDiffResponse(
@@ -628,6 +631,17 @@ public class DocumentServiceImpl implements DocumentService {
                 compareToCurrent,
                 chunks
         );
+    }
+
+    private void appendChunk(List<DiffChunk> chunks, DiffChunk.DiffChunkType type, List<String> lines) {
+        if (lines.isEmpty()) return;
+        String text = String.join("\n", lines) + "\n";
+        if (!chunks.isEmpty() && chunks.get(chunks.size() - 1).type() == type) {
+            DiffChunk last = chunks.get(chunks.size() - 1);
+            chunks.set(chunks.size() - 1, new DiffChunk(type, last.text() + text));
+        } else {
+            chunks.add(new DiffChunk(type, text));
+        }
     }
 
     @SuppressWarnings("unchecked")
