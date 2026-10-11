@@ -1,12 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  Button,
-  ScrollArea,
-} from '@/components/ui'
+import { useEffect, useState } from 'react'
 import { Loader2, Eye } from 'lucide-react'
 import { documentsApi } from '../../api/documentsApi'
 import type { DiffChunk, RevisionDiff } from '../../types/document'
@@ -15,6 +7,13 @@ interface DiffViewerProps {
   diff: DiffChunk[]
 }
 
+/**
+ * Pure chunk renderer for a revision diff.
+ *
+ * Rendered inline inside the document-style page (`.editor-canvas` →
+ * `.tiptap-page`) so additions/removals read as part of the document text:
+ * INSERT — green + underline, DELETE — red + strikethrough.
+ */
 export function DiffViewer({ diff }: DiffViewerProps) {
   const hasChanges = diff.some((c) => c.type === 'INSERT' || c.type === 'DELETE')
 
@@ -28,7 +27,7 @@ export function DiffViewer({ diff }: DiffViewerProps) {
   }
 
   return (
-    <div className="font-mono text-sm whitespace-pre-wrap">
+    <div className="whitespace-pre-wrap">
       {diff.map((chunk, i) =>
         chunk.type === 'INSERT' ? (
           <ins
@@ -76,119 +75,129 @@ function chunkClass(type: DiffChunk['type']): string {
 
 type DiffBaseline = 'previous' | 'current'
 
-interface RevisionDiffDialogProps {
-  open: boolean
-  onClose: () => void
+interface DocumentDiffViewProps {
   documentId: string
   revisionNumber: number
   previousRevisionNumber: number | null
+  onClose: () => void
 }
 
-export function RevisionDiffDialog({
-  open,
-  onClose,
+/**
+ * Inline revision diff, rendered in the right-hand document pane in place of
+ * the live editor (`.editor-canvas` → `.tiptap-page`), so the diff looks like
+ * the document page instead of a modal.
+ */
+export function DocumentDiffView({
   documentId,
   revisionNumber,
   previousRevisionNumber,
-}: RevisionDiffDialogProps) {
+  onClose,
+}: DocumentDiffViewProps) {
   const hasPrevious = previousRevisionNumber != null
   const [baseline, setBaseline] = useState<DiffBaseline>(hasPrevious ? 'previous' : 'current')
   const [loading, setLoading] = useState(false)
   const [diffData, setDiffData] = useState<RevisionDiff | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // When the dialog is (re)opened or the selected revision changes, default
-  // the baseline to the previous revision whenever one exists.
+  // When the selected revision changes, default the baseline to the previous
+  // revision whenever one exists.
   useEffect(() => {
     setBaseline(hasPrevious ? 'previous' : 'current')
-  }, [open, revisionNumber, hasPrevious])
+  }, [revisionNumber, hasPrevious])
 
   const compareTo = baseline === 'previous' && previousRevisionNumber != null
     ? previousRevisionNumber
     : undefined
 
-  const loadData = useCallback(
-    () => documentsApi.getRevisionDiff(documentId, revisionNumber, compareTo),
-    [documentId, revisionNumber, compareTo],
-  )
-
   useEffect(() => {
-    if (!open) {
-      setDiffData(null)
-      setError(null)
-      return
-    }
+    let cancelled = false
     setLoading(true)
     setError(null)
-    loadData()
+    documentsApi
+      .getRevisionDiff(documentId, revisionNumber, compareTo)
       .then((data) => {
+        if (cancelled) return
         setDiffData(data)
         setLoading(false)
       })
       .catch(() => {
+        if (cancelled) return
         setError('Не удалось загрузить изменения')
         setLoading(false)
       })
-  }, [open, loadData])
+    return () => {
+      cancelled = true
+    }
+  }, [documentId, revisionNumber, compareTo])
 
   const baselineLabel = baseline === 'previous' && previousRevisionNumber != null
     ? `Сравнение с редакцией ${previousRevisionNumber}`
     : 'Сравнение с текущим состоянием'
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent
-        className="sm:max-w-4xl sm:max-h-[80vh] flex flex-col"
-        aria-describedby={undefined}
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '8px 16px',
+          background: 'var(--bg-soft)',
+          borderBottom: '1px solid var(--line)',
+          flexShrink: 0,
+        }}
       >
-        <DialogHeader>
-          <DialogTitle>Изменения в редакции {revisionNumber}</DialogTitle>
-          <p className="text-sm text-muted-foreground">{baselineLabel}</p>
-        </DialogHeader>
-
-        <div
-          className="flex flex-wrap gap-1"
-          role="group"
-          aria-label="Базовая редакция для сравнения"
-        >
-          <Button
-            type="button"
-            size="sm"
-            variant={baseline === 'previous' ? 'default' : 'outline'}
-            disabled={!hasPrevious}
-            onClick={() => setBaseline('previous')}
-          >
-            С предыдущей редакцией
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={baseline === 'current' ? 'default' : 'outline'}
-            onClick={() => setBaseline('current')}
-          >
-            С текущим состоянием
-          </Button>
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 550 }}>Изменения в редакции {revisionNumber}</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{baselineLabel}</span>
         </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-            <span className="ml-2 text-muted-foreground">Загрузка...</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div
+            style={{ display: 'flex', gap: 6 }}
+            role="group"
+            aria-label="Базовая редакция для сравнения"
+          >
+            <button
+              type="button"
+              className={'btn xs' + (baseline === 'previous' ? ' primary' : '')}
+              aria-pressed={baseline === 'previous'}
+              disabled={!hasPrevious}
+              onClick={() => setBaseline('previous')}
+            >
+              С предыдущей редакцией
+            </button>
+            <button
+              type="button"
+              className={'btn xs' + (baseline === 'current' ? ' primary' : '')}
+              aria-pressed={baseline === 'current'}
+              onClick={() => setBaseline('current')}
+            >
+              С текущим состоянием
+            </button>
           </div>
-        ) : error ? (
-          <div className="text-center py-8 text-destructive">{error}</div>
-        ) : diffData ? (
-          <ScrollArea className="flex-1 min-h-[300px] max-h-[60vh] pr-4">
-            <DiffViewer diff={diffData.diff} />
-          </ScrollArea>
-        ) : null}
-
-        <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
-          <Button variant="outline" onClick={onClose}>
-            Закрыть
-          </Button>
+          <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
+          <button type="button" className="btn xs ghost" onClick={onClose}>
+            Вернуться к документу
+          </button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+
+      <div className="editor-canvas">
+        <div className="tiptap-page">
+          <div className="ProseMirror">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-muted-foreground">Загрузка...</span>
+              </div>
+            ) : error ? (
+              <div className="text-center py-8 text-destructive">{error}</div>
+            ) : diffData ? (
+              <DiffViewer diff={diffData.diff} />
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

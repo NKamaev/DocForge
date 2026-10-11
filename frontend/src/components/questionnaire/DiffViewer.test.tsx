@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { DiffViewer, RevisionDiffDialog } from './DiffViewer'
+import { DiffViewer, DocumentDiffView } from './DiffViewer'
 import { documentsApi } from '../../api/documentsApi'
 import type { DiffChunk, RevisionDiff } from '../../types/document'
 
@@ -74,7 +74,7 @@ const mixedDiff: RevisionDiff = {
   ],
 }
 
-describe('RevisionDiffDialog', () => {
+describe('DocumentDiffView', () => {
   beforeEach(() => {
     vi.mocked(documentsApi.getRevisionDiff).mockReset()
   })
@@ -83,10 +83,9 @@ describe('RevisionDiffDialog', () => {
     // given — previous revision 1 exists
     vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue(mixedDiff)
 
-    // when
+    // when — mounted inline (no `open` prop) in the document pane
     render(
-      <RevisionDiffDialog
-        open
+      <DocumentDiffView
         onClose={() => {}}
         documentId="doc-1"
         revisionNumber={2}
@@ -103,11 +102,10 @@ describe('RevisionDiffDialog', () => {
   })
 
   it('switching to current-state baseline re-calls with compareTo undefined', async () => {
-    // given — dialog opens with previous-revision baseline
+    // given — the view opens with previous-revision baseline
     vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue(mixedDiff)
     render(
-      <RevisionDiffDialog
-        open
+      <DocumentDiffView
         onClose={() => {}}
         documentId="doc-1"
         revisionNumber={2}
@@ -136,8 +134,7 @@ describe('RevisionDiffDialog', () => {
 
     // when
     render(
-      <RevisionDiffDialog
-        open
+      <DocumentDiffView
         onClose={() => {}}
         documentId="doc-1"
         revisionNumber={2}
@@ -160,8 +157,7 @@ describe('RevisionDiffDialog', () => {
 
     // when
     render(
-      <RevisionDiffDialog
-        open
+      <DocumentDiffView
         onClose={() => {}}
         documentId="doc-1"
         revisionNumber={2}
@@ -183,8 +179,7 @@ describe('RevisionDiffDialog', () => {
 
     // when
     render(
-      <RevisionDiffDialog
-        open
+      <DocumentDiffView
         onClose={() => {}}
         documentId="doc-1"
         revisionNumber={2}
@@ -195,5 +190,27 @@ describe('RevisionDiffDialog', () => {
     // then — the empty-state stub is rendered, no chunk elements
     expect(await screen.findByText('Изменений нет')).toBeInTheDocument()
     expect(screen.queryByTestId(/diff-chunk-/)).not.toBeInTheDocument()
+  })
+
+  it('calls onClose when "Вернуться к документу" is clicked', async () => {
+    // given — the inline diff view is shown
+    const onClose = vi.fn()
+    vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue(mixedDiff)
+
+    // when
+    render(
+      <DocumentDiffView
+        onClose={onClose}
+        documentId="doc-1"
+        revisionNumber={2}
+        previousRevisionNumber={1}
+      />,
+    )
+    await screen.findByText('Новое')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Вернуться к документу' }))
+
+    // then — the parent is told to leave diff mode
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

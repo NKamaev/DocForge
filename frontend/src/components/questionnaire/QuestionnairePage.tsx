@@ -19,7 +19,7 @@ import { useMyDocumentRole } from '../../hooks/useMyRole'
 import ParticipantsPanel from '../document-editor/ParticipantsPanel'
 import QuestionRenderer from './QuestionRenderer'
 import DocumentWorkspace from './DocumentWorkspace'
-import { RevisionDiffDialog } from './DiffViewer'
+import { DocumentDiffView } from './DiffViewer'
 
 const DEBOUNCE_MS = 500
 const BODY_AUTOSAVE_MS = 3000
@@ -118,6 +118,13 @@ export default function QuestionnairePage() {
         }
       })
       .finally(() => setLoading(false))
+  }, [id])
+
+  // Reset view-only state when switching to another document so a stale
+  // revision number can never drive the diff/history of the new document.
+  useEffect(() => {
+    setDiffForRevision(null)
+    setHistoryOpen(false)
   }, [id])
 
   const scheduleSave = useCallback(() => {
@@ -379,6 +386,8 @@ export default function QuestionnairePage() {
         null,
       )
 
+  const isDiffMode = diffForRevision !== null && !!id
+
   return (
     <div className="workspace">
       <div className="q-panel">
@@ -479,7 +488,9 @@ export default function QuestionnairePage() {
       <div className="editor-pane">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', background: 'var(--bg-soft)', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
           <span style={{ fontSize: 12.5, color: 'var(--ink-3)', flex: 1 }}>
-            Кликните на чип, чтобы перейти к вопросу. Документ обновляется в реальном времени.
+            {isDiffMode
+              ? 'Режим просмотра изменений. Документ не редактируется.'
+              : 'Кликните на чип, чтобы перейти к вопросу. Документ обновляется в реальном времени.'}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <ParticipantsPanel
@@ -492,72 +503,89 @@ export default function QuestionnairePage() {
             <button className="btn xs ghost" onClick={() => setShareOpen(true)}>
               <Share2 className="size-3.5" /> Доступ
             </button>
-            <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
-            <button className="btn xs ghost" onClick={handleSaveRevision}>
-              <Save className="size-3.5" /> Сохранить редакцию
-            </button>
+            {!isDiffMode && (
+              <>
+                <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
+                <button className="btn xs ghost" onClick={handleSaveRevision}>
+                  <Save className="size-3.5" /> Сохранить редакцию
+                </button>
+              </>
+            )}
             <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
             <button className="btn xs ghost" onClick={openHistory}>
               <Icon name="history" size={13} /> История
             </button>
-            <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
-            <button
-              className="btn xs"
-              disabled={exportingDocx}
-              onClick={async () => {
-                if (!id) return
-                setExportingDocx(true)
-                try {
-                  if (editorBodyRef.current) await documentsApi.updateBody(id, editorBodyRef.current)
-                  const blob = await documentsApi.exportDocx(id)
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url; a.download = 'document.docx'; a.click()
-                  URL.revokeObjectURL(url)
-                } catch { showToast('Ошибка экспорта DOCX', 'error') }
-                finally { setExportingDocx(false) }
-              }}
-            >
-              <FileWordOutlined /> DOCX
-            </button>
-            <button
-              className="btn xs primary"
-              disabled={exportingPdf}
-              onClick={async () => {
-                if (!id) return
-                setExportingPdf(true)
-                try {
-                  if (editorBodyRef.current) await documentsApi.updateBody(id, editorBodyRef.current)
-                  const blob = await documentsApi.exportPdf(id)
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url; a.download = 'document.pdf'; a.click()
-                  URL.revokeObjectURL(url)
-                } catch { showToast('Ошибка экспорта PDF', 'error') }
-                finally { setExportingPdf(false) }
-              }}
-            >
-              <FilePdfOutlined /> PDF
-            </button>
+            {!isDiffMode && (
+              <>
+                <div style={{ width: 1, height: 18, background: 'var(--line)' }} />
+                <button
+                  className="btn xs"
+                  disabled={exportingDocx}
+                  onClick={async () => {
+                    if (!id) return
+                    setExportingDocx(true)
+                    try {
+                      if (editorBodyRef.current) await documentsApi.updateBody(id, editorBodyRef.current)
+                      const blob = await documentsApi.exportDocx(id)
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url; a.download = 'document.docx'; a.click()
+                      URL.revokeObjectURL(url)
+                    } catch { showToast('Ошибка экспорта DOCX', 'error') }
+                    finally { setExportingDocx(false) }
+                  }}
+                >
+                  <FileWordOutlined /> DOCX
+                </button>
+                <button
+                  className="btn xs primary"
+                  disabled={exportingPdf}
+                  onClick={async () => {
+                    if (!id) return
+                    setExportingPdf(true)
+                    try {
+                      if (editorBodyRef.current) await documentsApi.updateBody(id, editorBodyRef.current)
+                      const blob = await documentsApi.exportPdf(id)
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url; a.download = 'document.pdf'; a.click()
+                      URL.revokeObjectURL(url)
+                    } catch { showToast('Ошибка экспорта PDF', 'error') }
+                    finally { setExportingPdf(false) }
+                  }}
+                >
+                  <FilePdfOutlined /> PDF
+                </button>
+              </>
+            )}
           </div>
         </div>
 
-        <DocumentWorkspace
-          ydoc={ydoc}
-          templateBody={templateBody}
-          answers={answers}
-          parameters={parameters}
-          phrasings={phrasings}
-          formatting={formatting}
-          questionnaire={questionnaire}
-          highlightedParam={highlightedParam}
-          onAnswerChange={handleAnswerChange}
-          onParamFocus={handleParamFocus}
-          initialBody={docCurrentBody}
-          onBodyChange={handleBodyChange}
-          readOnly={isReadOnly}
-          restoreSeedKey={restoreSeedKey}
-        />
+        {isDiffMode ? (
+          <DocumentDiffView
+            documentId={id}
+            revisionNumber={diffForRevision}
+            previousRevisionNumber={previousRevisionForDiff}
+            onClose={() => setDiffForRevision(null)}
+          />
+        ) : (
+          <DocumentWorkspace
+            ydoc={ydoc}
+            templateBody={templateBody}
+            answers={answers}
+            parameters={parameters}
+            phrasings={phrasings}
+            formatting={formatting}
+            questionnaire={questionnaire}
+            highlightedParam={highlightedParam}
+            onAnswerChange={handleAnswerChange}
+            onParamFocus={handleParamFocus}
+            initialBody={docCurrentBody}
+            onBodyChange={handleBodyChange}
+            readOnly={isReadOnly}
+            restoreSeedKey={restoreSeedKey}
+          />
+        )}
       </div>
 
       {historyOpen && (
@@ -600,6 +628,7 @@ export default function QuestionnairePage() {
                             title="Показать изменения"
                             onClick={() => {
                               if (id) {
+                                setHistoryOpen(false)
                                 setDiffForRevision(rev.editionNumber)
                               }
                             }}
@@ -630,17 +659,7 @@ export default function QuestionnairePage() {
          resourceName={docName || 'Документ'}
          myRole={myDocRole ?? 'VIEWER'}
        />
-
-       {diffForRevision !== null && id && (
-         <RevisionDiffDialog
-           open={diffForRevision !== null}
-           onClose={() => setDiffForRevision(null)}
-           documentId={id}
-           revisionNumber={diffForRevision}
-           previousRevisionNumber={previousRevisionForDiff}
-         />
-       )}
-     </div>
+      </div>
   )
 }
 

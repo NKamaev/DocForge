@@ -61,6 +61,23 @@ vi.mock('./DocumentWorkspace', () => ({
   },
 }))
 
+// DiffViewer is mocked: the page only decides *where* to render it (right pane,
+// replacing the workspace). Behaviour of the diff view itself is covered by
+// DiffViewer.test.tsx.
+vi.mock('./DiffViewer', () => ({
+  DocumentDiffView: ({
+    revisionNumber,
+    onClose,
+  }: {
+    revisionNumber: number
+    onClose: () => void
+  }) => (
+    <div data-testid="document-diff-view" data-revision={revisionNumber}>
+      <button onClick={onClose}>Вернуться к документу</button>
+    </div>
+  ),
+}))
+
 vi.mock('../ShareDialog', () => ({
   default: ({ open }: { open: boolean }) =>
     open ? <div data-testid="share-dialog">ShareDialog Content</div> : null,
@@ -353,5 +370,58 @@ describe('QuestionnairePage', () => {
     await act(async () => { await vi.runAllTimersAsync() })
 
     expect(vi.mocked(documentsApi.getQuestionnaire).mock.calls.length).toBe(callsBefore)
+  })
+
+  it('renders DocumentDiffView in the right pane on "Показать изменения" and restores DocumentWorkspace on close', async () => {
+    const mockRevisions = [
+      { id: 'r1', editionNumber: 1, savedAt: '2026-04-01T10:00:00Z', savedBy: 'u1', authorName: 'Иван Иванов', comment: null },
+      { id: 'r2', editionNumber: 2, savedAt: '2026-04-02T12:00:00Z', savedBy: 'u2', authorName: null, comment: null },
+    ]
+    vi.mocked(documentsApi.listRevisions).mockResolvedValue(mockRevisions)
+
+    renderPage()
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    // open the revision history drawer
+    fireEvent.click(screen.getByText('История'))
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    // not in diff mode yet — the editable workspace is shown
+    expect(screen.getByTestId('workspace')).toBeInTheDocument()
+    expect(screen.queryByTestId('document-diff-view')).not.toBeInTheDocument()
+
+    // normal mode — editing and export controls are available
+    expect(screen.getByText('Сохранить редакцию')).toBeInTheDocument()
+    expect(screen.getByText('DOCX')).toBeInTheDocument()
+    expect(screen.getByText('PDF')).toBeInTheDocument()
+
+    // click the "Показать изменения" icon button of the latest revision (2)
+    const diffButtons = screen.getAllByRole('button', { name: 'Показать изменения' })
+    fireEvent.click(diffButtons[diffButtons.length - 1])
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    // the right pane now renders the inline diff instead of the workspace
+    expect(screen.getByTestId('document-diff-view')).toHaveAttribute('data-revision', '2')
+    expect(screen.queryByTestId('workspace')).not.toBeInTheDocument()
+
+    // entering diff mode closes the history drawer so its overlay cannot cover the diff
+    expect(screen.queryByText('История редакций')).not.toBeInTheDocument()
+
+    // diff mode is view-only — editing and export controls are removed from the DOM
+    expect(screen.queryByText('Сохранить редакцию')).not.toBeInTheDocument()
+    expect(screen.queryByText('DOCX')).not.toBeInTheDocument()
+    expect(screen.queryByText('PDF')).not.toBeInTheDocument()
+
+    // closing diff mode brings the editable workspace back
+    fireEvent.click(screen.getByRole('button', { name: 'Вернуться к документу' }))
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    expect(screen.queryByTestId('document-diff-view')).not.toBeInTheDocument()
+    expect(screen.getByTestId('workspace')).toBeInTheDocument()
+
+    // and the editing and export controls reappear
+    expect(screen.getByText('Сохранить редакцию')).toBeInTheDocument()
+    expect(screen.getByText('DOCX')).toBeInTheDocument()
+    expect(screen.getByText('PDF')).toBeInTheDocument()
   })
 })
