@@ -12,9 +12,6 @@ import com.docforge.document.model.DocumentRegistry;
 import com.docforge.document.model.DocumentRole;
 import com.docforge.document.model.DocumentRevision;
 import com.docforge.document.model.DocumentRevisionBody;
-import com.github.difflib.DiffUtils;
-import com.github.difflib.patch.AbstractDelta;
-import com.github.difflib.patch.Patch;
 import com.docforge.template.TemplateService;
 import com.docforge.template.dto.TemplateResponse;
 import com.docforge.template.model.*;
@@ -570,56 +567,17 @@ public class DocumentServiceImpl implements DocumentService {
 
         DocumentRevisionBody targetBody = getRevisionBody(documentId, revisionNumber);
 
-        Object compareBodyObj;
+        Object compareBody;
         boolean compareToCurrent = compareToRevisionNumber == null;
         Integer actualCompareToNumber = null;
 
         if (compareToCurrent) {
             Document doc = findDocOrThrow(documentId);
-            compareBodyObj = doc.getCurrentBody() != null ? doc.getCurrentBody() : doc.getGeneratedBody();
+            compareBody = doc.getCurrentBody() != null ? doc.getCurrentBody() : doc.getGeneratedBody();
         } else {
-            DocumentRevisionBody compareBody = getRevisionBody(documentId, compareToRevisionNumber);
-            compareBodyObj = compareBody.getBody();
+            DocumentRevisionBody compareRevision = getRevisionBody(documentId, compareToRevisionNumber);
+            compareBody = compareRevision.getBody();
             actualCompareToNumber = compareToRevisionNumber;
-        }
-
-        String targetText = extractPlainText(targetBody.getBody());
-        String compareText = extractPlainText(compareBodyObj);
-
-        List<String> targetLines = targetText.lines().toList();
-        List<String> compareLines = compareText.lines().toList();
-
-        Patch<String> patch = DiffUtils.diff(compareLines, targetLines);
-
-        List<DiffChunk> chunks = new ArrayList<>();
-        if (patch.getDeltas().isEmpty()) {
-            chunks.add(new DiffChunk(DiffChunk.DiffChunkType.EQUAL, targetText));
-        } else {
-            int sourceCursor = 0;
-            for (AbstractDelta<String> delta : patch.getDeltas()) {
-                int sourceStart = delta.getSource().getPosition();
-                if (sourceStart > sourceCursor) {
-                    appendChunk(chunks, DiffChunk.DiffChunkType.EQUAL,
-                            compareLines.subList(sourceCursor, sourceStart));
-                }
-                switch (delta.getType()) {
-                    case INSERT -> appendChunk(chunks, DiffChunk.DiffChunkType.INSERT,
-                            delta.getTarget().getLines());
-                    case DELETE -> appendChunk(chunks, DiffChunk.DiffChunkType.DELETE,
-                            delta.getSource().getLines());
-                    case CHANGE -> {
-                        appendChunk(chunks, DiffChunk.DiffChunkType.DELETE,
-                                delta.getSource().getLines());
-                        appendChunk(chunks, DiffChunk.DiffChunkType.INSERT,
-                                delta.getTarget().getLines());
-                    }
-                }
-                sourceCursor = sourceStart + delta.getSource().size();
-            }
-            if (sourceCursor < compareLines.size()) {
-                appendChunk(chunks, DiffChunk.DiffChunkType.EQUAL,
-                        compareLines.subList(sourceCursor, compareLines.size()));
-            }
         }
 
         return new RevisionDiffResponse(
@@ -627,64 +585,8 @@ public class DocumentServiceImpl implements DocumentService {
                 revisionNumber,
                 actualCompareToNumber,
                 compareToCurrent,
-                chunks
+                targetBody.getBody(),
+                compareBody
         );
-    }
-
-    private void appendChunk(List<DiffChunk> chunks, DiffChunk.DiffChunkType type, List<String> lines) {
-        if (lines.isEmpty()) return;
-        String text = String.join("\n", lines) + "\n";
-        if (!chunks.isEmpty() && chunks.get(chunks.size() - 1).type() == type) {
-            DiffChunk last = chunks.get(chunks.size() - 1);
-            chunks.set(chunks.size() - 1, new DiffChunk(type, last.text() + text));
-        } else {
-            chunks.add(new DiffChunk(type, text));
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private String extractPlainText(Object body) {
-        if (body == null) return "";
-        if (!(body instanceof Map<?, ?>)) return body.toString();
-
-        Map<String, Object> bodyMap = (Map<String, Object>) body;
-        StringBuilder sb = new StringBuilder();
-        extractTextRecursive(bodyMap, sb);
-        return sb.toString();
-    }
-
-    @SuppressWarnings("unchecked")
-    private void extractTextRecursive(Map<String, Object> node, StringBuilder sb) {
-        if (node == null) return;
-
-        String type = (String) node.get("type");
-        if ("text".equals(type)) {
-            Object text = node.get("text");
-            if (text != null) {
-                sb.append(text);
-            }
-            return;
-        }
-
-        Object attrs = node.get("attrs");
-        if (attrs instanceof Map<?, ?> attrMap) {
-            Object display = attrMap.get("display");
-            if ("parameterField".equals(type) && display != null) {
-                sb.append("[").append(display).append("]");
-            }
-        }
-
-        Object content = node.get("content");
-        if (content instanceof List<?> contentList) {
-            for (Object item : contentList) {
-                if (item instanceof Map<?, ?>) {
-                    extractTextRecursive((Map<String, Object>) item, sb);
-                }
-            }
-        }
-
-        if ("paragraph".equals(type) || "heading".equals(type) || "listItem".equals(type)) {
-            sb.append("\n");
-        }
     }
 }

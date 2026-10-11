@@ -1,6 +1,5 @@
 package com.docforge.document.dto;
 
-import java.util.List;
 import java.util.UUID;
 
 public record RevisionDiffResponse(
@@ -8,5 +7,6 @@ public record RevisionDiffResponse(
         int revisionNumber,
         Integer compareToRevisionNumber,
         boolean compareToCurrent,
-        List<DiffChunk> diff
+        Object targetBody,
+        Object compareBody
 ) {}
