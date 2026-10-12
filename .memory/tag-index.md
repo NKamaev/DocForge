@@ -40,6 +40,7 @@
 | `pitfalls:conditional-rendering` | `pitfalls/pitfalls-conditional-rendering.md` | Условные блоки на /fill и в экспорте (BUG-012/014/019), двойной return (BUG-013) |
 | `pitfalls:tiptap-react` | `pitfalls/pitfalls-tiptap-react.md` | setContent emits onUpdate (TASK-009), stable NodeView, дубль fontSize |
 | `pitfalls:async-ui` | `pitfalls/pitfalls-async-ui.md` | Promise leak / stale state / silent catch (TASK-030) |
+| `pitfalls:build-hygiene` | `pitfalls/pitfalls-build-hygiene.md` | Stray `.js` затеняет `.tsx` в Vite, мёртвые артефакты после смены подхода |
 
 ## Best Practices & Pitfalls (якорные)
 
