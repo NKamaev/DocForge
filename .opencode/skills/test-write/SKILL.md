@@ -49,7 +49,14 @@ test('user can create a document', async ({ page }) => {
 })
 ```
 
-### 5. Verify
+### 5. Test data fixtures (templates/documents)
+When creating test/QA templates and documents (manual verification, bug repro, E2E):
+- Build them **COMPLETE**: 2+ parameters of different types + questionnaire (pages → questions bound via `parameter_code`) + body text with `parameter_field` nodes placed (+ `conditional_block` where relevant).
+- A template without a questionnaire produces a document with an empty ОЛ — not usable to verify questionnaire/document flows.
+- Publish the template BEFORE creating documents from it; edits made after publish don't reach new snapshots.
+- Clean up fixtures afterwards (unpublish → DELETE for templates, DELETE for documents).
+
+### 6. Verify
 ```bash
 cd backend && ./gradlew test
 cd frontend && npm test -- --run
