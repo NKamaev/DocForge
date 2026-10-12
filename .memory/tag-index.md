@@ -66,6 +66,7 @@
 | `BUG-020` | `tickets/BUG-020.md` | yAnswers инициализируется до WS-sync — закрыт (seeding guard) |
 | `BUG-029` | `tickets/BUG-029.md` | Toast не показывался программно — закрыт (CustomEvent app-toast) |
 | `BUG-046` | `tickets/BUG-046.md` | Откат к редакции через reload — закрыт (программный Yjs-reset) |
+| `BUG-047` | `tickets/BUG-047.md` | ОЛ пуст при вопросах в шаблоне — закрыт (snapshot-first questionnaire, `b0246b4`) |
 | `BUG-048` | `tickets/BUG-048.md` | Permission-check на revision/answers/generate эндпоинтах — открыт |
 
 ---
