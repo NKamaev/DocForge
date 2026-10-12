@@ -100,8 +100,9 @@ public class DocumentServiceImpl implements DocumentService {
         log.info("Создан документ id={} name='{}' templateId={}", id, name, templateId);
         auditService.log(currentLogin(), "DOCUMENT", id, "CREATE", null);
 
-        QuestionnaireResponse questionnaire =
-                buildQuestionnaireResponse(template, doc.getAnswers());
+        QuestionnaireResponse questionnaire = buildQuestionnaireResponse(
+                snapshot != null ? snapshotToTemplate(snapshot) : toTemplate(template),
+                doc.getAnswers());
         return toResponse(registry, doc, questionnaire);
     }
 
@@ -156,7 +157,7 @@ public class DocumentServiceImpl implements DocumentService {
     public QuestionnaireResponse getQuestionnaire(UUID documentId) {
         com.docforge.document.model.Document doc = findDocOrThrow(documentId);
         DocumentRegistry registry = findRegistryOrThrow(documentId);
-        TemplateResponse template = templateService.getById(registry.getTemplateId());
+        Template template = resolveDocumentTemplate(doc, registry.getTemplateId());
         return buildQuestionnaireResponse(template, doc.getAnswers());
     }
 
@@ -167,7 +168,7 @@ public class DocumentServiceImpl implements DocumentService {
     public SaveAnswersResponse saveAnswers(UUID documentId, Map<String, Object> newAnswers) {
         com.docforge.document.model.Document doc = findDocOrThrow(documentId);
         DocumentRegistry registry = findRegistryOrThrow(documentId);
-        TemplateResponse template = templateService.getById(registry.getTemplateId());
+        Template template = resolveDocumentTemplate(doc, registry.getTemplateId());
 
         // Merge: existing answers ← new answers (new overwrite existing)
         Map<String, Object> merged = new HashMap<>(
@@ -193,15 +194,7 @@ public class DocumentServiceImpl implements DocumentService {
         DocumentRegistry registry = findRegistryOrThrow(documentId);
 
         // Prefer snapshot (immutable) over live template to avoid post-publish changes
-        Template template;
-        if (doc.getTemplateSnapshotId() != null) {
-            com.docforge.template.model.TemplateSnapshot snapshot =
-                    templateService.getSnapshotById(doc.getTemplateSnapshotId());
-            template = snapshotToTemplate(snapshot);
-        } else {
-            TemplateResponse templateResponse = templateService.getById(registry.getTemplateId());
-            template = toTemplate(templateResponse);
-        }
+        Template template = resolveDocumentTemplate(doc, registry.getTemplateId());
 
         Map<String, Object> answers = doc.getAnswers() != null ? doc.getAnswers() : Map.of();
 
@@ -263,16 +256,16 @@ public class DocumentServiceImpl implements DocumentService {
     // ── Questionnaire builder ─────────────────────────────────────────────────
 
     private QuestionnaireResponse buildQuestionnaireResponse(
-            TemplateResponse template, Map<String, Object> answers) {
+            Template template, Map<String, Object> answers) {
 
-        Questionnaire questionnaire = template.questionnaire();
+        Questionnaire questionnaire = template.getQuestionnaire();
         if (questionnaire == null) {
             return new QuestionnaireResponse(null, List.of());
         }
 
         // Index parameters by code for quick lookups
-        Map<String, Parameter> paramIndex = (template.parameters() != null
-                ? template.parameters() : List.<Parameter>of()).stream()
+        Map<String, Parameter> paramIndex = (template.getParameters() != null
+                ? template.getParameters() : List.<Parameter>of()).stream()
                 .collect(Collectors.toMap(Parameter::getCode, p -> p));
 
         Map<String, Object> safeAnswers = answers != null ? answers : Map.of();
@@ -377,6 +370,27 @@ public class DocumentServiceImpl implements DocumentService {
                 .scripts(s.getScripts())
                 .phrasings(s.getPhrasings())
                 .build();
+    }
+
+    /**
+     * Resolve the template content a document is pinned to. Prefers the immutable
+     * snapshot (the version the document was created from) so the questionnaire,
+     * parameters and body stay consistent with the generated document. Falls back
+     * to the live template only when the snapshot is missing (deleted) — any other
+     * failure while loading the snapshot is propagated, never silently masked.
+     */
+    private Template resolveDocumentTemplate(
+            com.docforge.document.model.Document doc, UUID templateId) {
+        if (doc.getTemplateSnapshotId() != null) {
+            try {
+                return snapshotToTemplate(
+                        templateService.getSnapshotById(doc.getTemplateSnapshotId()));
+            } catch (ResourceNotFoundException e) {
+                log.warn("Снимок шаблона {} не найден для документа {}, используем live-шаблон: {}",
+                        doc.getTemplateSnapshotId(), doc.getId(), e.getMessage());
+            }
+        }
+        return toTemplate(templateService.getById(templateId));
     }
 
     private DocumentResponse toResponse(
