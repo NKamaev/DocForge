@@ -59,9 +59,6 @@ dependencies {
     // Apache POI — DOCX export
     implementation("org.apache.poi:poi-ooxml:5.3.0")
 
-    // Diff utils — для сравнения редакций документов
-    implementation("io.github.java-diff-utils:java-diff-utils:4.12")
-
     // openhtmltopdf — PDF export
     implementation("com.openhtmltopdf:openhtmltopdf-pdfbox:1.0.10")
 

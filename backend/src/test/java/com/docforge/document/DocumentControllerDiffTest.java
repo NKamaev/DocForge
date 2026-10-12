@@ -2,8 +2,6 @@ package com.docforge.document;
 
 import com.docforge.common.exception.GlobalExceptionHandler;
 import com.docforge.common.exception.ResourceNotFoundException;
-import com.docforge.document.dto.DiffChunk;
-import com.docforge.document.dto.DiffChunk.DiffChunkType;
 import com.docforge.document.dto.RevisionDiffResponse;
 import com.docforge.document.generator.ParameterSubstitutor;
 import com.docforge.document.generator.TipTapTreeWalker;
@@ -29,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -40,6 +39,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Web-layer contract tests for {@code GET /api/documents/{id}/revisions/{revNum}/diff}.
  *
+ * <p>Variant B (TASK-064): the response now carries the raw TipTap bodies
+ * ({@code targetBody} / {@code compareBody}) instead of pre-computed diff chunks.</p>
+ *
  * <p>Standalone MockMvc slice: the controller is instantiated with mocked collaborators and the
  * real {@link GlobalExceptionHandler} so status-code mapping (404 / 403) is verified end-to-end
  * without spinning up Testcontainers.</p>
@@ -49,6 +51,7 @@ class DocumentControllerDiffTest {
 
     private static final UUID DOC_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000bb");
+    private static final UUID REVISION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000cc");
     private static final String LOGIN = "alice";
 
     @Mock private DocumentService documentService;
@@ -97,33 +100,39 @@ class DocumentControllerDiffTest {
     // ── happy path ─────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("GET .../diff returns 200 with chunks when caller has READ permission")
-    void getRevisionDiff_withReadPermission_returns200WithChunks() throws Exception {
-        // given — caller may read and the service returns an EQUAL + INSERT diff
+    @DisplayName("GET .../diff returns 200 with raw target/compare bodies when caller has READ permission")
+    void getRevisionDiff_withReadPermission_returns200WithBodies() throws Exception {
+        // given — caller may read and the service returns the two raw TipTap bodies
         when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
         when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
                 .thenReturn(true);
         when(documentService.computeRevisionDiff(DOC_ID, 2, 1)).thenReturn(
                 new RevisionDiffResponse(
-                        UUID.randomUUID(), 2, 1, false,
-                        List.of(
-                                new DiffChunk(DiffChunkType.EQUAL, "same\n"),
-                                new DiffChunk(DiffChunkType.INSERT, "new\n"))));
+                        REVISION_ID,
+                        2,
+                        1,
+                        false,
+                        tiptapDoc("new"),
+                        tiptapDoc("same", "old")));
 
         // when / then
         mockMvc.perform(get("/api/documents/{id}/revisions/{rev}/diff", DOC_ID, 2)
                         .param("compareTo", "1"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revisionId").value(REVISION_ID.toString()))
                 .andExpect(jsonPath("$.revisionNumber").value(2))
                 .andExpect(jsonPath("$.compareToRevisionNumber").value(1))
                 .andExpect(jsonPath("$.compareToCurrent").value(false))
-                .andExpect(jsonPath("$.diff[0].type").value("EQUAL"))
-                .andExpect(jsonPath("$.diff[1].type").value("INSERT"))
-                .andExpect(jsonPath("$.diff[1].text").value("new\n"));
+                .andExpect(jsonPath("$.targetBody.type").value("doc"))
+                .andExpect(jsonPath("$.targetBody.content[0].content[0].text").value("new"))
+                .andExpect(jsonPath("$.compareBody.type").value("doc"))
+                .andExpect(jsonPath("$.compareBody.content[0].content[0].text").value("same"))
+                // then — the legacy `diff` chunk array is gone
+                .andExpect(jsonPath("$.diff").doesNotExist());
     }
 
     @Test
-    @DisplayName("GET .../diff without compareTo returns 200 diffing against current body")
+    @DisplayName("GET .../diff without compareTo returns 200 diffing against the current body")
     void getRevisionDiff_withoutCompareTo_returns200() throws Exception {
         // given — no compareTo → null → service diffs against current state
         when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
@@ -131,14 +140,21 @@ class DocumentControllerDiffTest {
                 .thenReturn(true);
         when(documentService.computeRevisionDiff(DOC_ID, 3, null)).thenReturn(
                 new RevisionDiffResponse(
-                        UUID.randomUUID(), 3, null, true,
-                        List.of(new DiffChunk(DiffChunkType.EQUAL, "unchanged\n"))));
+                        REVISION_ID,
+                        3,
+                        null,
+                        true,
+                        tiptapDoc("new"),
+                        tiptapDoc("current")));
 
         // when / then
         mockMvc.perform(get("/api/documents/{id}/revisions/{rev}/diff", DOC_ID, 3))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revisionNumber").value(3))
                 .andExpect(jsonPath("$.compareToCurrent").value(true))
-                .andExpect(jsonPath("$.compareToRevisionNumber").doesNotExist());
+                .andExpect(jsonPath("$.compareToRevisionNumber").doesNotExist())
+                .andExpect(jsonPath("$.targetBody.type").value("doc"))
+                .andExpect(jsonPath("$.compareBody.type").value("doc"));
     }
 
     // ── error mapping ──────────────────────────────────────────────────────────
@@ -172,5 +188,20 @@ class DocumentControllerDiffTest {
 
         // then — the diff is never computed
         verifyNoInteractions(documentService);
+    }
+
+    // ── helpers ────────────────────────────────────────────────────────────────
+
+    private static Map<String, Object> tiptapDoc(String... paragraphs) {
+        List<Map<String, Object>> content = new java.util.ArrayList<>();
+        for (String paragraph : paragraphs) {
+            content.add(Map.of(
+                    "type", "paragraph",
+                    "content", List.of(Map.of("type", "text", "text", paragraph))));
+        }
+        Map<String, Object> doc = new java.util.LinkedHashMap<>();
+        doc.put("type", "doc");
+        doc.put("content", content);
+        return doc;
     }
 }

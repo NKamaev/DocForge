@@ -52,6 +52,7 @@ import {
 } from '@/components/ui'
 import { templatesApi } from '../../api/templatesApi'
 import { foldersApi } from '../../api/foldersApi'
+import { formattingToCssVars } from '../../utils/formattingCssVars'
 import type { DocumentFormatting, Parameter, Phrasing, Questionnaire, Script, Template } from '../../types/template'
 import type { Folder } from '../../types/folder'
 import { DesignerContext } from './DesignerContext'
@@ -137,12 +138,6 @@ function ScrollableTabs({ items, activeKey, onChange }: ScrollableTabsProps) {
   )
 }
 
-const PAGE_DIMENSIONS: Record<string, { w: number; h: number }> = {
-  A4: { w: 210, h: 297 },
-  A3: { w: 297, h: 420 },
-  Letter: { w: 216, h: 279 },
-}
-
 const DEFAULT_FORMATTING: DocumentFormatting = {
   pageSize: 'A4',
   orientation: 'portrait',
@@ -151,29 +146,6 @@ const DEFAULT_FORMATTING: DocumentFormatting = {
   defaultFontSize: 14,
   lineSpacing: 1.5,
   paragraphDefaults: {},
-}
-
-function formattingToCssVars(f: DocumentFormatting): React.CSSProperties {
-  const size = PAGE_DIMENSIONS[f.pageSize] ?? PAGE_DIMENSIONS['A4']
-  const landscape = f.orientation === 'landscape'
-  const w = landscape ? size.h : size.w
-  const h = landscape ? size.w : size.h
-  return {
-    '--page-width': `${w}mm`,
-    '--page-min-height': `${h}mm`,
-    '--margin-top': `${f.margins.top}mm`,
-    '--margin-right': `${f.margins.right}mm`,
-    '--margin-bottom': `${f.margins.bottom}mm`,
-    '--margin-left': `${f.margins.left}mm`,
-    '--default-font': f.defaultFont,
-    '--default-font-size': `${f.defaultFontSize}pt`,
-    '--default-line-height': String(f.lineSpacing),
-    '--default-space-before':      f.paragraphDefaults?.spaceBefore     ? `${f.paragraphDefaults.spaceBefore}pt`     : '0',
-    '--default-space-after':       f.paragraphDefaults?.spaceAfter      ? `${f.paragraphDefaults.spaceAfter}pt`      : '0',
-    '--default-margin-left':       f.paragraphDefaults?.marginLeft      ? `${f.paragraphDefaults.marginLeft}mm`      : '0',
-    '--default-margin-right':      f.paragraphDefaults?.marginRight     ? `${f.paragraphDefaults.marginRight}mm`     : '0',
-    '--default-first-line-indent': f.paragraphDefaults?.firstLineIndent ? `${f.paragraphDefaults.firstLineIndent}mm` : '0',
-  } as React.CSSProperties
 }
 
 function buildExtensions(paramsRef: RefObject<Parameter[]>, onImageClickRef: RefObject<(() => void) | null>) {

@@ -1,8 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { DiffViewer, DocumentDiffView } from './DiffViewer'
+import { DocumentDiffView } from './DiffViewer'
 import { documentsApi } from '../../api/documentsApi'
-import type { DiffChunk, RevisionDiff } from '../../types/document'
+import type { RevisionDiff } from '../../types/document'
 
 vi.mock('../../api/documentsApi', () => ({
   documentsApi: {
@@ -10,68 +10,41 @@ vi.mock('../../api/documentsApi', () => ({
   },
 }))
 
-describe('DiffViewer', () => {
-  it('renders INSERT green and DELETE red with strikethrough', () => {
-    // given — mixed diff with unchanged context, insertion and deletion
-    const diff: DiffChunk[] = [
-      { type: 'EQUAL', text: 'Общий текст ' },
-      { type: 'INSERT', text: 'добавлено' },
-      { type: 'DELETE', text: 'удалено' },
-    ]
+// ── fixtures ──────────────────────────────────────────────────────────────────
 
-    // when
-    render(<DiffViewer diff={diff} />)
-
-    // then — all texts are present
-    expect(screen.getByTestId('diff-chunk-EQUAL')).toHaveTextContent('Общий текст')
-    expect(screen.getByTestId('diff-chunk-INSERT')).toHaveTextContent('добавлено')
-    expect(screen.getByTestId('diff-chunk-DELETE')).toHaveTextContent('удалено')
-
-    // then — INSERT is highlighted green
-    const inserted = screen.getByTestId('diff-chunk-INSERT')
-    expect(inserted.className).toContain('bg-green-100')
-
-    // then — DELETE is highlighted red and struck through
-    const deleted = screen.getByTestId('diff-chunk-DELETE')
-    expect(deleted.className).toContain('bg-red-100')
-    expect(deleted.className).toContain('line-through')
-
-    // then — no empty-state stub is rendered
-    expect(screen.queryByText('Изменений нет')).not.toBeInTheDocument()
-  })
-
-  it('shows "Изменений нет" when diff contains only EQUAL chunks', () => {
-    // given
-    const diff: DiffChunk[] = [{ type: 'EQUAL', text: 'Текст без изменений' }]
-
-    // when
-    render(<DiffViewer diff={diff} />)
-
-    // then — stub is shown, no highlighted chunks
-    expect(screen.getByText('Изменений нет')).toBeInTheDocument()
-    expect(screen.queryByTestId('diff-chunk-EQUAL')).not.toBeInTheDocument()
-  })
-
-  it('does not crash and shows stub for empty diff array', () => {
-    // given / when
-    render(<DiffViewer diff={[]} />)
-
-    // then
-    expect(screen.getByText('Изменений нет')).toBeInTheDocument()
-    expect(screen.queryByTestId(/diff-chunk-/)).not.toBeInTheDocument()
-  })
+const tiptap = (...lines: string[]) => ({
+  type: 'doc',
+  content: lines.map((line) => ({
+    type: 'paragraph',
+    content: [{ type: 'text', text: line }],
+  })),
 })
 
+/**
+ * target (revision 2):      «Одинаково» / «Новое»
+ * compare (revision 1):     «Одинаково» / «Старое» / «Удалённое»
+ *
+ * Expected structural diff: one inline-edited paragraph («Старое» deleted,
+ * «Новое» inserted) plus one deleted block («Удалённое»).
+ */
 const mixedDiff: RevisionDiff = {
-  revisionId: 'rev-2',
   revisionNumber: 2,
   compareToRevisionNumber: 1,
   compareToCurrent: false,
-  diff: [
-    { type: 'EQUAL', text: 'Одинаково\n' },
-    { type: 'INSERT', text: 'Новое\n' },
-    { type: 'DELETE', text: 'Старое\n' },
-  ],
+  targetBody: tiptap('Одинаково', 'Новое'),
+  compareBody: tiptap('Одинаково', 'Старое', 'Удалённое'),
+}
+
+function renderView(props: Partial<React.ComponentProps<typeof DocumentDiffView>> = {}) {
+  return render(
+    <DocumentDiffView
+      documentId="doc-1"
+      revisionNumber={2}
+      previousRevisionNumber={1}
+      onClose={() => {}}
+      {...props}
+    />,
+  )
 }
 
 describe('DocumentDiffView', () => {
@@ -79,39 +52,92 @@ describe('DocumentDiffView', () => {
     vi.mocked(documentsApi.getRevisionDiff).mockReset()
   })
 
-  it('defaults to previous-revision baseline when previousRevisionNumber is given', async () => {
-    // given — previous revision 1 exists
+  // ── read-only rendering ─────────────────────────────────────────────────────
+
+  it('renders the structural diff in a read-only editor without an edit toolbar', async () => {
+    // given
     vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue(mixedDiff)
 
-    // when — mounted inline (no `open` prop) in the document pane
-    render(
-      <DocumentDiffView
-        onClose={() => {}}
-        documentId="doc-1"
-        revisionNumber={2}
-        previousRevisionNumber={1}
-      />,
-    )
+    // when
+    const { container } = renderView()
 
-    // then — API is called with (documentId, revisionNumber, previousRevisionNumber)
+    // then — the diff content is rendered
     expect(await screen.findByText('Новое')).toBeInTheDocument()
-    expect(vi.mocked(documentsApi.getRevisionDiff)).toHaveBeenCalledWith('doc-1', 2, 1)
+    expect(screen.getByText('Изменения в редакции 2')).toBeInTheDocument()
 
-    // then — header labels the comparison against revision 1
-    expect(screen.getByText('Сравнение с редакцией 1')).toBeInTheDocument()
+    // then — the ProseMirror editor is not editable
+    const proseMirror = container.querySelector('.ProseMirror')
+    expect(proseMirror).not.toBeNull()
+    expect(proseMirror).toHaveAttribute('contenteditable', 'false')
+
+    // then — no formatting toolbar (bold/italic/font controls) is mounted
+    expect(container.querySelector('.toolbar')).toBeNull()
+    expect(screen.queryByTestId('toolbar-bold')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('toolbar-italic')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('toolbar-font-family')).not.toBeInTheDocument()
   })
 
-  it('switching to current-state baseline re-calls with compareTo undefined', async () => {
-    // given — the view opens with previous-revision baseline
+  it('renders inline insert/delete marks and a deleted block from the computed diff', async () => {
+    // given
     vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue(mixedDiff)
-    render(
-      <DocumentDiffView
-        onClose={() => {}}
-        documentId="doc-1"
-        revisionNumber={2}
-        previousRevisionNumber={1}
-      />,
+
+    // when
+    const { container } = renderView()
+    await screen.findByText('Новое')
+
+    // then — inline word-level marks are present
+    expect(container.querySelector('[data-diff="insert"]')).not.toBeNull()
+    expect(container.querySelector('[data-diff="delete"]')).not.toBeNull()
+
+    // then — the removed block is wrapped in a delete diffBlock
+    const deletedBlock = container.querySelector('.diff-block-delete')
+    expect(deletedBlock).not.toBeNull()
+    expect(deletedBlock).toHaveTextContent('Удалённое')
+  })
+
+  it('renders no diff markers for identical bodies', async () => {
+    // given — target and compare are identical
+    vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue({
+      ...mixedDiff,
+      targetBody: tiptap('Без изменений'),
+      compareBody: tiptap('Без изменений'),
+    })
+
+    // when
+    const { container } = renderView()
+    await screen.findByText('Без изменений')
+
+    // then
+    expect(container.querySelector('[data-diff]')).toBeNull()
+    expect(container.querySelector('.diff-block')).toBeNull()
+  })
+
+  // ── baseline toggle ─────────────────────────────────────────────────────────
+
+  it('defaults to the previous-revision baseline and fetches with compareTo', async () => {
+    // given
+    vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue(mixedDiff)
+
+    // when
+    renderView()
+
+    // then — API called with the previous revision number
+    await waitFor(() => {
+      expect(vi.mocked(documentsApi.getRevisionDiff)).toHaveBeenCalledWith('doc-1', 2, 1)
+    })
+
+    // then — header labels the comparison and the previous button is active
+    expect(screen.getByText('Сравнение с редакцией 1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'С предыдущей редакцией' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
     )
+  })
+
+  it('switching to the current-state baseline re-fetches without compareTo', async () => {
+    // given — opens on the previous-revision baseline
+    vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue(mixedDiff)
+    renderView()
     await screen.findByText('Новое')
 
     // when — user switches to compare with the current document state
@@ -119,13 +145,21 @@ describe('DocumentDiffView', () => {
 
     // then — a second request is issued without compareTo
     await waitFor(() => {
-      expect(vi.mocked(documentsApi.getRevisionDiff)).toHaveBeenLastCalledWith('doc-1', 2, undefined)
+      expect(vi.mocked(documentsApi.getRevisionDiff)).toHaveBeenLastCalledWith(
+        'doc-1',
+        2,
+        undefined,
+      )
     })
     expect(screen.getByText('Сравнение с текущим состоянием')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'С текущим состоянием' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 
-  it('disables previous-revision button and defaults to current when previousRevisionNumber is null', async () => {
-    // given — no previous revision exists
+  it('disables the previous-revision toggle and defaults to current when there is no previous revision', async () => {
+    // given — the selected revision is the earliest
     vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue({
       ...mixedDiff,
       compareToRevisionNumber: null,
@@ -133,84 +167,60 @@ describe('DocumentDiffView', () => {
     })
 
     // when
-    render(
-      <DocumentDiffView
-        onClose={() => {}}
-        documentId="doc-1"
-        revisionNumber={2}
-        previousRevisionNumber={null}
-      />,
-    )
+    renderView({ previousRevisionNumber: null })
 
-    // then — the previous-revision toggle is disabled
+    // then — previous toggle disabled
     expect(screen.getByRole('button', { name: 'С предыдущей редакцией' })).toBeDisabled()
 
-    // then — baseline defaults to current state (compareTo undefined)
+    // then — defaults to the current state and fetches without compareTo
     expect(await screen.findByText('Новое')).toBeInTheDocument()
     expect(screen.getByText('Сравнение с текущим состоянием')).toBeInTheDocument()
-    expect(vi.mocked(documentsApi.getRevisionDiff)).toHaveBeenCalledWith('doc-1', 2, undefined)
+    await waitFor(() => {
+      expect(vi.mocked(documentsApi.getRevisionDiff)).toHaveBeenCalledWith('doc-1', 2, undefined)
+    })
   })
 
-  it('shows "Не удалось загрузить изменения" when the API rejects', async () => {
-    // given — the diff request fails
+  // ── loading / error states ──────────────────────────────────────────────────
+
+  it('shows a loading indicator while the diff request is pending', async () => {
+    // given — a request that never resolves
+    vi.mocked(documentsApi.getRevisionDiff).mockReturnValue(
+      new Promise<RevisionDiff>(() => {}),
+    )
+
+    // when
+    renderView()
+
+    // then
+    expect(await screen.findByText('Загрузка...')).toBeInTheDocument()
+  })
+
+  it('shows an error message when the diff request rejects', async () => {
+    // given
     vi.mocked(documentsApi.getRevisionDiff).mockRejectedValue(new Error('network down'))
 
     // when
-    render(
-      <DocumentDiffView
-        onClose={() => {}}
-        documentId="doc-1"
-        revisionNumber={2}
-        previousRevisionNumber={1}
-      />,
-    )
+    const { container } = renderView()
 
     // then — a friendly error is shown instead of the diff
     expect(await screen.findByText('Не удалось загрузить изменения')).toBeInTheDocument()
     expect(screen.queryByText('Новое')).not.toBeInTheDocument()
+    expect(container.querySelector('.ProseMirror')).toBeNull()
   })
 
-  it('shows "Изменений нет" when the diff contains only EQUAL chunks', async () => {
-    // given — both revisions have identical text
-    vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue({
-      ...mixedDiff,
-      diff: [{ type: 'EQUAL', text: 'Без изменений\n' }],
-    })
-
-    // when
-    render(
-      <DocumentDiffView
-        onClose={() => {}}
-        documentId="doc-1"
-        revisionNumber={2}
-        previousRevisionNumber={1}
-      />,
-    )
-
-    // then — the empty-state stub is rendered, no chunk elements
-    expect(await screen.findByText('Изменений нет')).toBeInTheDocument()
-    expect(screen.queryByTestId(/diff-chunk-/)).not.toBeInTheDocument()
-  })
+  // ── close ───────────────────────────────────────────────────────────────────
 
   it('calls onClose when "Вернуться к документу" is clicked', async () => {
-    // given — the inline diff view is shown
+    // given
     const onClose = vi.fn()
     vi.mocked(documentsApi.getRevisionDiff).mockResolvedValue(mixedDiff)
-
-    // when
-    render(
-      <DocumentDiffView
-        onClose={onClose}
-        documentId="doc-1"
-        revisionNumber={2}
-        previousRevisionNumber={1}
-      />,
-    )
+    renderView({ onClose })
     await screen.findByText('Новое')
 
+    // when
     fireEvent.click(screen.getByRole('button', { name: 'Вернуться к документу' }))
 
-    // then — the parent is told to leave diff mode
+    // then
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

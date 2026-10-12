@@ -1,77 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Eye } from 'lucide-react'
+import { EditorContent, useEditor } from '@tiptap/react'
+import type { JSONContent } from '@tiptap/core'
+import { Loader2 } from 'lucide-react'
 import { documentsApi } from '../../api/documentsApi'
-import type { DiffChunk, RevisionDiff } from '../../types/document'
-
-interface DiffViewerProps {
-  diff: DiffChunk[]
-}
-
-/**
- * Pure chunk renderer for a revision diff.
- *
- * Rendered inline inside the document-style page (`.editor-canvas` →
- * `.tiptap-page`) so additions/removals read as part of the document text:
- * INSERT — green + underline, DELETE — red + strikethrough.
- */
-export function DiffViewer({ diff }: DiffViewerProps) {
-  const hasChanges = diff.some((c) => c.type === 'INSERT' || c.type === 'DELETE')
-
-  if (!hasChanges) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        <Eye className="mx-auto mb-2 size-8 opacity-50" />
-        <div>Изменений нет</div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="whitespace-pre-wrap">
-      {diff.map((chunk, i) =>
-        chunk.type === 'INSERT' ? (
-          <ins
-            key={i}
-            data-testid={`diff-chunk-${chunk.type}`}
-            data-chunk-type={chunk.type}
-            className={chunkClass(chunk.type)}
-          >
-            {chunk.text}
-          </ins>
-        ) : chunk.type === 'DELETE' ? (
-          <del
-            key={i}
-            data-testid={`diff-chunk-${chunk.type}`}
-            data-chunk-type={chunk.type}
-            className={chunkClass(chunk.type)}
-          >
-            {chunk.text}
-          </del>
-        ) : (
-          <span
-            key={i}
-            data-testid={`diff-chunk-${chunk.type}`}
-            data-chunk-type={chunk.type}
-            className={chunkClass(chunk.type)}
-          >
-            {chunk.text}
-          </span>
-        )
-      )}
-    </div>
-  )
-}
-
-function chunkClass(type: DiffChunk['type']): string {
-  switch (type) {
-    case 'INSERT':
-      return 'bg-green-100 text-green-800 underline dark:bg-green-950 dark:text-green-300'
-    case 'DELETE':
-      return 'bg-red-100 text-red-800 line-through dark:bg-red-950 dark:text-red-300'
-    default:
-      return 'text-foreground'
-  }
-}
+import type { RevisionDiff } from '../../types/document'
+import { buildWorkspaceExtensions } from './extensions/buildWorkspaceExtensions'
+import { structuralDiff } from '../../utils/structuralDiff'
+import { formattingToCssVars } from '../../utils/formattingCssVars'
+import type { DocumentFormatting } from '../../types/template'
+import '../template-designer/TemplateDesigner.css'
 
 type DiffBaseline = 'previous' | 'current'
 
@@ -80,27 +17,33 @@ interface DocumentDiffViewProps {
   revisionNumber: number
   previousRevisionNumber: number | null
   onClose: () => void
+  formatting?: DocumentFormatting | null
 }
 
 /**
- * Inline revision diff, rendered in the right-hand document pane in place of
- * the live editor (`.editor-canvas` → `.tiptap-page`), so the diff looks like
- * the document page instead of a modal.
+ * Inline revision diff rendered in the document pane. The diff is computed by
+ * `structuralDiff` and rendered in a read-only TipTap editor with diff
+ * extensions enabled.
  */
 export function DocumentDiffView({
   documentId,
   revisionNumber,
   previousRevisionNumber,
   onClose,
+  formatting = null,
 }: DocumentDiffViewProps) {
   const hasPrevious = previousRevisionNumber != null
   const [baseline, setBaseline] = useState<DiffBaseline>(hasPrevious ? 'previous' : 'current')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [diffData, setDiffData] = useState<RevisionDiff | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // When the selected revision changes, default the baseline to the previous
-  // revision whenever one exists.
+  const editor = useEditor({
+    extensions: buildWorkspaceExtensions({ diff: true }),
+    editable: false,
+    content: { type: 'doc', content: [] },
+  })
+
   useEffect(() => {
     setBaseline(hasPrevious ? 'previous' : 'current')
   }, [revisionNumber, hasPrevious])
@@ -113,6 +56,7 @@ export function DocumentDiffView({
     let cancelled = false
     setLoading(true)
     setError(null)
+    setDiffData(null)
     documentsApi
       .getRevisionDiff(documentId, revisionNumber, compareTo)
       .then((data) => {
@@ -122,6 +66,7 @@ export function DocumentDiffView({
       })
       .catch(() => {
         if (cancelled) return
+        setDiffData(null)
         setError('Не удалось загрузить изменения')
         setLoading(false)
       })
@@ -130,9 +75,24 @@ export function DocumentDiffView({
     }
   }, [documentId, revisionNumber, compareTo])
 
+  useEffect(() => {
+    if (!editor) return
+    if (!diffData) {
+      editor.commands.setContent({ type: 'doc', content: [] })
+      return
+    }
+    const content = structuralDiff(
+      diffData.targetBody as JSONContent | null,
+      diffData.compareBody as JSONContent | null,
+    )
+    editor.commands.setContent(content)
+  }, [editor, diffData])
+
   const baselineLabel = baseline === 'previous' && previousRevisionNumber != null
     ? `Сравнение с редакцией ${previousRevisionNumber}`
     : 'Сравнение с текущим состоянием'
+
+  const pageStyle = formatting ? formattingToCssVars(formatting) : {}
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -183,19 +143,17 @@ export function DocumentDiffView({
       </div>
 
       <div className="editor-canvas">
-        <div className="tiptap-page">
-          <div className="ProseMirror">
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="size-6 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-muted-foreground">Загрузка...</span>
-              </div>
-            ) : error ? (
-              <div className="text-center py-8 text-destructive">{error}</div>
-            ) : diffData ? (
-              <DiffViewer diff={diffData.diff} />
-            ) : null}
-          </div>
+        <div className="tiptap-page" style={pageStyle}>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">Загрузка...</span>
+            </div>
+          ) : error ? (
+            <div className="text-center py-8 text-destructive">{error}</div>
+          ) : (
+            <EditorContent editor={editor} />
+          )}
         </div>
       </div>
     </div>

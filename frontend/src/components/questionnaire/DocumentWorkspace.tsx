@@ -1,39 +1,15 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import type { JSONContent } from '@tiptap/core'
 import type { Doc as YDoc } from 'yjs'
-import StarterKit from '@tiptap/starter-kit'
-import { Collaboration } from '@tiptap/extension-collaboration'
-import { Table } from '@tiptap/extension-table'
-import { TableRow } from '@tiptap/extension-table-row'
-import { TableCell } from '@tiptap/extension-table-cell'
-import { TableHeader } from '@tiptap/extension-table-header'
-import { Underline } from '@tiptap/extension-underline'
-import { TextStyle } from '@tiptap/extension-text-style'
-import { Color } from '@tiptap/extension-color'
-import { FontFamily } from '@tiptap/extension-font-family'
-import { TextAlign } from '@tiptap/extension-text-align'
-import { Highlight } from '@tiptap/extension-highlight'
-import { Subscript } from '@tiptap/extension-subscript'
-import { Superscript } from '@tiptap/extension-superscript'
-import { Link } from '@tiptap/extension-link'
-import { FontSize } from '../document-editor/FontSize'
-import { LineSpacingExtension } from '../template-designer/extensions/LineSpacingExtension'
-import { IndentExtension } from '../template-designer/extensions/IndentExtension'
-import { ParagraphSpacingExtension } from '../template-designer/extensions/ParagraphSpacingExtension'
-import { PageBreakNode } from '../template-designer/extensions/PageBreakNode'
-import { WorkspaceParameterFieldNode } from './WorkspaceParameterFieldNode'
 import type { WorkspaceParamStorage } from './WorkspaceParameterFieldNode'
-import { WorkspaceNumberedClauseNode } from './WorkspaceNumberedClauseNode'
 import type { WorkspaceNumberedClauseStorage } from './WorkspaceNumberedClauseNode'
-import { WorkspacePhrasingsRefNode } from './WorkspacePhrasingsRefNode'
 import type { PhrasingsRefStorage } from './WorkspacePhrasingsRefNode'
-import { WorkspaceConditionalBlockNode } from './WorkspaceConditionalBlockNode'
-import { WorkspaceConditionalInlineNode } from './WorkspaceConditionalInlineNode'
-import { ClauseRefNode } from '../template-designer/extensions/ClauseRefNode'
+import { buildWorkspaceExtensions } from './extensions/buildWorkspaceExtensions'
 import type { DocumentFormatting, Parameter, Phrasing } from '../../types/template'
 import type { Questionnaire } from '../../types/document'
 import { renderPreview, evaluateSimple } from '../../utils/previewRenderer'
+import { formattingToCssVars } from '../../utils/formattingCssVars'
 import EditorToolbar from '../template-designer/EditorToolbar'
 import '../template-designer/TemplateDesigner.css'
 
@@ -79,34 +55,7 @@ export default function DocumentWorkspace({
   useEffect(() => { onBodyChangeRef.current   = onBodyChange   }, [onBodyChange])
 
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({ undoRedo: false, link: false, underline: false }),
-      Collaboration.configure({ document: ydoc }),
-      Underline,
-      TextStyle,
-      Color,
-      FontFamily,
-      FontSize,
-      LineSpacingExtension,
-      IndentExtension,
-      ParagraphSpacingExtension,
-      TextAlign.configure({ types: ['heading', 'paragraph', 'numberedClause'] }),
-      Highlight.configure({ multicolor: true }),
-      Subscript,
-      Superscript,
-      Link.configure({ openOnClick: true }),
-      Table.configure({ resizable: false }),
-      TableRow,
-      TableCell,
-      TableHeader,
-      PageBreakNode,
-      WorkspaceParameterFieldNode,
-      WorkspaceNumberedClauseNode,
-      WorkspacePhrasingsRefNode,
-      WorkspaceConditionalBlockNode,
-      WorkspaceConditionalInlineNode,
-      ClauseRefNode,
-    ],
+    extensions: buildWorkspaceExtensions({ collaboration: ydoc }),
     editable: !readOnly,
     onUpdate: ({ editor: e }) => {
       onBodyChangeRef.current?.(e.getJSON())
@@ -211,31 +160,7 @@ export default function DocumentWorkspace({
   )
 }
 
-// Mirror of TemplateDesigner's formattingToCssVars so the fill page renders
-// with the same default paragraph styles as the template designer.
-function formattingToCssVars(f: DocumentFormatting): React.CSSProperties {
-  const PAGE_W: Record<string, number> = { A4: 210, A3: 297, Letter: 216 }
-  const PAGE_H: Record<string, number> = { A4: 297, A3: 420, Letter: 279 }
-  const landscape = f.orientation === 'landscape'
-  const w = landscape ? (PAGE_H[f.pageSize] ?? 297) : (PAGE_W[f.pageSize] ?? 210)
-  const h = landscape ? (PAGE_W[f.pageSize] ?? 210) : (PAGE_H[f.pageSize] ?? 297)
-  return {
-    '--page-width': `${w}mm`,
-    '--page-min-height': `${h}mm`,
-    '--margin-top':    `${f.margins.top}mm`,
-    '--margin-right':  `${f.margins.right}mm`,
-    '--margin-bottom': `${f.margins.bottom}mm`,
-    '--margin-left':   `${f.margins.left}mm`,
-    '--default-font':      f.defaultFont,
-    '--default-font-size': `${f.defaultFontSize}pt`,
-    '--default-line-height': String(f.lineSpacing),
-    '--default-space-before':      f.paragraphDefaults?.spaceBefore     ? `${f.paragraphDefaults.spaceBefore}pt`     : '0',
-    '--default-space-after':       f.paragraphDefaults?.spaceAfter      ? `${f.paragraphDefaults.spaceAfter}pt`      : '0',
-    '--default-margin-left':       f.paragraphDefaults?.marginLeft      ? `${f.paragraphDefaults.marginLeft}mm`      : '0',
-    '--default-margin-right':      f.paragraphDefaults?.marginRight     ? `${f.paragraphDefaults.marginRight}mm`     : '0',
-    '--default-first-line-indent': f.paragraphDefaults?.firstLineIndent ? `${f.paragraphDefaults.firstLineIndent}mm` : '0',
-  } as React.CSSProperties
-}
+// formattingToCssVars moved to utils/formattingCssVars.ts so it can be reused by the shared DocumentDiffView.
 
 // Typed storage accessor
 function storage(editor: ReturnType<typeof useEditor>): WorkspaceParamStorage {

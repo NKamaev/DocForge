@@ -562,12 +562,13 @@ export default function QuestionnairePage() {
         </div>
 
         {isDiffMode ? (
-          <DocumentDiffView
-            documentId={id}
-            revisionNumber={diffForRevision}
-            previousRevisionNumber={previousRevisionForDiff}
-            onClose={() => setDiffForRevision(null)}
-          />
+           <DocumentDiffView
+             documentId={id}
+             revisionNumber={diffForRevision}
+             previousRevisionNumber={previousRevisionForDiff}
+             onClose={() => setDiffForRevision(null)}
+             formatting={formatting}
+           />
         ) : (
           <DocumentWorkspace
             ydoc={ydoc}

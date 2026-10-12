@@ -80,19 +80,12 @@ export interface RevisionMeta {
   comment?: string | null
 }
 
-export type DiffChunkType = 'INSERT' | 'DELETE' | 'EQUAL'
-
-export interface DiffChunk {
-  type: DiffChunkType
-  text: string
-}
-
 export interface RevisionDiff {
-  revisionId: string
   revisionNumber: number
-  compareToRevisionNumber: number | null
+  compareToRevisionNumber?: number | null
   compareToCurrent: boolean
-  diff: DiffChunk[]
+  targetBody: unknown
+  compareBody: unknown
 }
 
 export interface PageResponse<T> {

@@ -1,8 +1,6 @@
 package com.docforge.document;
 
 import com.docforge.common.exception.ResourceNotFoundException;
-import com.docforge.document.dto.DiffChunk;
-import com.docforge.document.dto.DiffChunk.DiffChunkType;
 import com.docforge.document.dto.RevisionDiffResponse;
 import com.docforge.document.model.Document;
 import com.docforge.document.model.DocumentRegistry;
@@ -28,8 +26,11 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link DocumentServiceImpl#computeRevisionDiff}.
- * Verifies full-context diff chunking (EQUAL/DELETE/INSERT) between revisions
- * and against the current document body.
+ *
+ * <p>Variant B (TASK-064): the endpoint no longer computes diff chunks on the
+ * server — it returns the raw TipTap bodies ({@code targetBody} / {@code compareBody})
+ * so the client can render a structural rich diff. These tests verify the selected
+ * bodies, the baseline metadata and error handling.</p>
  */
 @ExtendWith(MockitoExtension.class)
 class DocumentServiceDiffTest {
@@ -47,20 +48,22 @@ class DocumentServiceDiffTest {
     // ── diff between two revisions ────────────────────────────────────────────
 
     @Test
-    @DisplayName("computeRevisionDiff() between two differing revisions returns EQUAL/DELETE/INSERT/EQUAL chunks")
-    void computeRevisionDiff_twoRevisions_returnsContextualChunks() {
-        // given — revision 1: A B C; revision 2: A X C (one line replaced)
+    @DisplayName("computeRevisionDiff() between two revisions returns the raw target and compare bodies")
+    void computeRevisionDiff_twoRevisions_returnsRawBodies() {
+        // given — revision 2 body: A B C; revision 1 body: A X C
         UUID id1 = UUID.randomUUID();
         UUID id2 = UUID.randomUUID();
+        Map<String, Object> targetBody = tiptapDoc("A", "B", "C");
+        Map<String, Object> compareBody = tiptapDoc("A", "X", "C");
         when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
         when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 2))
                 .thenReturn(Optional.of(revision(2, id2)));
         when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 1))
                 .thenReturn(Optional.of(revision(1, id1)));
         when(revisionBodyRepository.findById(id2))
-                .thenReturn(Optional.of(revisionBody(2, id2, tiptapDoc("A", "B", "C"))));
+                .thenReturn(Optional.of(revisionBody(2, id2, targetBody)));
         when(revisionBodyRepository.findById(id1))
-                .thenReturn(Optional.of(revisionBody(1, id1, tiptapDoc("A", "X", "C"))));
+                .thenReturn(Optional.of(revisionBody(1, id1, compareBody)));
 
         // when
         RevisionDiffResponse response = service.computeRevisionDiff(DOC_ID, 2, 1);
@@ -71,33 +74,27 @@ class DocumentServiceDiffTest {
         assertThat(response.compareToRevisionNumber()).isEqualTo(1);
         assertThat(response.compareToCurrent()).isFalse();
 
-        // then — chunk types and order (context preserved on both sides)
-        assertThat(response.diff()).extracting(DiffChunk::type)
-                .containsExactly(DiffChunkType.EQUAL, DiffChunkType.DELETE,
-                        DiffChunkType.INSERT, DiffChunkType.EQUAL);
-
-        // then — each chunk carries the expected text
-        List<DiffChunk> chunks = response.diff();
-        assertThat(chunks.get(0).text()).contains("A");
-        assertThat(chunks.get(1).text()).contains("X"); // deleted line (old value)
-        assertThat(chunks.get(2).text()).contains("B"); // inserted line (new value)
-        assertThat(chunks.get(3).text()).contains("C");
+        // then — the requested revision is the target, the selected one the baseline
+        assertThat(response.targetBody()).isEqualTo(targetBody);
+        assertThat(response.compareBody()).isEqualTo(compareBody);
     }
 
     // ── diff against current body ─────────────────────────────────────────────
 
     @Test
-    @DisplayName("computeRevisionDiff() with null compareTo diffs against document.currentBody")
+    @DisplayName("computeRevisionDiff() with null compareTo uses document.currentBody as baseline")
     void computeRevisionDiff_nullCompareTo_usesCurrentBody() {
-        // given — revision 1: A B; current body: A → line B was added after saving rev 1
+        // given — revision 1 body: A B; current body: A
         UUID id1 = UUID.randomUUID();
+        Map<String, Object> revisionBody = tiptapDoc("A", "B");
+        Map<String, Object> currentBody = tiptapDoc("A");
         when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
         when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 1))
                 .thenReturn(Optional.of(revision(1, id1)));
         when(revisionBodyRepository.findById(id1))
-                .thenReturn(Optional.of(revisionBody(1, id1, tiptapDoc("A", "B"))));
+                .thenReturn(Optional.of(revisionBody(1, id1, revisionBody)));
         when(documentRepository.findById(DOC_ID))
-                .thenReturn(Optional.of(documentWithCurrentBody(tiptapDoc("A"))));
+                .thenReturn(Optional.of(documentWithCurrentBody(currentBody)));
 
         // when
         RevisionDiffResponse response = service.computeRevisionDiff(DOC_ID, 1, null);
@@ -105,62 +102,92 @@ class DocumentServiceDiffTest {
         // then
         assertThat(response.compareToCurrent()).isTrue();
         assertThat(response.compareToRevisionNumber()).isNull();
-        assertThat(response.diff()).extracting(DiffChunk::type)
-                .containsExactly(DiffChunkType.EQUAL, DiffChunkType.INSERT);
-        assertThat(response.diff().get(1).text()).contains("B");
+        assertThat(response.targetBody()).isEqualTo(revisionBody);
+        assertThat(response.compareBody()).isEqualTo(currentBody);
     }
 
     @Test
     @DisplayName("computeRevisionDiff() falls back to generatedBody when currentBody is null")
     void computeRevisionDiff_nullCompareTo_currentBodyNull_fallsBackToGenerated() {
-        // given — currentBody absent, generatedBody differs from the revision
+        // given — currentBody absent, generatedBody is the only baseline
         UUID id1 = UUID.randomUUID();
+        Map<String, Object> revisionBody = tiptapDoc("A", "B");
+        Map<String, Object> generatedBody = tiptapDoc("A");
         when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
         when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 1))
                 .thenReturn(Optional.of(revision(1, id1)));
         when(revisionBodyRepository.findById(id1))
-                .thenReturn(Optional.of(revisionBody(1, id1, tiptapDoc("A", "B"))));
+                .thenReturn(Optional.of(revisionBody(1, id1, revisionBody)));
 
         Document doc = new Document();
         doc.setId(DOC_ID);
         doc.setCurrentBody(null);
-        doc.setGeneratedBody(tiptapDoc("A"));
+        doc.setGeneratedBody(generatedBody);
         when(documentRepository.findById(DOC_ID)).thenReturn(Optional.of(doc));
 
         // when
         RevisionDiffResponse response = service.computeRevisionDiff(DOC_ID, 1, null);
 
-        // then — diff computed against generated body → B is an insertion
+        // then
         assertThat(response.compareToCurrent()).isTrue();
-        assertThat(response.diff()).extracting(DiffChunk::type)
-                .containsExactly(DiffChunkType.EQUAL, DiffChunkType.INSERT);
+        assertThat(response.compareBody()).isEqualTo(generatedBody);
+    }
+
+    @Test
+    @DisplayName("computeRevisionDiff() falls back to null compareBody when both currentBody and generatedBody are null")
+    void computeRevisionDiff_nullCompareTo_currentAndGeneratedNull_returnsNullCompareBody() {
+        // given — review #13: document has neither currentBody nor generatedBody
+        UUID id1 = UUID.randomUUID();
+        Map<String, Object> revisionBody = tiptapDoc("A");
+        when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
+        when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 1))
+                .thenReturn(Optional.of(revision(1, id1)));
+        when(revisionBodyRepository.findById(id1))
+                .thenReturn(Optional.of(revisionBody(1, id1, revisionBody)));
+
+        Document doc = new Document();
+        doc.setId(DOC_ID);
+        doc.setCurrentBody(null);
+        doc.setGeneratedBody(null);
+        when(documentRepository.findById(DOC_ID)).thenReturn(Optional.of(doc));
+
+        // when
+        RevisionDiffResponse response = service.computeRevisionDiff(DOC_ID, 1, null);
+
+        // then — the baseline is null, but the target body is still returned intact
+        assertThat(response.compareToCurrent()).isTrue();
+        assertThat(response.compareToRevisionNumber()).isNull();
+        assertThat(response.targetBody()).isEqualTo(revisionBody);
+        assertThat(response.compareBody()).isNull();
     }
 
     // ── identical bodies ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("computeRevisionDiff() on identical bodies returns a single EQUAL chunk")
-    void computeRevisionDiff_identicalBodies_returnsSingleEqualChunk() {
+    @DisplayName("computeRevisionDiff() on identical bodies still echoes both raw bodies")
+    void computeRevisionDiff_identicalBodies_returnsBothBodies() {
         // given — both revisions contain the same text
         UUID id1 = UUID.randomUUID();
         UUID id2 = UUID.randomUUID();
+        Map<String, Object> body = tiptapDoc("Same", "Text");
         when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
         when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 1))
                 .thenReturn(Optional.of(revision(1, id1)));
         when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 2))
                 .thenReturn(Optional.of(revision(2, id2)));
         when(revisionBodyRepository.findById(id1))
-                .thenReturn(Optional.of(revisionBody(1, id1, tiptapDoc("Same", "Text"))));
+                .thenReturn(Optional.of(revisionBody(1, id1, body)));
         when(revisionBodyRepository.findById(id2))
-                .thenReturn(Optional.of(revisionBody(2, id2, tiptapDoc("Same", "Text"))));
+                .thenReturn(Optional.of(revisionBody(2, id2, body)));
 
         // when
         RevisionDiffResponse response = service.computeRevisionDiff(DOC_ID, 1, 2);
 
-        // then — no INSERT/DELETE, exactly one EQUAL chunk with the full text
-        assertThat(response.diff()).hasSize(1);
-        assertThat(response.diff().get(0).type()).isEqualTo(DiffChunkType.EQUAL);
-        assertThat(response.diff().get(0).text()).contains("Same").contains("Text");
+        // then
+        assertThat(response.compareToCurrent()).isFalse();
+        assertThat(response.compareToRevisionNumber()).isEqualTo(2);
+        assertThat(response.targetBody()).isEqualTo(body);
+        assertThat(response.compareBody()).isEqualTo(body);
     }
 
     // ── missing revision ──────────────────────────────────────────────────────
@@ -178,136 +205,76 @@ class DocumentServiceDiffTest {
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
+    @Test
+    @DisplayName("computeRevisionDiff() throws ResourceNotFoundException for unknown compareTo revision")
+    void computeRevisionDiff_unknownCompareTo_throwsNotFound() {
+        // given — target revision exists, baseline revision does not
+        UUID id2 = UUID.randomUUID();
+        when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
+        when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 2))
+                .thenReturn(Optional.of(revision(2, id2)));
+        when(revisionBodyRepository.findById(id2))
+                .thenReturn(Optional.of(revisionBody(2, id2, tiptapDoc("A"))));
+        when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 41))
+                .thenReturn(Optional.empty());
+
+        // when / then
+        assertThatThrownBy(() -> service.computeRevisionDiff(DOC_ID, 2, 41))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
     // ── empty revision bodies ─────────────────────────────────────────────────
 
     @Test
-    @DisplayName("computeRevisionDiff() empty target revision vs non-empty compare lists the compare body as DELETE")
-    void computeRevisionDiff_emptyTargetRevision_returnsDeleteOnly() {
+    @DisplayName("computeRevisionDiff() empty target revision keeps the compare body intact")
+    void computeRevisionDiff_emptyTargetRevision_returnsEmptyTarget() {
         // given — revision 2 body is empty, revision 1 body has one paragraph
         UUID id1 = UUID.randomUUID();
         UUID id2 = UUID.randomUUID();
+        Map<String, Object> emptyBody = tiptapDoc();
+        Map<String, Object> compareBody = tiptapDoc("A");
         when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
         when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 2))
                 .thenReturn(Optional.of(revision(2, id2)));
         when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 1))
                 .thenReturn(Optional.of(revision(1, id1)));
         when(revisionBodyRepository.findById(id2))
-                .thenReturn(Optional.of(revisionBody(2, id2, tiptapDoc())));
+                .thenReturn(Optional.of(revisionBody(2, id2, emptyBody)));
         when(revisionBodyRepository.findById(id1))
-                .thenReturn(Optional.of(revisionBody(1, id1, tiptapDoc("A"))));
+                .thenReturn(Optional.of(revisionBody(1, id1, compareBody)));
 
         // when
         RevisionDiffResponse response = service.computeRevisionDiff(DOC_ID, 2, 1);
 
-        // then — the removed line is the only chunk, no context to preserve
-        assertThat(response.diff()).hasSize(1);
-        assertThat(response.diff().get(0).type()).isEqualTo(DiffChunkType.DELETE);
-        assertThat(response.diff().get(0).text()).contains("A");
+        // then — client receives both raw bodies untouched; the empty target stays empty
+        assertThat(response.targetBody()).isEqualTo(emptyBody);
+        assertThat(((Map<?, ?>) response.targetBody()).get("content")).isEqualTo(List.of());
+        assertThat(response.compareBody()).isEqualTo(compareBody);
     }
 
     @Test
-    @DisplayName("computeRevisionDiff() empty vs empty bodies returns a single empty EQUAL chunk")
-    void computeRevisionDiff_emptyVsEmpty_returnsSingleEqualChunk() {
-        // given — both revisions contain no text
+    @DisplayName("computeRevisionDiff() empty vs empty bodies returns two empty docs")
+    void computeRevisionDiff_emptyVsEmpty_returnsEmptyBodies() {
+        // given — both revisions contain no content
         UUID id1 = UUID.randomUUID();
         UUID id2 = UUID.randomUUID();
+        Map<String, Object> emptyBody = tiptapDoc();
         when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
         when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 1))
                 .thenReturn(Optional.of(revision(1, id1)));
         when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 2))
                 .thenReturn(Optional.of(revision(2, id2)));
         when(revisionBodyRepository.findById(id1))
-                .thenReturn(Optional.of(revisionBody(1, id1, tiptapDoc())));
+                .thenReturn(Optional.of(revisionBody(1, id1, emptyBody)));
         when(revisionBodyRepository.findById(id2))
-                .thenReturn(Optional.of(revisionBody(2, id2, tiptapDoc())));
+                .thenReturn(Optional.of(revisionBody(2, id2, emptyBody)));
 
         // when
         RevisionDiffResponse response = service.computeRevisionDiff(DOC_ID, 2, 1);
 
-        // then — no deltas, a single EQUAL chunk carrying the (empty) target text
-        assertThat(response.diff()).hasSize(1);
-        assertThat(response.diff().get(0).type()).isEqualTo(DiffChunkType.EQUAL);
-        assertThat(response.diff().get(0).text()).isEmpty();
-    }
-
-    // ── leading / trailing changes ────────────────────────────────────────────
-
-    @Test
-    @DisplayName("computeRevisionDiff() revision with a removed leading line emits DELETE before EQUAL")
-    void computeRevisionDiff_deletedLeadingLine_emitsDeleteThenEqual() {
-        // given — revision 1: A B C; revision 2: B C (line A removed at the start)
-        UUID id1 = UUID.randomUUID();
-        UUID id2 = UUID.randomUUID();
-        when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
-        when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 2))
-                .thenReturn(Optional.of(revision(2, id2)));
-        when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 1))
-                .thenReturn(Optional.of(revision(1, id1)));
-        when(revisionBodyRepository.findById(id2))
-                .thenReturn(Optional.of(revisionBody(2, id2, tiptapDoc("B", "C"))));
-        when(revisionBodyRepository.findById(id1))
-                .thenReturn(Optional.of(revisionBody(1, id1, tiptapDoc("A", "B", "C"))));
-
-        // when
-        RevisionDiffResponse response = service.computeRevisionDiff(DOC_ID, 2, 1);
-
-        // then — no leading EQUAL since the change starts at position 0
-        assertThat(response.diff()).extracting(DiffChunk::type)
-                .containsExactly(DiffChunkType.DELETE, DiffChunkType.EQUAL);
-        assertThat(response.diff().get(0).text()).contains("A");
-        assertThat(response.diff().get(1).text()).contains("B").contains("C");
-    }
-
-    @Test
-    @DisplayName("computeRevisionDiff() revision with an added leading line emits INSERT before EQUAL")
-    void computeRevisionDiff_leadingInsert_emitsInsertThenEqual() {
-        // given — revision 1: B C; revision 2: A B C (line A added at the start)
-        UUID id1 = UUID.randomUUID();
-        UUID id2 = UUID.randomUUID();
-        when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
-        when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 2))
-                .thenReturn(Optional.of(revision(2, id2)));
-        when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 1))
-                .thenReturn(Optional.of(revision(1, id1)));
-        when(revisionBodyRepository.findById(id2))
-                .thenReturn(Optional.of(revisionBody(2, id2, tiptapDoc("A", "B", "C"))));
-        when(revisionBodyRepository.findById(id1))
-                .thenReturn(Optional.of(revisionBody(1, id1, tiptapDoc("B", "C"))));
-
-        // when
-        RevisionDiffResponse response = service.computeRevisionDiff(DOC_ID, 2, 1);
-
-        // then — inserted line first, then unchanged context
-        assertThat(response.diff()).extracting(DiffChunk::type)
-                .containsExactly(DiffChunkType.INSERT, DiffChunkType.EQUAL);
-        assertThat(response.diff().get(0).text()).contains("A");
-        assertThat(response.diff().get(1).text()).contains("B").contains("C");
-    }
-
-    @Test
-    @DisplayName("computeRevisionDiff() fully rewritten body emits a single DELETE then a single INSERT")
-    void computeRevisionDiff_allLinesChanged_emitsDeleteThenInsert() {
-        // given — revision 1: A B; revision 2: X Y (nothing in common)
-        UUID id1 = UUID.randomUUID();
-        UUID id2 = UUID.randomUUID();
-        when(registryRepository.findById(DOC_ID)).thenReturn(Optional.of(registry()));
-        when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 2))
-                .thenReturn(Optional.of(revision(2, id2)));
-        when(revisionRepository.findByDocumentIdAndRevisionNumber(DOC_ID, 1))
-                .thenReturn(Optional.of(revision(1, id1)));
-        when(revisionBodyRepository.findById(id2))
-                .thenReturn(Optional.of(revisionBody(2, id2, tiptapDoc("X", "Y"))));
-        when(revisionBodyRepository.findById(id1))
-                .thenReturn(Optional.of(revisionBody(1, id1, tiptapDoc("A", "B"))));
-
-        // when
-        RevisionDiffResponse response = service.computeRevisionDiff(DOC_ID, 2, 1);
-
-        // then — full replacement is normalised to DELETE (old) then INSERT (new)
-        assertThat(response.diff()).extracting(DiffChunk::type)
-                .containsExactly(DiffChunkType.DELETE, DiffChunkType.INSERT);
-        assertThat(response.diff().get(0).text()).contains("A").contains("B");
-        assertThat(response.diff().get(1).text()).contains("X").contains("Y");
+        // then
+        assertThat(response.targetBody()).isEqualTo(emptyBody);
+        assertThat(response.compareBody()).isEqualTo(emptyBody);
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────
