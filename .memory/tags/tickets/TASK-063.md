@@ -1,8 +1,15 @@
 # TASK-063 — Полировка diff-view (baseline, E2E, точность)
 
-- **Статус:** открыт
+- **Статус:** открыт (частично закрыт TASK-064)
 - **Создан:** 2026-10-10
 - **Источник:** ревью TASK-019-2
+
+## Обновление 2026-10-12 (после TASK-064)
+
+- Пункт 4 («точность диффа — `insertText`/`getJSON()` vs строка текста») — **устарел**: plain-text diff удалён, теперь structural diff (`utils/structuralDiff.ts`).
+- Пункт 5 (дубли `data-testid`) — тесты diff переписаны на новый `DocumentDiffView`.
+- Formatting `pageStyle` для diff-страницы — **закрыт** (`DocumentDiffView` использует `formattingToCssVars`).
+- Остаются: п.1 (семантика baseline «текущее»), п.2 (Playwright E2E), п.3 (guard).
 
 ## Пункты
 

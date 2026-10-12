@@ -2,6 +2,14 @@
 
 > Тег: `pitfalls:tiptap-react` · Обновлено: `2026-10-10`
 
+## Класс проблем: валидность схемы ProseMirror (TASK-064)
+
+- **Контейнеры ограничивают детей.** `bulletList`/`orderedList` допускают только `listItem`, `table` — только `tableRow`, `tableRow` — только ячейки; эти типы НЕ в `group: block`. Обёртка-`diffBlock` (`group: block`) как сиблинг внутри такого контейнера → схемa-invalid (`RangeError: Invalid content for node ...`).
+- **TipTap молча рендерит невалидное** — content-check отключён (`enableContentCheck` по умолчанию `false`). Ловить только через `getSchema(extensions)` + `PMNode.fromJSON(schema, doc).check()` в тестах.
+- **`codeBlock` запрещает marks** (`marks: ''`) → нельзя вешать `diffInsert`/`diffDelete` на его текст. Обходить как opaque (delete+insert целым блоком).
+- **Приём для списков/таблиц (structuralDiff):** «именованные» дети не оборачивать — сохранять `listItem`/`tableRow`, маркируя либо инлайн-контентом (`listItem`, content `paragraph block*` — марки на текст), либо внутренние блочные листья (`tableRow > tableCell > diffBlock > paragraph`).
+- **Источник:** TASK-064, `frontend/src/utils/structuralDiff.ts`, тесты со schema-guard.
+
 ## Класс проблем: life-cycle и поток обновлений в редакторе
 
 ### setContent эмитит onUpdate → холостой save (TASK-009)

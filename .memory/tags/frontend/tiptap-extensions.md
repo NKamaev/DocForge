@@ -30,6 +30,11 @@
 - `document-editor/FontSize.ts` — дубль fontSize-расширения для DocumentWorkspace (намеренно отдельный от дизайнерного).
 - **Источник:** `frontend/src/components/template-designer/extensions/`, explore frontend report.
 
+## Diff-расширения (questionnaire/extensions/, TASK-064)
+
+- `DiffExtensions.ts`: marks `diffInsert` (`data-diff="insert"`, зелёный фон + underline), `diffDelete` (`data-diff="delete"`, красный + line-through); node `diffBlock { kind: 'insert'|'delete' }` (`group: block`, `content: 'block+'`, `defining`). Стили — self-contained inline (`style` в renderHTML), CSS-классы не требуются.
+- `buildWorkspaceExtensions.ts`: `buildWorkspaceExtensions(options?: { collaboration?: YDoc | null; diff?: boolean })` — общий билдер; без аргументов прежнее поведение, `diff: true` добавляет diff-расширения, `collaboration` опционально подключает Collaboration. `DocumentWorkspace` переведён на builder.
+
 ## Прочее
 
 - В `src/` и `e2e/` нет TODO/FIXME/HACK комментов. Единственные депрекейты — `PhrasingsRefNode.tsx:16,18` и backward-compat в `TableCellExtension`.

@@ -1,7 +1,7 @@
 # Tag Index
 
 Единственный реестр тегов. Структура: `.memory/tags/{category}/{file}.md`.
-Обновлено: `2026-10-10`.
+Обновлено: `2026-10-12`.
 
 ---
 
@@ -54,10 +54,11 @@
 |-----|------|-------------|
 | `TASK-006` | `tickets/TASK-006.md` | /fill feature parity — реализовано (body, current_body, Yjs, ShareDialog) |
 | `TASK-007` | `tickets/TASK-007.md` | Ревизии: исследование нагрузки/очистки — открыт |
-| `TASK-019` | `tickets/TASK-019.md` | Diff редакций документа (backend API + DiffViewer) — закрыт |
+| `TASK-019` | `tickets/TASK-019.md` | Diff редакций (backend API + DiffViewer) — закрыт; заменён на TASK-064 |
 | `TASK-059` | `tickets/TASK-059.md` | ShareDialog («Доступ») на /fill — закрыто |
 | `TASK-062` | `tickets/TASK-062.md` | Diff не учитывает значения параметров (answers) — открыт |
-| `TASK-063` | `tickets/TASK-063.md` | Полировка diff-view (baseline, E2E, точность) — открыт |
+| `TASK-063` | `tickets/TASK-063.md` | Полировка diff-view (baseline, E2E, точность) — открыт (частично закрыт TASK-064) |
+| `TASK-064` | `tickets/TASK-064.md` | Structural rich-diff редакций (вариант B) — закрыт |
 | `BUG-010` | `tickets/BUG-010.md` | ОЛ/ответы не синхронизируются в реалтайме — закрыт (канал yAnswers) |
 | `BUG-012` | `tickets/BUG-012.md` | Все условные блоки видны на /fill — закрыт |
 | `BUG-019` | `tickets/BUG-019.md` | Скрытые блоки в DOCX/PDF — закрыт (единая фильтрация) |

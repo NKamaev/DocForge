@@ -1,6 +1,12 @@
 # Извлечённые уроки
 
-> Тег: `practices:lessons` · Обновлено: `2026-10-10`
+> Тег: `practices:lessons` · Обновлено: `2026-10-12`
+
+## [2026-10-12] Уроки TASK-064 (structural rich-diff)
+
+- **Схема ProseMirror — не мягкая:** контейнеры (`bulletList`/`table`/`tableRow`) ограничивают тип детей. Проверяй вывод в тестах через `getSchema(ext)` + `PMNode.fromJSON(schema, doc).check()` — TipTap молча рендерит невалидное. (Детали — `pitfalls:tiptap-react`.)
+- **Stray `.js` из отменённого агента:** отменённый транспайл-воркер эмитнул 148 `.js` рядом с `.ts/.tsx`; Vite резолвит `.js` **раньше** `.tsx` → затенение исходников. Проблема не видна в `git status`, если директория untracked (показывает строку каталога, не файлов) — проверяй `find frontend/src -name '*.js'`.
+- **`buildWorkspaceExtensions` (TASK-064)** — единый источник списка расширений workspace; опции `{ collaboration?, diff? }`. Diff-рендер и рабочий редактор используют один билдер.
 
 ## [2026-10-10 10:00] Сводка по багам (из архива задач и git-истории DocForge)
 

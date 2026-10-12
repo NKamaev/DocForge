@@ -43,6 +43,10 @@
 - Backend: `DocumentServiceDiffTest` (10) + `DocumentControllerDiffTest` (4, MockMvc slice: 200/404/403).
 - Frontend: `DiffViewer.test.tsx` + `QuestionnairePage.test.tsx` (18).
 
+## Замена (2026-10-12)
+
+**Надстройка:** plain-text diff (`List<DiffChunk>`, `842890a`) заменён на **structural rich-diff** в **TASK-064** (backend отдаёт `targetBody`/`compareBody`, frontend `structuralDiff` + read-only `DocumentDiffView`). `DiffChunk`/`java-diff-utils` удалены. Diff-эндпоинт и permission-check сохранены.
+
 ## Ограничения / follow-up
 
 - **BUG-048** — соседние revision-эндпоинты (`GET /revisions`, `GET /revisions/{n}`, `restore`) и `PUT /answers`, `POST /generate` не имеют permission-чека (diff-эндпоинт получил).
