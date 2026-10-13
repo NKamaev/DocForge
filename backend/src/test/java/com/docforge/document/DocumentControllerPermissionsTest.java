@@ -19,8 +19,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -37,6 +35,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -47,8 +48,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Web-layer contract tests for the {@code DocumentPermission} checks that BUG-048 requires on the
- * revision / questionnaire / generation endpoints:
+ * Web-layer regression guard for the {@code DocumentPermission} checks on the revision /
+ * questionnaire / generation endpoints (fix for BUG-048, commits {@code 2cbe399} + {@code 17b6240}).
+ *
+ * <p>It <strong>pins the contract</strong> — it is no longer a RED reproduction. What it locks down:</p>
  *
  * <ul>
  *   <li>{@code GET  /api/documents/{id}/revisions}                    — READ</li>
@@ -56,33 +59,38 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   <li>{@code POST /api/documents/{id}/revisions?comment=}           — WRITE</li>
  *   <li>{@code POST /api/documents/{id}/revisions/{revNum}/restore}   — WRITE</li>
  *   <li>{@code PUT  /api/documents/{id}/questionnaire/answers}        — WRITE</li>
- *   <li>{@code POST /api/documents/{id}/generate}                     — READ</li>
+ *   <li>{@code POST /api/documents/{id}/generate}                     — WRITE</li>
  * </ul>
  *
- * <p>These tests are the automated RED reproduction for BUG-048: the production controller currently
- * has <strong>no</strong> {@code documentPermissionService.hasPermission(...)} call (and mostly no
- * {@code @AuthenticationPrincipal}) on these handlers, so the "no permission → 403" cases fail with
- * {@code expected 403 but was 200/201}. They only exercise the public HTTP contract, therefore they
- * are a genuine behavioural RED — not a compile error.</p>
+ * <p>Each negative case asserts both the status ({@code 403}) and the {@code detail} of the
+ * {@link org.springframework.http.ProblemDetail} body, which pins the <em>style</em> of denial
+ * per endpoint: READ endpoints answer {@code "Нет доступа к документу"}, WRITE endpoints answer
+ * {@code "Нет прав на редактирование документа"}. The {@code *ViewerGrade*} cases additionally
+ * document the intended grade — a READ-only (VIEWER-like) caller is still denied on a WRITE
+ * endpoint, and the endpoint consults WRITE (never READ).</p>
  *
  * <p>Uses the same standalone MockMvc slice approach as {@link DocumentControllerDiffTest}:
  * controller instantiated with mocked collaborators, the real {@link GlobalExceptionHandler} for
  * status mapping, and {@link AuthenticationPrincipalArgumentResolver} backed by the
- * {@code SecurityContextHolder}.</p>
+ * {@code SecurityContextHolder}. The real JWT / role-mapping chain is covered separately by
+ * {@code DocumentControllerPermissionsIT}.</p>
  *
- * <p>Strictness is {@code LENIENT} on purpose: the {@code ownerResolver}/{@code hasPermission} stubs
- * represent the <em>intended</em> contract that production does not call yet. With strict stubs
- * Mockito would raise {@code UnnecessaryStubbingException} on the (currently passing) positive cases
- * and mask the real 403 RED on the negative cases.</p>
+ * <p>Runs under the default {@code STRICT_STUBS} (no {@code @MockitoSettings}) — every stub is
+ * consumed by the handler under test, which keeps the suite honest about what the controller
+ * actually calls.</p>
  */
 @ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class DocumentControllerPermissionsTest {
 
     private static final UUID DOC_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000bb");
     private static final UUID REVISION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000cc");
     private static final String LOGIN = "alice";
+
+    /** Denial message used by READ-guarded handlers. */
+    private static final String READ_DENIED = "Нет доступа к документу";
+    /** Denial message used by WRITE-guarded handlers. */
+    private static final String WRITE_DENIED = "Нет прав на редактирование документа";
 
     @Mock private DocumentService documentService;
     @Mock private DocumentPermissionService documentPermissionService;
@@ -153,9 +161,11 @@ class DocumentControllerPermissionsTest {
         when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
                 .thenReturn(false);
 
-        // when / then — BUG-048: currently 200, because the handler never checks the permission
+        // when / then — READ-guarded: denial carries the READ-style detail
         mockMvc.perform(get("/api/documents/{id}/revisions", DOC_ID))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(READ_DENIED));
 
         verifyNoInteractions(documentService);
         verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.READ);
@@ -187,9 +197,11 @@ class DocumentControllerPermissionsTest {
         when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
                 .thenReturn(false);
 
-        // when / then — BUG-048: currently 200, because the handler never checks the permission
+        // when / then — READ-guarded: denial carries the READ-style detail
         mockMvc.perform(get("/api/documents/{id}/revisions/{rev}", DOC_ID, 1))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(READ_DENIED));
 
         verifyNoInteractions(documentService);
         verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.READ);
@@ -220,12 +232,33 @@ class DocumentControllerPermissionsTest {
         when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE))
                 .thenReturn(false);
 
-        // when / then — BUG-048: currently 201, because the handler never checks the permission
+        // when / then — WRITE-guarded: denial carries the WRITE-style detail
         mockMvc.perform(post("/api/documents/{id}/revisions", DOC_ID).param("comment", "manual"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(WRITE_DENIED));
 
         verifyNoInteractions(documentService);
         verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE);
+    }
+
+    @Test
+    @DisplayName("POST .../revisions denies a READ-only (VIEWER-like) caller with 403")
+    void saveRevision_withViewerGrade_returns403() throws Exception {
+        // given — effective grade is READ-only: reading allowed, writing denied
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        givenReadOnlyGrade();
+
+        // when / then
+        mockMvc.perform(post("/api/documents/{id}/revisions", DOC_ID).param("comment", "viewer"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(WRITE_DENIED));
+
+        // then — the endpoint is graded WRITE; READ alone never unlocks it
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE);
+        verify(documentPermissionService, never()).hasPermission(DOC_ID, USER_ID, DocumentPermission.READ);
+        verifyNoInteractions(documentService);
     }
 
     // ── revisions: restore ─────────────────────────────────────────────────────
@@ -253,12 +286,33 @@ class DocumentControllerPermissionsTest {
         when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE))
                 .thenReturn(false);
 
-        // when / then — BUG-048: currently 200, because the handler never checks the permission
+        // when / then — WRITE-guarded: denial carries the WRITE-style detail
         mockMvc.perform(post("/api/documents/{id}/revisions/{rev}/restore", DOC_ID, 1))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(WRITE_DENIED));
 
         verifyNoInteractions(documentService);
         verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE);
+    }
+
+    @Test
+    @DisplayName("POST .../revisions/{revNum}/restore denies a READ-only (VIEWER-like) caller with 403")
+    void restoreRevision_withViewerGrade_returns403() throws Exception {
+        // given — effective grade is READ-only: reading allowed, writing denied
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        givenReadOnlyGrade();
+
+        // when / then
+        mockMvc.perform(post("/api/documents/{id}/revisions/{rev}/restore", DOC_ID, 1))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(WRITE_DENIED));
+
+        // then — the endpoint is graded WRITE; READ alone never unlocks it
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE);
+        verify(documentPermissionService, never()).hasPermission(DOC_ID, USER_ID, DocumentPermission.READ);
+        verifyNoInteractions(documentService);
     }
 
     // ── questionnaire answers ──────────────────────────────────────────────────
@@ -289,24 +343,47 @@ class DocumentControllerPermissionsTest {
         when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE))
                 .thenReturn(false);
 
-        // when / then — BUG-048: currently 200, because the handler never checks the permission
+        // when / then — WRITE-guarded: denial carries the WRITE-style detail
         mockMvc.perform(put("/api/documents/{id}/questionnaire/answers", DOC_ID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"answers\":{\"q1\":\"a\"}}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(WRITE_DENIED));
 
         verifyNoInteractions(documentService);
         verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE);
     }
 
+    @Test
+    @DisplayName("PUT .../questionnaire/answers denies a READ-only (VIEWER-like) caller with 403")
+    void saveAnswers_withViewerGrade_returns403() throws Exception {
+        // given — effective grade is READ-only: reading allowed, writing denied
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        givenReadOnlyGrade();
+
+        // when / then
+        mockMvc.perform(put("/api/documents/{id}/questionnaire/answers", DOC_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"answers\":{\"q1\":\"a\"}}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(WRITE_DENIED));
+
+        // then — the endpoint is graded WRITE; READ alone never unlocks it
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE);
+        verify(documentPermissionService, never()).hasPermission(DOC_ID, USER_ID, DocumentPermission.READ);
+        verifyNoInteractions(documentService);
+    }
+
     // ── generation ─────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("POST .../generate with READ permission returns 200")
-    void generate_withReadPermission_returns200() throws Exception {
-        // given — caller may read
+    @DisplayName("POST .../generate with WRITE permission returns 200")
+    void generate_withWritePermission_returns200() throws Exception {
+        // given — caller may write (generation mutates the document body)
         when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
-        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE))
                 .thenReturn(true);
         when(documentService.generate(DOC_ID))
                 .thenReturn(new GenerateResponse(DOC_ID, Map.of("type", "doc")));
@@ -318,22 +395,59 @@ class DocumentControllerPermissionsTest {
     }
 
     @Test
-    @DisplayName("POST .../generate without READ permission returns 403 and never generates")
-    void generate_withoutReadPermission_returns403() throws Exception {
-        // given — authenticated caller has no READ permission
+    @DisplayName("POST .../generate without WRITE permission returns 403 and never generates")
+    void generate_withoutWritePermission_returns403() throws Exception {
+        // given — authenticated caller has no WRITE permission
         when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
-        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE))
                 .thenReturn(false);
 
-        // when / then — BUG-048: currently 200, because the handler never checks the permission
+        // when / then — WRITE-guarded: denial carries the WRITE-style detail
         mockMvc.perform(post("/api/documents/{id}/generate", DOC_ID))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(WRITE_DENIED));
 
         verifyNoInteractions(documentService);
-        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.READ);
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE);
+    }
+
+    @Test
+    @DisplayName("POST .../generate denies a READ-only (VIEWER-like) caller with 403")
+    void generate_withViewerGrade_returns403() throws Exception {
+        // given — effective grade is READ-only: reading allowed, writing denied
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        givenReadOnlyGrade();
+
+        // when / then
+        mockMvc.perform(post("/api/documents/{id}/generate", DOC_ID))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.detail").value(WRITE_DENIED));
+
+        // then — the endpoint is graded WRITE; READ alone never unlocks it
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.WRITE);
+        verify(documentPermissionService, never()).hasPermission(DOC_ID, USER_ID, DocumentPermission.READ);
+        verifyNoInteractions(documentService);
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────
+
+    /**
+     * Stubs a READ-only ("VIEWER-like") effective grade: read/VIEW probes succeed, WRITE fails.
+     *
+     * <p>Modelled as a single {@code thenAnswer} so the stub is actually consumed by the WRITE
+     * probe the handler under test performs. A bare {@code hasPermission(READ)=true} stub — which
+     * no WRITE-guarded handler ever queries — would trip {@code UnnecessaryStubbingException}
+     * under the default strict stubbing.</p>
+     */
+    private void givenReadOnlyGrade() {
+        when(documentPermissionService.hasPermission(eq(DOC_ID), eq(USER_ID), any(DocumentPermission.class)))
+                .thenAnswer(invocation -> {
+                    DocumentPermission requested = invocation.getArgument(2);
+                    return requested == DocumentPermission.READ || requested == DocumentPermission.VIEW;
+                });
+    }
 
     private static DocumentRevisionDTO revision(int editionNumber) {
         return new DocumentRevisionDTO(
