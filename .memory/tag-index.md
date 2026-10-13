@@ -1,7 +1,7 @@
 # Tag Index
 
 Единственный реестр тегов. Структура: `.memory/tags/{category}/{file}.md`.
-Обновлено: `2026-10-12`.
+Обновлено: `2026-10-13`.
 
 ---
 
@@ -31,6 +31,7 @@
 | Tag | File | Description |
 |-----|------|-------------|
 | `conventions:conventions` | `conventions/conventions.md` | Нейминг, слои, DTO-records, изоляция модулей, конвенции тестов |
+| `conventions:task-tracker` | `conventions/task-tracker.md` | Матрица переходов статусов, `allow_without_commit`, ошибки-как-значения, поле `author` |
 
 ## Pitfalls
 
@@ -68,6 +69,7 @@
 | `BUG-046` | `tickets/BUG-046.md` | Откат к редакции через reload — закрыт (программный Yjs-reset) |
 | `BUG-047` | `tickets/BUG-047.md` | ОЛ пуст при вопросах в шаблоне — закрыт (snapshot-first questionnaire, `b0246b4`) |
 | `BUG-048` | `tickets/BUG-048.md` | Permission-check на revision/answers/generate эндпоинтах — открыт |
+| `BUG-049` | `tickets/BUG-049.md` | DocumentsPage bulk-кнопки «Скачать»/«Удалить» без onClick — открыт |
 
 ---
 
