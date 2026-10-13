@@ -156,8 +156,8 @@ public class DocumentController {
             @AuthenticationPrincipal UserDetails userDetails
     ) {
         UUID userId = ownerResolver.resolve(userDetails.getUsername());
-        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.READ))
-            throw new AccessDeniedException("Нет доступа к документу");
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.WRITE))
+            throw new AccessDeniedException("Нет прав на редактирование документа");
         return ResponseEntity.ok(documentService.generate(id));
     }
 
