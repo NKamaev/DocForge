@@ -137,8 +137,12 @@ public class DocumentController {
     @PutMapping("/{id}/questionnaire/answers")
     public ResponseEntity<SaveAnswersResponse> saveAnswers(
             @PathVariable UUID id,
-            @Valid @RequestBody SaveAnswersRequest request
+            @Valid @RequestBody SaveAnswersRequest request,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.WRITE))
+            throw new AccessDeniedException("Нет прав на редактирование документа");
         return ResponseEntity.ok(
                 documentService.saveAnswers(id, request.answers()));
     }
@@ -147,7 +151,13 @@ public class DocumentController {
 
     /** POST /api/documents/{id}/generate */
     @PostMapping("/{id}/generate")
-    public ResponseEntity<GenerateResponse> generate(@PathVariable UUID id) {
+    public ResponseEntity<GenerateResponse> generate(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.READ))
+            throw new AccessDeniedException("Нет доступа к документу");
         return ResponseEntity.ok(documentService.generate(id));
     }
 
@@ -224,7 +234,13 @@ public class DocumentController {
 
     /** GET /api/documents/{id}/revisions */
     @GetMapping("/{id}/revisions")
-    public ResponseEntity<List<DocumentRevisionDTO>> listRevisions(@PathVariable UUID id) {
+    public ResponseEntity<List<DocumentRevisionDTO>> listRevisions(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.READ))
+            throw new AccessDeniedException("Нет доступа к документу");
         return ResponseEntity.ok(documentService.listRevisions(id));
     }
 
@@ -232,8 +248,12 @@ public class DocumentController {
     @GetMapping("/{id}/revisions/{revNum}")
     public ResponseEntity<DocumentRevisionBody> getRevision(
             @PathVariable UUID id,
-            @PathVariable int revNum
+            @PathVariable int revNum,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.READ))
+            throw new AccessDeniedException("Нет доступа к документу");
         return ResponseEntity.ok(documentService.getRevisionBody(id, revNum));
     }
 
@@ -241,8 +261,12 @@ public class DocumentController {
     @PostMapping("/{id}/revisions")
     public ResponseEntity<DocumentRevisionDTO> saveRevision(
             @PathVariable UUID id,
-            @RequestParam(required = false) String comment
+            @RequestParam(required = false) String comment,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.WRITE))
+            throw new AccessDeniedException("Нет прав на редактирование документа");
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(documentService.saveRevision(id, comment));
     }
@@ -251,8 +275,12 @@ public class DocumentController {
     @PostMapping("/{id}/revisions/{revNum}/restore")
     public ResponseEntity<DocumentRevisionDTO> restoreRevision(
             @PathVariable UUID id,
-            @PathVariable int revNum
+            @PathVariable int revNum,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.WRITE))
+            throw new AccessDeniedException("Нет прав на редактирование документа");
         return ResponseEntity.ok(documentService.restoreRevision(id, revNum));
     }
 
