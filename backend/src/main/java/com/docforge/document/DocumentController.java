@@ -5,6 +5,7 @@ import com.docforge.document.dto.MoveFolderRequest;
 import com.docforge.document.generator.ParameterSubstitutor;
 import com.docforge.document.generator.TipTapTreeWalker;
 import com.docforge.document.model.DocumentPermission;
+import com.docforge.document.model.DocumentRole;
 import com.docforge.document.model.DocumentRevisionBody;
 import com.docforge.document.model.FolderPermission;
 import com.docforge.export.DocxExportService;
@@ -26,6 +27,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
@@ -324,7 +326,12 @@ public class DocumentController {
         return ResponseEntity.ok(documentService.getParticipants(id));
     }
 
-    /** POST /api/documents/{id}/participants */
+    /**
+     * POST /api/documents/{id}/participants
+     *
+     * @deprecated используйте канонический {@code POST /api/documents/{id}/members}.
+     */
+    @Deprecated
     @PostMapping("/{id}/participants")
     public ResponseEntity<DocumentParticipantDTO> addParticipant(
             @PathVariable UUID id,
@@ -332,14 +339,26 @@ public class DocumentController {
             @AuthenticationPrincipal UserDetails userDetails
     ) {
         UUID userId = ownerResolver.resolve(userDetails.getUsername());
-        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.MANAGE))
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.SHARE))
             throw new AccessDeniedException("Нет прав на управление участниками");
+
+        DocumentRole targetRole = parseDocumentRole(request.role());
+        DocumentRole callerRole = documentPermissionService.getEffectiveRole(id, userId);
+        if (targetRole == DocumentRole.OWNER && callerRole != DocumentRole.OWNER)
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Нельзя назначить роль OWNER");
+
         DocumentParticipantDTO result = documentService.addParticipant(
-                id, request.userId(), request.role());
+                id, request.userId(), targetRole.name(), userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(result);
     }
 
-    /** DELETE /api/documents/{id}/participants/{userId} */
+    /**
+     * DELETE /api/documents/{id}/participants/{userId}
+     *
+     * @deprecated используйте канонический {@code DELETE /api/documents/{id}/members/{userId}}.
+     */
+    @Deprecated
     @DeleteMapping("/{id}/participants/{userId}")
     public ResponseEntity<Void> removeParticipant(
             @PathVariable UUID id,
@@ -347,13 +366,27 @@ public class DocumentController {
             @AuthenticationPrincipal UserDetails userDetails
     ) {
         UUID currentUserId = ownerResolver.resolve(userDetails.getUsername());
-        if (!documentPermissionService.hasPermission(id, currentUserId, DocumentPermission.MANAGE))
+        if (!documentPermissionService.hasPermission(id, currentUserId, DocumentPermission.SHARE))
             throw new AccessDeniedException("Нет прав на управление участниками");
-        documentService.removeParticipant(id, userId);
+
+        DocumentRole targetRole = documentPermissionService.getEffectiveRole(id, userId);
+        if (targetRole == DocumentRole.OWNER)
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Нельзя удалить OWNER из участников");
+
+        documentService.removeParticipant(id, userId, currentUserId);
         return ResponseEntity.noContent().build();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private DocumentRole parseDocumentRole(String role) {
+        try {
+            return DocumentRole.valueOf(role != null ? role.toUpperCase() : "EDITOR");
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Неизвестная роль: " + role + "; допустимо: VIEWER, EDITOR, MANAGER, OWNER");
+        }
+    }
 
     /**
      * Walks the TipTap tree and resolves inline nodes that require runtime context:

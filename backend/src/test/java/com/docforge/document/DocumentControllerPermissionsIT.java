@@ -84,8 +84,10 @@ class DocumentControllerPermissionsIT extends AbstractIT {
         viewerToken = jwtTokenProvider.generateToken(viewerLogin);
         strangerToken = jwtTokenProvider.generateToken(strangerLogin);
 
+        // The template must belong to the future document owner: BUG-052's guard in
+        // DocumentServiceImpl.create only allows published templates or ones owned by the creator.
         TemplateResponse template = templateService.create(
-                null,
+                ownerId,
                 new CreateTemplateRequest("PermissionsIT Template " + suffix, null, null, null));
 
         documentId = documentService.create(

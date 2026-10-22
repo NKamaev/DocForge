@@ -5,6 +5,8 @@ import com.docforge.document.dto.DocumentResponse;
 import com.docforge.template.TemplateService;
 import com.docforge.template.dto.CreateTemplateRequest;
 import com.docforge.template.dto.TemplateResponse;
+import com.docforge.user.User;
+import com.docforge.user.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +27,9 @@ class DocumentServiceImplIT extends AbstractIT {
 
     @Autowired
     private DocumentService documentService;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Test
     @WithMockUser(username = "testuser")
@@ -50,17 +55,28 @@ class DocumentServiceImplIT extends AbstractIT {
     @WithMockUser(username = "testuser")
     @DisplayName("create() on unpublished template sets null snapshotId (no snapshot exists yet)")
     void create_withoutPublish_hasNullSnapshot() {
-        // Arrange — create template but do NOT publish
+        // Arrange — create template owned by the caller (BUG-052 guard: unpublished templates are
+        // only usable by their owner) but do NOT publish
+        UUID ownerId = createOwner();
         TemplateResponse template = templateService.create(
-                null,
+                ownerId,
                 new CreateTemplateRequest("Unpublished Template", null, null, null)
         );
 
         // Act
-        DocumentResponse doc = documentService.create(template.id(), "Doc Without Snapshot", null, null, null);
+        DocumentResponse doc = documentService.create(template.id(), "Doc Without Snapshot", ownerId, null, null);
 
         // Assert — no snapshot → both fields are null
         assertThat(doc.templateSnapshotId()).isNull();
         assertThat(doc.templateVersionNumber()).isNull();
+    }
+
+    private UUID createOwner() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        User owner = new User();
+        owner.setLogin("doc-snapshot-owner-" + suffix);
+        owner.setPasswordHash("hash");
+        owner.setDisplayName("DocSnapshotOwner");
+        return userRepository.save(owner).getId();
     }
 }

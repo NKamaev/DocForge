@@ -458,13 +458,13 @@ public class DocumentServiceImpl implements DocumentService {
 
     @Override
     @Transactional
-    public DocumentParticipantDTO addParticipant(UUID documentId, UUID userId, String role) {
+    public DocumentParticipantDTO addParticipant(UUID documentId, UUID userId, String role, UUID grantedBy) {
         findRegistryOrThrow(documentId);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Пользователь не найден: " + userId));
 
         DocumentRole documentRole = DocumentRole.valueOf(role != null ? role.toUpperCase() : "EDITOR");
-        documentPermissionService.grantRole(documentId, userId, documentRole, null);
+        documentPermissionService.grantRole(documentId, userId, documentRole, grantedBy);
 
         return documentMemberRepository.findByDocumentIdAndUserId(documentId, userId)
                 .map(m -> new DocumentParticipantDTO(
@@ -477,9 +477,9 @@ public class DocumentServiceImpl implements DocumentService {
 
     @Override
     @Transactional
-    public void removeParticipant(UUID documentId, UUID userId) {
+    public void removeParticipant(UUID documentId, UUID userId, UUID revokedBy) {
         findRegistryOrThrow(documentId);
-        documentPermissionService.revokeRole(documentId, userId, null);
+        documentPermissionService.revokeRole(documentId, userId, revokedBy);
     }
 
     // ── Editions ──────────────────────────────────────────────────────────────

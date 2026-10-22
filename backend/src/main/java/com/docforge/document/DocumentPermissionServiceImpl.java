@@ -1,6 +1,7 @@
 package com.docforge.document;
 
 import com.docforge.common.exception.ResourceNotFoundException;
+import com.docforge.common.exception.ValidationException;
 import com.docforge.document.dto.DocumentMemberDTO;
 import com.docforge.document.model.DocumentMember;
 import com.docforge.document.model.DocumentPermission;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -54,6 +56,14 @@ public class DocumentPermissionServiceImpl implements DocumentPermissionService 
     public void grantRole(UUID documentId, UUID targetUserId, DocumentRole role, UUID grantedBy) {
         registryRepository.findById(documentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Документ не найден: " + documentId));
+
+        // Роль владельца неизменяема: нельзя ни понизить выданного OWNER, ни
+        // «назначить» роль самому владельцу документа (upsert создал бы
+        // невидимую строку участника).
+        if (getEffectiveRole(documentId, targetUserId) == DocumentRole.OWNER) {
+            throw new ValidationException("Нельзя изменить роль владельца документа", Map.of());
+        }
+
         DocumentMember member = documentMemberRepository
                 .findByDocumentIdAndUserId(documentId, targetUserId)
                 .orElseGet(() -> {

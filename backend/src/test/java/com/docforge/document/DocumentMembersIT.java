@@ -50,8 +50,10 @@ class DocumentMembersIT extends AbstractIT {
         editor.setDisplayName("DocEditor");
         editorId = userRepository.save(editor).getId();
 
+        // The template must belong to the future document owner: BUG-052's guard in
+        // DocumentServiceImpl.create only allows published templates or ones owned by the creator.
         TemplateResponse template = templateService.create(
-                null, new CreateTemplateRequest("MembersIT Template " + suffix, null, null, null));
+                ownerId, new CreateTemplateRequest("MembersIT Template " + suffix, null, null, null));
         templateId = template.id();
     }
 

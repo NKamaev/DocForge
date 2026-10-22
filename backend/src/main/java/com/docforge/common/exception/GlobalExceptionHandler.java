@@ -10,6 +10,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.Map;
@@ -59,6 +60,16 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST, "Некорректное значение параметра запроса");
         problem.setProperty("parameter", ex.getPropertyName());
         return problem;
+    }
+
+    /**
+     * Явно выброшенный статус (например, 422 «Нельзя назначить OWNER») должен
+     * сохранять свой код, а не превращаться в 500 catch-all-обработчиком.
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ProblemDetail handleResponseStatus(ResponseStatusException ex) {
+        String detail = ex.getReason() != null ? ex.getReason() : "Ошибка запроса";
+        return ProblemDetail.forStatusAndDetail(ex.getStatusCode(), detail);
     }
 
     @ExceptionHandler(ValidationException.class)

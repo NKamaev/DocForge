@@ -51,9 +51,9 @@ public interface DocumentService {
 
     List<DocumentParticipantDTO> getParticipants(UUID documentId);
 
-    DocumentParticipantDTO addParticipant(UUID documentId, UUID userId, String role);
+    DocumentParticipantDTO addParticipant(UUID documentId, UUID userId, String role, UUID grantedBy);
 
-    void removeParticipant(UUID documentId, UUID userId);
+    void removeParticipant(UUID documentId, UUID userId, UUID revokedBy);
 
     // ── Editions ──────────────────────────────────────────────────────────────
 

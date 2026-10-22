@@ -6,27 +6,37 @@ import com.docforge.document.dto.FolderRequest;
 import com.docforge.document.dto.FolderResponse;
 import com.docforge.document.model.FolderPermission;
 import com.docforge.document.model.FolderRole;
+import com.docforge.security.JwtTokenProvider;
 import com.docforge.user.User;
 import com.docforge.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@AutoConfigureMockMvc
 class FolderMembersIT extends AbstractIT {
 
     @Autowired private FolderService folderService;
     @Autowired private FolderPermissionService folderPermissionService;
     @Autowired private FolderRepository folderRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private JwtTokenProvider jwtTokenProvider;
+    @Autowired private MockMvc mockMvc;
 
     private UUID ownerId;
     private UUID viewerId;
@@ -143,5 +153,37 @@ class FolderMembersIT extends AbstractIT {
 
         UUID stranger = UUID.randomUUID();
         assertThat(folderPermissionService.getEffectiveRole(folder.id(), stranger)).isNull();
+    }
+
+    @Test
+    @DisplayName("POST /api/folders/{id}/members — MANAGER grants OWNER → 422, not 500 (shared handler fix)")
+    void manager_grantOwner_returns422Not500() throws Exception {
+        // given — a folder owned by ownerId with a granted MANAGER
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String managerLogin = "folder-manager-" + suffix;
+
+        User manager = new User();
+        manager.setLogin(managerLogin);
+        manager.setPasswordHash("hash");
+        manager.setDisplayName("Manager");
+        UUID managerId = userRepository.save(manager).getId();
+
+        FolderResponse folder = folderService.create(
+                ownerId, new FolderRequest("Guarded Folder " + suffix, null, null));
+        folderPermissionService.grantRole(folder.id(), managerId, FolderRole.MANAGER, ownerId);
+
+        UUID targetId = UUID.randomUUID();
+
+        // when — the controller throws ResponseStatusException(422)
+        mockMvc.perform(post("/api/folders/{id}/members", folder.id())
+                        .header("Authorization", "Bearer " + jwtTokenProvider.generateToken(managerLogin))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"" + targetId + "\",\"role\":\"OWNER\"}"))
+                // then — the shared GlobalExceptionHandler keeps the 422 status
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.detail").value("Нельзя назначить роль OWNER"));
+
+        assertThat(folderPermissionService.getEffectiveRole(folder.id(), targetId)).isNull();
     }
 }

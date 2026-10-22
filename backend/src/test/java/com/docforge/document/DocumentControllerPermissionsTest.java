@@ -551,13 +551,13 @@ class DocumentControllerPermissionsTest {
     // ── participants: add (BUG-050) ────────────────────────────────────────────
 
     @Test
-    @DisplayName("POST .../participants with MANAGE permission returns 201")
-    void addParticipant_withManagePermission_returns201() throws Exception {
-        // given — caller may manage sharing
+    @DisplayName("POST .../participants with SHARE permission returns 201")
+    void addParticipant_withSharePermission_returns201() throws Exception {
+        // given — caller may manage sharing (BUG-051: the gate is SHARE, not MANAGE)
         when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
-        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE))
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.SHARE))
                 .thenReturn(true);
-        when(documentService.addParticipant(DOC_ID, PARTICIPANT_ID, "EDITOR"))
+        when(documentService.addParticipant(DOC_ID, PARTICIPANT_ID, "EDITOR", USER_ID))
                 .thenReturn(participant(PARTICIPANT_ID, "EDITOR"));
 
         // when / then
@@ -567,14 +567,18 @@ class DocumentControllerPermissionsTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.userId").value(PARTICIPANT_ID.toString()))
                 .andExpect(jsonPath("$.role").value("EDITOR"));
+
+        // the actor is passed through so document_members.granted_by is populated
+        verify(documentService).addParticipant(DOC_ID, PARTICIPANT_ID, "EDITOR", USER_ID);
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.SHARE);
     }
 
     @Test
-    @DisplayName("POST .../participants without MANAGE permission returns 403 and never invites")
-    void addParticipant_withoutManagePermission_returns403() throws Exception {
-        // given — authenticated caller has no MANAGE permission
+    @DisplayName("POST .../participants without SHARE permission returns 403 and never invites")
+    void addParticipant_withoutSharePermission_returns403() throws Exception {
+        // given — authenticated caller has no SHARE permission
         when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
-        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE))
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.SHARE))
                 .thenReturn(false);
 
         // when / then
@@ -585,32 +589,53 @@ class DocumentControllerPermissionsTest {
                 .andExpect(jsonPath("$.status").value(403));
 
         verifyNoInteractions(documentService);
-        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE);
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.SHARE);
+    }
+
+    @Test
+    @DisplayName("POST .../participants with MANAGE only (no SHARE) returns 403")
+    void addParticipant_withManageOnly_returns403() throws Exception {
+        // given — MANAGER-grade caller: MANAGE granted, SHARE not
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(eq(DOC_ID), eq(USER_ID), any(DocumentPermission.class)))
+                .thenAnswer(invocation -> invocation.getArgument(2) == DocumentPermission.MANAGE);
+
+        // when / then — the endpoint must grade SHARE; MANAGE alone is not enough
+        mockMvc.perform(post("/api/documents/{id}/participants", DOC_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"" + PARTICIPANT_ID + "\",\"role\":\"EDITOR\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
+
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.SHARE);
+        verify(documentPermissionService, never()).hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE);
+        verifyNoInteractions(documentService);
     }
 
     // ── participants: remove (BUG-050) ─────────────────────────────────────────
 
     @Test
-    @DisplayName("DELETE .../participants/{userId} with MANAGE permission returns 204")
-    void removeParticipant_withManagePermission_returns204() throws Exception {
-        // given — caller may manage sharing
+    @DisplayName("DELETE .../participants/{userId} with SHARE permission returns 204")
+    void removeParticipant_withSharePermission_returns204() throws Exception {
+        // given — caller may manage sharing (BUG-051: the gate is SHARE, not MANAGE)
         when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
-        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE))
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.SHARE))
                 .thenReturn(true);
 
         // when / then
         mockMvc.perform(delete("/api/documents/{id}/participants/{userId}", DOC_ID, PARTICIPANT_ID))
                 .andExpect(status().isNoContent());
 
-        verify(documentService).removeParticipant(DOC_ID, PARTICIPANT_ID);
+        verify(documentService).removeParticipant(DOC_ID, PARTICIPANT_ID, USER_ID);
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.SHARE);
     }
 
     @Test
-    @DisplayName("DELETE .../participants/{userId} without MANAGE permission returns 403 and never removes")
-    void removeParticipant_withoutManagePermission_returns403() throws Exception {
-        // given — authenticated caller has no MANAGE permission
+    @DisplayName("DELETE .../participants/{userId} without SHARE permission returns 403 and never removes")
+    void removeParticipant_withoutSharePermission_returns403() throws Exception {
+        // given — authenticated caller has no SHARE permission
         when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
-        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE))
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.SHARE))
                 .thenReturn(false);
 
         // when / then
@@ -619,7 +644,7 @@ class DocumentControllerPermissionsTest {
                 .andExpect(jsonPath("$.status").value(403));
 
         verifyNoInteractions(documentService);
-        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE);
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.SHARE);
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────
