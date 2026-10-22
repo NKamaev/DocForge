@@ -71,6 +71,7 @@
 | `BUG-048` | `tickets/BUG-048.md` | Permission-check на revision/answers/generate эндпоинтах — закрыт (`2cbe399`, `17b6240`, `b758c12`) |
 | `BUG-049` | `tickets/BUG-049.md` | DocumentsPage bulk-кнопки «Скачать»/«Удалить» без onClick — закрыт (`7736bf1`) |
 | `BUG-042` | `tickets/BUG-042.md` | `useCollaboration.test.ts`: buildWsUrl тесты падали из-за dev-ветки — закрыт (`6e48427`) |
+| `BUG-043` | `tickets/BUG-043.md` | Пустой опросный лист: «Страница 1 из 0» и активная «Далее» — закрыт (`5060e27`) |
 | `BUG-050` | `tickets/BUG-050.md` | Документные эндпоинты без permission-check: export docx/pdf, participants — закрыт (`805820f`) |
 | `BUG-051` | — (только tracker) | Legacy participants API: MANAGER может выдать OWNER (эскалация) — TODO |
 | `BUG-052` | — (только tracker) | `POST /api/documents` без проверки доступа к шаблону/папке — TODO |
