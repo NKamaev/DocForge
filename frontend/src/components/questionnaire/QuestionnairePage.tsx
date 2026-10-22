@@ -335,6 +335,13 @@ export default function QuestionnairePage() {
     highlightTimer.current = setTimeout(() => setHighlightedParam(null), 2500)
   }, [questionnaire, currentPage])
 
+  // Keep the active page in range if the questionnaire shrinks after a reload
+  // or a remote update (Math.min is a no-op while the page still exists).
+  useEffect(() => {
+    const pageCount = questionnaire?.pages?.length ?? 0
+    setCurrentPage(p => Math.min(p, Math.max(pageCount - 1, 0)))
+  }, [questionnaire])
+
   if (loading) {
     return (
       <div className="flex justify-center items-center p-16">
@@ -364,8 +371,10 @@ export default function QuestionnairePage() {
 
   const pages = questionnaire.pages ?? []
   const page  = pages[currentPage]
+  const hasPages = pages.length > 0
+  const pageLabel = hasPages ? currentPage + 1 : 0
   const isFirst = currentPage === 0
-  const isLast  = currentPage === pages.length - 1
+  const isLast  = hasPages && currentPage === pages.length - 1
 
   const visibleQuestions: QuestionnaireQuestion[] = (page?.questions ?? [])
     .filter(q => q.visible)
@@ -432,10 +441,12 @@ export default function QuestionnairePage() {
             </Alert>
           )}
           <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: 10 }}>
-            {page?.title || `Страница ${currentPage + 1}`} · {visibleQuestions.length} вопр.
+            {hasPages ? `${page?.title || `Страница ${pageLabel}`} · ${visibleQuestions.length} вопр.` : 'Опросный лист пуст'}
           </div>
           {visibleQuestions.length === 0 ? (
-            <div style={{ color: 'var(--ink-3)', fontSize: 13 }}>Нет вопросов на этой странице</div>
+            <div style={{ color: 'var(--ink-3)', fontSize: 13 }}>
+              {hasPages ? 'Нет вопросов на этой странице' : 'В опросном листе нет вопросов'}
+            </div>
           ) : (
             visibleQuestions.map(q => {
               const isActive = highlightedParam === q.parameterCode
@@ -469,7 +480,7 @@ export default function QuestionnairePage() {
           >
             <Icon name="chev-left" size={12} /> Назад
           </button>
-          <span className="muted tabular" style={{ fontSize: 12 }}>Страница {currentPage + 1} из {pages.length}</span>
+          <span className="muted tabular" style={{ fontSize: 12 }}>Страница {pageLabel} из {pages.length}</span>
           {isLast ? (
             <button className="btn sm success">
               Готово <Icon name="check" size={12} />
@@ -477,7 +488,8 @@ export default function QuestionnairePage() {
           ) : (
             <button
               className="btn sm primary"
-              onClick={() => setCurrentPage(p => p + 1)}
+              disabled={!hasPages}
+              onClick={() => setCurrentPage(p => Math.min(p + 1, Math.max(pages.length - 1, 0)))}
             >
               Далее <Icon name="chev-right" size={12} />
             </button>

@@ -425,3 +425,98 @@ describe('QuestionnairePage', () => {
     expect(screen.getByText('PDF')).toBeInTheDocument()
   })
 })
+
+// BUG-043: pagination must not offer a way forward when there are no pages,
+// otherwise the counter grows forever ("Страница 1 из 0", "Страница 2 из 0", ...).
+describe('QuestionnairePage pagination (BUG-043)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.mocked(documentsApi.getById).mockResolvedValue(mockDoc)
+    vi.mocked(templatesApi.getTemplate).mockResolvedValue(mockTemplate)
+    vi.mocked(documentsApi.saveAnswers).mockResolvedValue({ answers: {}, questionnaire: mockQuestionnaire })
+    vi.mocked(documentsApi.saveRevision).mockResolvedValue(undefined)
+    vi.mocked(documentsApi.updateBody).mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.clearAllMocks()
+  })
+
+  it('empty questionnaire: counter reads "Страница 0 из 0" and "Далее" is disabled', async () => {
+    vi.mocked(documentsApi.getQuestionnaire).mockResolvedValue({ title: 'Q', pages: [] })
+
+    renderPage()
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    expect(screen.getByText('Страница 0 из 0')).toBeInTheDocument()
+    expect(screen.queryByText('Страница 1 из 0')).not.toBeInTheDocument()
+
+    const nextButton = screen.getByRole('button', { name: /Далее/ })
+    expect(nextButton).toBeDisabled()
+  })
+
+  it('empty questionnaire: clicking "Далее" does not advance the counter', async () => {
+    vi.mocked(documentsApi.getQuestionnaire).mockResolvedValue({ title: 'Q', pages: [] })
+
+    renderPage()
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    fireEvent.click(screen.getByRole('button', { name: /Далее/ }))
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    expect(screen.getByText('Страница 0 из 0')).toBeInTheDocument()
+    expect(screen.queryByText('Страница 1 из 0')).not.toBeInTheDocument()
+  })
+
+  it('single-page questionnaire: counter reads "Страница 1 из 1" and shows "Готово" instead of "Далее"', async () => {
+    vi.mocked(documentsApi.getQuestionnaire).mockResolvedValue(mockQuestionnaire)
+
+    renderPage()
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    expect(screen.getByText('Страница 1 из 1')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Далее/ })).not.toBeInTheDocument()
+    expect(screen.getByText('Готово')).toBeInTheDocument()
+  })
+
+  it('two-page questionnaire: "Далее" advances from "Страница 1 из 2" to "Страница 2 из 2" and disappears', async () => {
+    const twoPageQuestionnaire = {
+      ...mockQuestionnaire,
+      pages: [
+        mockQuestionnaire.pages[0],
+        {
+          id: 'p2',
+          title: 'P2',
+          questions: [{
+            id: 'q2',
+            parameterCode: 'surname',
+            label: 'Фамилия',
+            hint: null,
+            order: 1,
+            type: 'text' as const,
+            options: null,
+            visible: true,
+            required: false,
+            currentValue: '',
+          }],
+        },
+      ],
+    }
+    vi.mocked(documentsApi.getQuestionnaire).mockResolvedValue(twoPageQuestionnaire)
+
+    renderPage()
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    expect(screen.getByText('Страница 1 из 2')).toBeInTheDocument()
+    const nextButton = screen.getByRole('button', { name: /Далее/ })
+    expect(nextButton).toBeEnabled()
+
+    fireEvent.click(nextButton)
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    expect(screen.getByText('Страница 2 из 2')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Далее/ })).not.toBeInTheDocument()
+    expect(screen.getByText('Готово')).toBeInTheDocument()
+  })
+})
