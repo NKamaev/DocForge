@@ -76,6 +76,7 @@
 | `BUG-051` | — (только tracker) | Legacy participants API: MANAGER может выдать OWNER (эскалация) — TODO |
 | `BUG-052` | — (только tracker) | `POST /api/documents` без проверки доступа к шаблону/папке — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
+| `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
 | `BUG-053` | `tickets/BUG-053.md` | Дубли снимков шаблона → 500 при создании документа — закрыт (`d80c55a`) |
 | `BUG-054` | — (только tracker) | Конфликт нумерации publish()/saveVersion() в `version_number` — TODO |
 | `BUG-055` | — (только tracker) | Unique-индекс снимков + защита от конкурентной публикации — TODO |
