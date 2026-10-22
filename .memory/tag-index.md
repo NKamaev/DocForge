@@ -79,11 +79,12 @@
 | `BUG-059` | — (только tracker) | Read-эндпоинты шаблонов без проверки прав — TODO |
 | `BUG-060` | — (только tracker) | OWNER-роль неизменяема: нет снятия/передачи владения — TODO |
 | `BUG-061` | — (только tracker) | `currentUserId()` глотает исключение внутри транзакции → `UnexpectedRollbackException` — TODO |
+| `BUG-062` | — (только tracker) | Черновик шаблона: version=1 при major/minor=1.0 — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
 | `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
 | `BUG-053` | `tickets/BUG-053.md` | Дубли снимков шаблона → 500 при создании документа — закрыт (`d80c55a`) |
-| `BUG-054` | — (только tracker) | Конфликт нумерации publish()/saveVersion() в `version_number` — TODO |
+| `BUG-054` | `tickets/BUG-054.md` | Конфликт нумерации publish()/saveVersion() в `version_number` — закрыт (`c0f4730`) |
 | `BUG-055` | — (только tracker) | Unique-индекс снимков + защита от конкурентной публикации — TODO |
 | `BUG-056` | — (только tracker) | Yjs «Unexpected end of array» в консоли на `/fill` — TODO |
 | `BUG-057` | `tickets/BUG-057.md` | Мёртвая кнопка «Импорт DOCX» на главной — закрыт (`25b830a`) |
