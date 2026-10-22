@@ -12,6 +12,7 @@ import com.docforge.document.model.DocumentRegistry;
 import com.docforge.document.model.DocumentRole;
 import com.docforge.document.model.DocumentRevision;
 import com.docforge.document.model.DocumentRevisionBody;
+import com.docforge.document.model.FolderPermission;
 import com.docforge.template.TemplateService;
 import com.docforge.template.dto.TemplateResponse;
 import com.docforge.template.model.*;
@@ -22,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +42,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final DocumentRegistryRepository registryRepository;
     private final DocumentMemberRepository documentMemberRepository;
     private final DocumentPermissionService documentPermissionService;
+    private final FolderPermissionService folderPermissionService;
     private final DocumentRevisionRepository revisionRepository;
     private final DocumentRevisionBodyRepository revisionBodyRepository;
     private final UserRepository userRepository;
@@ -58,6 +61,18 @@ public class DocumentServiceImpl implements DocumentService {
                                    Integer templateVersionNumber) {
         // Verify template exists (throws 404 if not)
         TemplateResponse template = templateService.getById(templateId);
+
+        // Шаблон доступен, если он опубликован или принадлежит пользователю.
+        // Иначе можно инстанцировать чужой неопубликованный (черновой) шаблон.
+        if (!template.published() && !ownerId.equals(template.ownerId())) {
+            throw new AccessDeniedException("Нет доступа к шаблону");
+        }
+
+        // Целевая папка должна быть доступна на запись.
+        if (folderId != null
+                && !folderPermissionService.hasPermission(folderId, ownerId, FolderPermission.WRITE)) {
+            throw new AccessDeniedException("Нет прав на папку-цель");
+        }
 
         // Resolve snapshot — use specified version or latest published
         com.docforge.template.model.TemplateSnapshot snapshot = null;
