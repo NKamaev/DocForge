@@ -73,10 +73,13 @@
 | `BUG-042` | `tickets/BUG-042.md` | `useCollaboration.test.ts`: buildWsUrl тесты падали из-за dev-ветки — закрыт (`6e48427`) |
 | `BUG-043` | `tickets/BUG-043.md` | Пустой опросный лист: «Страница 1 из 0» и активная «Далее» — закрыт (`5060e27`) |
 | `BUG-050` | `tickets/BUG-050.md` | Документные эндпоинты без permission-check: export docx/pdf, participants — закрыт (`805820f`) |
-| `BUG-051` | — (только tracker) | Legacy participants API: MANAGER может выдать OWNER (эскалация) — TODO |
+| `BUG-051` | `tickets/BUG-051.md` | Legacy participants API: MANAGER может выдать OWNER — закрыт (`86b2038`) |
 | `BUG-052` | `tickets/BUG-052.md` | `POST /api/documents` без проверки доступа к шаблону/папке — закрыт (`07bef1d`) |
 | `BUG-058` | — (только tracker) | Инстанцирование черновых версий опубликованного шаблона — TODO |
 | `BUG-059` | — (только tracker) | Read-эндпоинты шаблонов без проверки прав — TODO |
+| `BUG-060` | — (только tracker) | OWNER-роль неизменяема: нет снятия/передачи владения — TODO |
+| `BUG-061` | — (только tracker) | `currentUserId()` глотает исключение внутри транзакции → `UnexpectedRollbackException` — TODO |
+| `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
 | `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
 | `BUG-053` | `tickets/BUG-053.md` | Дубли снимков шаблона → 500 при создании документа — закрыт (`d80c55a`) |
