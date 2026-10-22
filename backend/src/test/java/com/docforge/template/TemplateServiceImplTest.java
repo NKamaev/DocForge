@@ -478,16 +478,16 @@ class TemplateServiceImplTest {
     }
 
     @Test
-    @DisplayName("publish() takes max(pgMax, mongoMax) + 1 to avoid orphan-snapshot collision")
-    void publish_avoidsOrphanSnapshotCollision() {
-        // given — PostgreSQL knows only about v2, but MongoDB already has an orphan snapshot v5
+    @DisplayName("publish() raises the semver candidate above an orphan snapshot to stay monotonic")
+    void publish_raisesAboveOrphanSnapshot() {
+        // given — registry 1.0 would yield 10001, but 10001 already exists (orphan snapshot)
         TemplateRegistry registry = registry(templateId, 1, 0);
         Template template = template(templateId);
-        TemplateSnapshot orphanSnapshot = snapshot(UUID.randomUUID(), templateId, 5, 1, 0);
+        TemplateSnapshot orphanSnapshot = snapshot(UUID.randomUUID(), templateId, 10001, 1, 1);
 
         when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry));
         when(templateRepository.findById(templateId)).thenReturn(Optional.of(template));
-        when(versionRepository.findMaxVersionNumber(templateId)).thenReturn(2);
+        when(versionRepository.findMaxVersionNumber(templateId)).thenReturn(10001);
         when(snapshotRepository.findFirstByTemplateIdOrderByVersionNumberDesc(templateId))
                 .thenReturn(Optional.of(orphanSnapshot));
         when(registryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -501,37 +501,43 @@ class TemplateServiceImplTest {
         // when
         TemplateResponse response = templateService.publish(templateId);
 
-        // then — both records get versionNumber = 6 (5 + 1), not 3 (2 + 1)
+        // then — monotonic floor: 10001 → 10002, semver components stay in sync
         ArgumentCaptor<TemplateVersion> versionCaptor = ArgumentCaptor.forClass(TemplateVersion.class);
         verify(versionRepository).save(versionCaptor.capture());
         TemplateVersion savedVersion = versionCaptor.getValue();
-        assertThat(savedVersion.getVersionNumber()).isEqualTo(6);
+        assertThat(savedVersion.getVersionNumber()).isEqualTo(10002);
+        assertThat(savedVersion.getMajorVersion()).isEqualTo(1);
+        assertThat(savedVersion.getMinorVersion()).isEqualTo(2);
         assertThat(savedVersion.getBumpType()).isEqualTo("PUBLISH");
 
         ArgumentCaptor<TemplateSnapshot> snapshotCaptor = ArgumentCaptor.forClass(TemplateSnapshot.class);
         verify(snapshotRepository).save(snapshotCaptor.capture());
         TemplateSnapshot savedSnapshot = snapshotCaptor.getValue();
-        assertThat(savedSnapshot.getVersionNumber()).isEqualTo(6);
+        assertThat(savedSnapshot.getVersionNumber()).isEqualTo(10002);
+        assertThat(savedSnapshot.getMajorVersion()).isEqualTo(1);
+        assertThat(savedSnapshot.getMinorVersion()).isEqualTo(2);
         assertThat(savedSnapshot.getId()).isEqualTo(savedVersion.getId());
 
         ArgumentCaptor<TemplateRegistry> registryCaptor = ArgumentCaptor.forClass(TemplateRegistry.class);
         verify(registryRepository).save(registryCaptor.capture());
-        assertThat(registryCaptor.getValue().getVersion()).isEqualTo(6);
+        assertThat(registryCaptor.getValue().getVersion()).isEqualTo(10002);
+        assertThat(registryCaptor.getValue().getMajorVersion()).isEqualTo(1);
+        assertThat(registryCaptor.getValue().getMinorVersion()).isEqualTo(2);
         assertThat(registryCaptor.getValue().isPublished()).isTrue();
 
-        assertThat(response.version()).isEqualTo(6);
+        assertThat(response.version()).isEqualTo(10002);
     }
 
     @Test
-    @DisplayName("publish() falls back to pgMax + 1 when MongoDB has no snapshots")
-    void publish_usesPgMax_whenNoSnapshotsInMongo() {
-        // given
+    @DisplayName("publish() uses pgMax as monotonic floor when MongoDB has no snapshots")
+    void publish_usesPgMaxFloor_whenNoSnapshotsInMongo() {
+        // given — PostgreSQL already knows 1.5 (10005); semver candidate 10001 must be raised
         TemplateRegistry registry = registry(templateId, 1, 0);
         Template template = template(templateId);
 
         when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry));
         when(templateRepository.findById(templateId)).thenReturn(Optional.of(template));
-        when(versionRepository.findMaxVersionNumber(templateId)).thenReturn(4);
+        when(versionRepository.findMaxVersionNumber(templateId)).thenReturn(10005);
         when(snapshotRepository.findFirstByTemplateIdOrderByVersionNumberDesc(templateId))
                 .thenReturn(Optional.empty());
         when(registryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -545,14 +551,69 @@ class TemplateServiceImplTest {
         // when
         templateService.publish(templateId);
 
-        // then
+        // then — 10005 + 1, kept as a valid semver pair (1.6)
         ArgumentCaptor<TemplateVersion> versionCaptor = ArgumentCaptor.forClass(TemplateVersion.class);
         verify(versionRepository).save(versionCaptor.capture());
-        assertThat(versionCaptor.getValue().getVersionNumber()).isEqualTo(5);
+        assertThat(versionCaptor.getValue().getVersionNumber()).isEqualTo(10006);
+        assertThat(versionCaptor.getValue().getMajorVersion()).isEqualTo(1);
+        assertThat(versionCaptor.getValue().getMinorVersion()).isEqualTo(6);
 
         ArgumentCaptor<TemplateSnapshot> snapshotCaptor = ArgumentCaptor.forClass(TemplateSnapshot.class);
         verify(snapshotRepository).save(snapshotCaptor.capture());
-        assertThat(snapshotCaptor.getValue().getVersionNumber()).isEqualTo(5);
+        assertThat(snapshotCaptor.getValue().getVersionNumber()).isEqualTo(10006);
+    }
+
+    @Test
+    @DisplayName("saveVersion() rolls minor 9999 over to the next major (1.9999 → 2.0)")
+    void saveVersion_minorOverflow_rollsOverIntoNextMajor() {
+        // given — registry is already at 1.9999 and there are no version rows yet
+        TemplateRegistry registry = registry(templateId, 1, 9999);
+        Template template = template(templateId);
+
+        when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry));
+        when(templateRepository.findById(templateId)).thenReturn(Optional.of(template));
+        when(templateRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(registryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(versionRepository.save(any())).thenAnswer(inv -> {
+            TemplateVersion v = inv.getArgument(0);
+            if (v.getId() == null) v.setId(UUID.randomUUID());
+            return v;
+        });
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // when
+        SaveVersionResponse response = templateService.saveVersion(
+                templateId, new SaveVersionRequest("MINOR", "minor overflow"));
+
+        // then — minor cannot exceed 9999, so major is bumped and minor reset
+        assertThat(response.version().versionNumber()).isEqualTo(20_000);
+        assertThat(response.version().majorVersion()).isEqualTo(2);
+        assertThat(response.version().minorVersion()).isZero();
+
+        ArgumentCaptor<TemplateVersion> versionCaptor = ArgumentCaptor.forClass(TemplateVersion.class);
+        verify(versionRepository).save(versionCaptor.capture());
+        TemplateVersion savedVersion = versionCaptor.getValue();
+        assertThat(savedVersion.getVersionNumber()).isEqualTo(20_000);
+        assertThat(savedVersion.getMajorVersion()).isEqualTo(2);
+        assertThat(savedVersion.getMinorVersion()).isZero();
+        assertThat(savedVersion.getBumpType()).isEqualTo("MINOR");
+
+        // snapshot and registry follow the same overflow rule
+        ArgumentCaptor<TemplateSnapshot> snapshotCaptor = ArgumentCaptor.forClass(TemplateSnapshot.class);
+        verify(snapshotRepository).save(snapshotCaptor.capture());
+        assertThat(snapshotCaptor.getValue().getVersionNumber()).isEqualTo(20_000);
+        assertThat(snapshotCaptor.getValue().getMajorVersion()).isEqualTo(2);
+        assertThat(snapshotCaptor.getValue().getMinorVersion()).isZero();
+
+        ArgumentCaptor<TemplateRegistry> registryCaptor = ArgumentCaptor.forClass(TemplateRegistry.class);
+        verify(registryRepository).save(registryCaptor.capture());
+        assertThat(registryCaptor.getValue().getVersion()).isEqualTo(20_000);
+        assertThat(registryCaptor.getValue().getMajorVersion()).isEqualTo(2);
+        assertThat(registryCaptor.getValue().getMinorVersion()).isZero();
+
+        assertThat(response.template().version()).isEqualTo(20_000);
+        assertThat(response.template().majorVersion()).isEqualTo(2);
+        assertThat(response.template().minorVersion()).isZero();
     }
 
     // ── Helper ─────────────────────────────────────────────────────────────────

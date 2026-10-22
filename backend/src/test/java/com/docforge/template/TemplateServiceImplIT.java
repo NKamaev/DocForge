@@ -60,21 +60,26 @@ class TemplateServiceImplIT extends AbstractIT {
                 versionRepository.findByTemplateIdOrderByVersionNumberDesc(templateId);
         assertThat(versions).hasSize(1);
         TemplateVersion version = versions.get(0);
-        assertThat(version.getVersionNumber()).isEqualTo(1);
+        // BUG-054: publish() consumes the semantic counter — 1.0 → 1.1
+        assertThat(version.getVersionNumber()).isEqualTo(10_001);
+        assertThat(version.getMajorVersion()).isEqualTo(1);
+        assertThat(version.getMinorVersion()).isEqualTo(1);
         assertThat(version.getCreatedAt()).isNotNull();
 
         // Assert — MongoDB: snapshot exists
         TemplateSnapshot snapshot =
-                snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, 1)
+                snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, 10_001)
                         .orElse(null);
         assertThat(snapshot).isNotNull();
         assertThat(snapshot.getTemplateId()).isEqualTo(templateId);
-        assertThat(snapshot.getVersionNumber()).isEqualTo(1);
+        assertThat(snapshot.getVersionNumber()).isEqualTo(10_001);
         // BUG-001 fix: createdAt must be Instant (not null) — proves codec issue is resolved
         assertThat(snapshot.getCreatedAt()).isNotNull();
 
         // Assert — published version counter
-        assertThat(published.version()).isEqualTo(1);
+        assertThat(published.version()).isEqualTo(10_001);
+        assertThat(published.majorVersion()).isEqualTo(1);
+        assertThat(published.minorVersion()).isEqualTo(1);
     }
 
     @Test

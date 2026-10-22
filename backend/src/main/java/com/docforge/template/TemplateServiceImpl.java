@@ -190,16 +190,11 @@ public class TemplateServiceImpl implements TemplateService {
         // Ensure current content is persisted before snapshot
         template = templateRepository.save(template);
 
-        // Determine new version numbers
-        int newMajor = registry.getMajorVersion();
-        int newMinor = registry.getMinorVersion();
-        if ("MAJOR".equals(request.bumpType())) {
-            newMajor++;
-            newMinor = 0;
-        } else {
-            newMinor++;
-        }
-        int newVersionNumber = newMajor * 10000 + newMinor;
+        // Determine new version numbers (единый счётчик со всеми писателями)
+        NextVersion next = allocateVersion(registry, templateId, request.bumpType());
+        int newMajor = next.major();
+        int newMinor = next.minor();
+        int newVersionNumber = next.versionNumber();
 
         // Build auto-diff description
         String autoDescription = buildAutoDescription(templateId, template, newMajor, newMinor);
@@ -265,10 +260,12 @@ public class TemplateServiceImpl implements TemplateService {
         template = templateRepository.save(template);
 
         // Create a new version as rollback
-        int newMajor = registry.getMajorVersion();
-        int newMinor = registry.getMinorVersion() + 1;
-        int newVersionNumber = newMajor * 10000 + newMinor;
+        NextVersion next = allocateVersion(registry, templateId, "ROLLBACK");
+        int newMajor = next.major();
+        int newMinor = next.minor();
+        int newVersionNumber = next.versionNumber();
 
+        registry.setMajorVersion(newMajor);
         registry.setMinorVersion(newMinor);
         registry.setVersion(newVersionNumber);
         registry = registryRepository.save(registry);
@@ -353,17 +350,72 @@ public class TemplateServiceImpl implements TemplateService {
 
     // ── private helpers ───────────────────────────────────────────────────────
 
+    private record NextVersion(int major, int minor, int versionNumber) {}
+
+    /**
+     * Единый аллокатор семантических версий ({@code major*10000 + minor}).
+     *
+     * <p>Все версии (PUBLISH/MINOR/MAJOR/ROLLBACK) пишут в один счётчик
+     * {@code template_version.version_number}, поэтому публикация и откат
+     * расходуют minor так же, как {@link #saveVersion}. Значения
+     * {@code max(pgMax, mongoMax)} используются только как floor монотонности:
+     * если в базе остались «осиротевшие» снимки с большим номером, следующий
+     * номер поднимается выше них.
+     *
+     * @param bumpType {@code MAJOR} поднимает major и сбрасывает minor в 0,
+     *                 остальные значения (MINOR/PUBLISH/ROLLBACK) растят minor
+     */
+    private NextVersion allocateVersion(TemplateRegistry registry, UUID templateId, String bumpType) {
+        int pgMax = versionRepository.findMaxVersionNumber(templateId);
+        int mongoMax = snapshotRepository.findFirstByTemplateIdOrderByVersionNumberDesc(templateId)
+                .map(TemplateSnapshot::getVersionNumber)
+                .orElse(0);
+        int maxExisting = Math.max(pgMax, mongoMax);
+        boolean majorBump = "MAJOR".equals(bumpType);
+
+        int major = Math.max(registry.getMajorVersion(), 1);
+        int minor;
+        if (majorBump) {
+            major++;
+            minor = 0;
+        } else {
+            minor = registry.getMinorVersion() + 1;
+        }
+        if (minor > 9999) {
+            major++;
+            minor = 0;
+        }
+        int versionNumber = major * 10000 + minor;
+
+        if (versionNumber <= maxExisting) {
+            if (majorBump) {
+                major = Math.max(maxExisting / 10000, 1) + 1;
+                minor = 0;
+            } else {
+                major = Math.max(maxExisting / 10000, 1);
+                minor = maxExisting % 10000 + 1;
+                if (minor > 9999) {
+                    major++;
+                    minor = 0;
+                }
+            }
+            versionNumber = major * 10000 + minor;
+        }
+        return new NextVersion(major, minor, versionNumber);
+    }
+
     private TemplateResponse setPublished(UUID id, boolean published) {
         TemplateRegistry registry = findRegistryOrThrow(id);
         Template template = findTemplateOrThrow(id);
 
         if (published) {
-            int pgMax = versionRepository.findMaxVersionNumber(id);
-            int mongoMax = snapshotRepository.findFirstByTemplateIdOrderByVersionNumberDesc(id)
-                    .map(TemplateSnapshot::getVersionNumber)
-                    .orElse(0);
-            int nextVersion = Math.max(pgMax, mongoMax) + 1;
+            NextVersion next = allocateVersion(registry, id, "PUBLISH");
+            int newMajor = next.major();
+            int newMinor = next.minor();
+            int nextVersion = next.versionNumber();
             registry.setVersion(nextVersion);
+            registry.setMajorVersion(newMajor);
+            registry.setMinorVersion(newMinor);
 
             TemplateVersion version = new TemplateVersion();
             version.setTemplateId(id);
@@ -371,16 +423,16 @@ public class TemplateServiceImpl implements TemplateService {
             version.setCreatedBy(currentUserId());
             version.setCreatedAt(OffsetDateTime.now());
             version.setBumpType("PUBLISH");
-            version.setMajorVersion(registry.getMajorVersion());
-            version.setMinorVersion(registry.getMinorVersion());
+            version.setMajorVersion(newMajor);
+            version.setMinorVersion(newMinor);
             versionRepository.save(version);
 
             TemplateSnapshot snapshot = TemplateSnapshot.builder()
                     .id(version.getId())
                     .templateId(id)
                     .versionNumber(nextVersion)
-                    .majorVersion(registry.getMajorVersion())
-                    .minorVersion(registry.getMinorVersion())
+                    .majorVersion(newMajor)
+                    .minorVersion(newMinor)
                     .parameters(template.getParameters())
                     .questionnaire(template.getQuestionnaire())
                     .body(template.getBody())
@@ -446,10 +498,12 @@ public class TemplateServiceImpl implements TemplateService {
     }
 
     private TemplateVersionDTO toVersionDTO(TemplateVersion v) {
+        // Легаси-счётчики (< 10000) не семантические: V015 трактует их как vN.0.
+        boolean semver = v.getVersionNumber() >= 10000;
         int major = v.getMajorVersion() != null ? v.getMajorVersion()
-                : (v.getVersionNumber() / 10000 > 0 ? v.getVersionNumber() / 10000 : v.getVersionNumber());
+                : (semver ? v.getVersionNumber() / 10000 : v.getVersionNumber());
         int minor = v.getMinorVersion() != null ? v.getMinorVersion()
-                : (v.getVersionNumber() % 10000);
+                : (semver ? v.getVersionNumber() % 10000 : 0);
         return new TemplateVersionDTO(
                 v.getId(), v.getTemplateId(), v.getVersionNumber(),
                 major, minor,

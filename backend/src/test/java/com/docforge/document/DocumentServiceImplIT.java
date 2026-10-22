@@ -47,7 +47,8 @@ class DocumentServiceImplIT extends AbstractIT {
 
         // Assert — BUG-001: snapshotId and versionNumber must be populated
         assertThat(doc.templateSnapshotId()).isNotNull();
-        assertThat(doc.templateVersionNumber()).isEqualTo(1);
+        // BUG-054: first publish() produces semantic version 1.1 (10001)
+        assertThat(doc.templateVersionNumber()).isEqualTo(10_001);
         assertThat(doc.templateId()).isEqualTo(template.id());
     }
 
