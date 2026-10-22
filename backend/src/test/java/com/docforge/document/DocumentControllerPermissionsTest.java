@@ -1,6 +1,8 @@
 package com.docforge.document;
 
 import com.docforge.common.exception.GlobalExceptionHandler;
+import com.docforge.document.dto.DocumentParticipantDTO;
+import com.docforge.document.dto.DocumentResponse;
 import com.docforge.document.dto.DocumentRevisionDTO;
 import com.docforge.document.dto.GenerateResponse;
 import com.docforge.document.dto.SaveAnswersResponse;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -35,15 +38,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -85,6 +93,8 @@ class DocumentControllerPermissionsTest {
     private static final UUID DOC_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-0000000000bb");
     private static final UUID REVISION_ID = UUID.fromString("00000000-0000-0000-0000-0000000000cc");
+    private static final UUID TEMPLATE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000dd");
+    private static final UUID PARTICIPANT_ID = UUID.fromString("00000000-0000-0000-0000-0000000000ee");
     private static final String LOGIN = "alice";
 
     /** Denial message used by READ-guarded handlers. */
@@ -431,6 +441,187 @@ class DocumentControllerPermissionsTest {
         verifyNoInteractions(documentService);
     }
 
+    // ── export: DOCX (BUG-050) ─────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("GET .../export/docx with READ permission returns 200 with an attachment")
+    void exportDocx_withReadPermission_returns200() throws Exception {
+        // given — caller may read
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
+                .thenReturn(true);
+        givenExportableDocument();
+        when(docxExportService.export(any(), isNull())).thenReturn(new byte[]{1, 2, 3});
+
+        // when / then
+        mockMvc.perform(get("/api/documents/{id}/export/docx", DOC_ID))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString(".docx")))
+                .andExpect(content().bytes(new byte[]{1, 2, 3}));
+    }
+
+    @Test
+    @DisplayName("GET .../export/docx without READ permission returns 403 and never exports")
+    void exportDocx_withoutReadPermission_returns403() throws Exception {
+        // given — authenticated caller has no READ permission
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
+                .thenReturn(false);
+
+        // when / then — READ-guarded: the document is never loaded and no exporter runs
+        mockMvc.perform(get("/api/documents/{id}/export/docx", DOC_ID))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
+
+        verifyNoInteractions(documentService, docxExportService, pdfExportService, treeWalker, nodeResolver);
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.READ);
+    }
+
+    // ── export: PDF (BUG-050) ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("GET .../export/pdf with READ permission returns 200 with an attachment")
+    void exportPdf_withReadPermission_returns200() throws Exception {
+        // given — caller may read
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
+                .thenReturn(true);
+        givenExportableDocument();
+        when(pdfExportService.export(any(), isNull())).thenReturn(new byte[]{4, 5, 6});
+
+        // when / then
+        mockMvc.perform(get("/api/documents/{id}/export/pdf", DOC_ID))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString(".pdf")))
+                .andExpect(content().bytes(new byte[]{4, 5, 6}));
+    }
+
+    @Test
+    @DisplayName("GET .../export/pdf without READ permission returns 403 and never exports")
+    void exportPdf_withoutReadPermission_returns403() throws Exception {
+        // given — authenticated caller has no READ permission
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
+                .thenReturn(false);
+
+        // when / then — READ-guarded: the document is never loaded and no exporter runs
+        mockMvc.perform(get("/api/documents/{id}/export/pdf", DOC_ID))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
+
+        verifyNoInteractions(documentService, docxExportService, pdfExportService, treeWalker, nodeResolver);
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.READ);
+    }
+
+    // ── participants: list (BUG-050) ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("GET .../participants with READ permission returns 200")
+    void getParticipants_withReadPermission_returns200() throws Exception {
+        // given — caller may read
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
+                .thenReturn(true);
+        when(documentService.getParticipants(DOC_ID)).thenReturn(List.of(participant(USER_ID, "OWNER")));
+
+        // when / then
+        mockMvc.perform(get("/api/documents/{id}/participants", DOC_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].userId").value(USER_ID.toString()))
+                .andExpect(jsonPath("$[0].role").value("OWNER"));
+    }
+
+    @Test
+    @DisplayName("GET .../participants without READ permission returns 403 and never lists")
+    void getParticipants_withoutReadPermission_returns403() throws Exception {
+        // given — authenticated caller has no READ permission
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
+                .thenReturn(false);
+
+        // when / then
+        mockMvc.perform(get("/api/documents/{id}/participants", DOC_ID))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
+
+        verifyNoInteractions(documentService);
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.READ);
+    }
+
+    // ── participants: add (BUG-050) ────────────────────────────────────────────
+
+    @Test
+    @DisplayName("POST .../participants with MANAGE permission returns 201")
+    void addParticipant_withManagePermission_returns201() throws Exception {
+        // given — caller may manage sharing
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE))
+                .thenReturn(true);
+        when(documentService.addParticipant(DOC_ID, PARTICIPANT_ID, "EDITOR"))
+                .thenReturn(participant(PARTICIPANT_ID, "EDITOR"));
+
+        // when / then
+        mockMvc.perform(post("/api/documents/{id}/participants", DOC_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"" + PARTICIPANT_ID + "\",\"role\":\"EDITOR\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.userId").value(PARTICIPANT_ID.toString()))
+                .andExpect(jsonPath("$.role").value("EDITOR"));
+    }
+
+    @Test
+    @DisplayName("POST .../participants without MANAGE permission returns 403 and never invites")
+    void addParticipant_withoutManagePermission_returns403() throws Exception {
+        // given — authenticated caller has no MANAGE permission
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE))
+                .thenReturn(false);
+
+        // when / then
+        mockMvc.perform(post("/api/documents/{id}/participants", DOC_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"" + PARTICIPANT_ID + "\",\"role\":\"EDITOR\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
+
+        verifyNoInteractions(documentService);
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE);
+    }
+
+    // ── participants: remove (BUG-050) ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("DELETE .../participants/{userId} with MANAGE permission returns 204")
+    void removeParticipant_withManagePermission_returns204() throws Exception {
+        // given — caller may manage sharing
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE))
+                .thenReturn(true);
+
+        // when / then
+        mockMvc.perform(delete("/api/documents/{id}/participants/{userId}", DOC_ID, PARTICIPANT_ID))
+                .andExpect(status().isNoContent());
+
+        verify(documentService).removeParticipant(DOC_ID, PARTICIPANT_ID);
+    }
+
+    @Test
+    @DisplayName("DELETE .../participants/{userId} without MANAGE permission returns 403 and never removes")
+    void removeParticipant_withoutManagePermission_returns403() throws Exception {
+        // given — authenticated caller has no MANAGE permission
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE))
+                .thenReturn(false);
+
+        // when / then
+        mockMvc.perform(delete("/api/documents/{id}/participants/{userId}", DOC_ID, PARTICIPANT_ID))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403));
+
+        verifyNoInteractions(documentService);
+        verify(documentPermissionService).hasPermission(DOC_ID, USER_ID, DocumentPermission.MANAGE);
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────────
 
     /**
@@ -447,6 +638,55 @@ class DocumentControllerPermissionsTest {
                     DocumentPermission requested = invocation.getArgument(2);
                     return requested == DocumentPermission.READ || requested == DocumentPermission.VIEW;
                 });
+    }
+
+    /**
+     * Stubs the minimum collaborator surface consumed by the export handlers: the document is
+     * loadable, template metadata resolution fails gracefully (→ {@code null} formatting / empty
+     * parameter index), and the tree walk is a pass-through. The exporter itself is stubbed per
+     * test (DOCX vs PDF).
+     */
+    private void givenExportableDocument() {
+        when(documentService.getById(DOC_ID)).thenReturn(documentWithBody());
+        when(templateService.getById(TEMPLATE_ID))
+                .thenThrow(new IllegalStateException("template not needed for this slice"));
+        when(nodeResolver.buildClauseNumberingMap(any())).thenReturn(Map.of());
+        when(treeWalker.transform(any(), any())).thenReturn(tiptapBody());
+    }
+
+    private static DocumentResponse documentWithBody() {
+        return new DocumentResponse(
+                DOC_ID,
+                "Договор",
+                "DRAFT",
+                TEMPLATE_ID,
+                null,
+                1,
+                USER_ID,
+                null,
+                Instant.parse("2026-01-01T10:00:00Z"),
+                Instant.parse("2026-01-01T10:00:00Z"),
+                Map.of(),
+                tiptapBody(),
+                tiptapBody(),
+                null);
+    }
+
+    private static Map<String, Object> tiptapBody() {
+        return Map.of(
+                "type", "doc",
+                "content", List.of(Map.of(
+                        "type", "paragraph",
+                        "content", List.of(Map.of("type", "text", "text", "Здравствуйте")))));
+    }
+
+    private static DocumentParticipantDTO participant(UUID userId, String role) {
+        return new DocumentParticipantDTO(
+                userId,
+                "alice",
+                "Alice",
+                role,
+                OffsetDateTime.parse("2026-01-01T10:00:00Z"));
     }
 
     private static DocumentRevisionDTO revision(int editionNumber) {

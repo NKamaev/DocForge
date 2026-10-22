@@ -179,7 +179,13 @@ public class DocumentController {
 
     /** GET /api/documents/{id}/export/docx */
     @GetMapping("/{id}/export/docx")
-    public ResponseEntity<byte[]> exportDocx(@PathVariable UUID id) {
+    public ResponseEntity<byte[]> exportDocx(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.READ))
+            throw new AccessDeniedException("Нет доступа к документу");
         DocumentResponse doc = documentService.getById(id);
         Object body = doc.currentBody() != null ? doc.currentBody() : doc.generatedBody();
         if (body == null) {
@@ -206,7 +212,13 @@ public class DocumentController {
 
     /** GET /api/documents/{id}/export/pdf */
     @GetMapping("/{id}/export/pdf")
-    public ResponseEntity<byte[]> exportPdf(@PathVariable UUID id) {
+    public ResponseEntity<byte[]> exportPdf(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.READ))
+            throw new AccessDeniedException("Нет доступа к документу");
         DocumentResponse doc = documentService.getById(id);
         Object body = doc.currentBody() != null ? doc.currentBody() : doc.generatedBody();
         if (body == null) {
@@ -302,7 +314,13 @@ public class DocumentController {
 
     /** GET /api/documents/{id}/participants */
     @GetMapping("/{id}/participants")
-    public ResponseEntity<List<DocumentParticipantDTO>> getParticipants(@PathVariable UUID id) {
+    public ResponseEntity<List<DocumentParticipantDTO>> getParticipants(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.READ))
+            throw new AccessDeniedException("Нет доступа к документу");
         return ResponseEntity.ok(documentService.getParticipants(id));
     }
 
@@ -310,8 +328,12 @@ public class DocumentController {
     @PostMapping("/{id}/participants")
     public ResponseEntity<DocumentParticipantDTO> addParticipant(
             @PathVariable UUID id,
-            @Valid @RequestBody AddParticipantRequest request
+            @Valid @RequestBody AddParticipantRequest request,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
+        UUID userId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, userId, DocumentPermission.MANAGE))
+            throw new AccessDeniedException("Нет прав на управление участниками");
         DocumentParticipantDTO result = documentService.addParticipant(
                 id, request.userId(), request.role());
         return ResponseEntity.status(HttpStatus.CREATED).body(result);
@@ -321,8 +343,12 @@ public class DocumentController {
     @DeleteMapping("/{id}/participants/{userId}")
     public ResponseEntity<Void> removeParticipant(
             @PathVariable UUID id,
-            @PathVariable UUID userId
+            @PathVariable UUID userId,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
+        UUID currentUserId = ownerResolver.resolve(userDetails.getUsername());
+        if (!documentPermissionService.hasPermission(id, currentUserId, DocumentPermission.MANAGE))
+            throw new AccessDeniedException("Нет прав на управление участниками");
         documentService.removeParticipant(id, userId);
         return ResponseEntity.noContent().build();
     }
