@@ -1,36 +1,49 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { deduplicateByName, buildWsUrl } from './useCollaboration'
 import type { CollaborationUser } from './useCollaboration'
 
 describe('buildWsUrl', () => {
-  beforeEach(() => {
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { protocol: 'http:', host: 'example.com' },
-    })
-  })
-
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
   it('returns VITE_WS_URL when set', () => {
-    vi.stubEnv('VITE_WS_URL', 'wss://production.example.com')
-    expect(buildWsUrl()).toBe('wss://production.example.com')
+    expect(
+      buildWsUrl(
+        { VITE_WS_URL: 'wss://production.example.com' },
+        { protocol: 'http:', host: 'example.com' },
+      ),
+    ).toBe('wss://production.example.com')
   })
 
   it('derives ws:// from http: location when env not set', () => {
-    vi.stubEnv('VITE_WS_URL', '')
-    expect(buildWsUrl()).toBe('ws://example.com')
+    expect(
+      buildWsUrl({ VITE_WS_URL: '', DEV: false }, { protocol: 'http:', host: 'example.com' }),
+    ).toBe('ws://example.com')
   })
 
   it('derives wss:// from https: location when env not set', () => {
-    Object.defineProperty(window, 'location', {
-      configurable: true,
-      value: { protocol: 'https:', host: 'secure.example.com' },
-    })
-    vi.stubEnv('VITE_WS_URL', '')
-    expect(buildWsUrl()).toBe('wss://secure.example.com')
+    expect(
+      buildWsUrl(
+        { VITE_WS_URL: '', DEV: false },
+        { protocol: 'https:', host: 'secure.example.com' },
+      ),
+    ).toBe('wss://secure.example.com')
+  })
+
+  it('returns dev server URL when DEV is true, ignoring location', () => {
+    expect(
+      buildWsUrl({ VITE_WS_URL: '', DEV: true }, { protocol: 'https:', host: 'secure.example.com' }),
+    ).toBe('ws://localhost:8080')
+  })
+
+  it('prefers VITE_WS_URL over DEV mode', () => {
+    expect(
+      buildWsUrl(
+        { VITE_WS_URL: 'wss://production.example.com', DEV: true },
+        { protocol: 'http:', host: 'example.com' },
+      ),
+    ).toBe('wss://production.example.com')
+  })
+
+  it('defaults to the dev backend in the test environment', () => {
+    expect(buildWsUrl()).toBe('ws://localhost:8080')
   })
 })
 

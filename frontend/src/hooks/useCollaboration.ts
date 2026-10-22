@@ -107,14 +107,23 @@ export function deduplicateByName(users: CollaborationUser[]): CollaborationUser
   return Array.from(seen.values())
 }
 
+/** Subset of Vite env vars needed to resolve the WebSocket URL. */
+export interface WsEnv {
+  VITE_WS_URL?: string
+  DEV?: boolean
+}
+
 /** Resolve WebSocket server URL from env var or current window location. */
-export function buildWsUrl(): string {
-  if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL as string
+export function buildWsUrl(
+  env: WsEnv = import.meta.env,
+  location: Pick<Location, 'protocol' | 'host'> = globalThis.location,
+): string {
+  if (env.VITE_WS_URL) return env.VITE_WS_URL
   // In dev mode connect directly to backend (port 8080) instead of proxying
   // through Vite (port 5173) — Vite's built-in WS can conflict with the proxy.
-  if (import.meta.env.DEV) return 'ws://localhost:8080'
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${window.location.host}`
+  if (env.DEV) return 'ws://localhost:8080'
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  return `${proto}://${location.host}`
 }
 
 /** Deterministic HSL color from a login string (hash → hue). */
