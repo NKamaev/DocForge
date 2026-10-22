@@ -68,8 +68,9 @@
 | `BUG-029` | `tickets/BUG-029.md` | Toast не показывался программно — закрыт (CustomEvent app-toast) |
 | `BUG-046` | `tickets/BUG-046.md` | Откат к редакции через reload — закрыт (программный Yjs-reset) |
 | `BUG-047` | `tickets/BUG-047.md` | ОЛ пуст при вопросах в шаблоне — закрыт (snapshot-first questionnaire, `b0246b4`) |
-| `BUG-048` | `tickets/BUG-048.md` | Permission-check на revision/answers/generate эндпоинтах — открыт |
-| `BUG-049` | `tickets/BUG-049.md` | DocumentsPage bulk-кнопки «Скачать»/«Удалить» без onClick — открыт |
+| `BUG-048` | `tickets/BUG-048.md` | Permission-check на revision/answers/generate эндпоинтах — закрыт (`2cbe399`, `17b6240`, `b758c12`) |
+| `BUG-049` | `tickets/BUG-049.md` | DocumentsPage bulk-кнопки «Скачать»/«Удалить» без onClick — закрыт (`7736bf1`) |
+| `BUG-050` | — (только tracker) | Документные эндпоинты без permission-check: export docx/pdf, participants — TODO |
 
 ---
 
