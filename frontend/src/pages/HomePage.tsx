@@ -73,7 +73,6 @@ export default function HomePage() {
           <p>Добро пожаловать в DocForge — конструктор документов.</p>
         </div>
         <div className="page-head-actions">
-          <button className="btn"><Icon name="upload" size={14} /> Импорт DOCX</button>
           <button className="btn primary" onClick={() => navigate('/templates')}>
             <Icon name="plus" size={14} /> Новый шаблон
           </button>
@@ -145,7 +144,7 @@ export default function HomePage() {
             </div>
             <div>
               <div style={{ fontSize: 13.5, fontWeight: 550 }}>Создать шаблон</div>
-              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Начните с пустой страницы или импортируйте DOCX.</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Начните с пустой страницы или выберите готовый шаблон.</div>
             </div>
           </div>
           <div onClick={() => navigate('/documents')} className="card hover" style={{ padding: 14, display: 'flex', gap: 12, alignItems: 'flex-start' }}>

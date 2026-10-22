@@ -12,9 +12,9 @@
  *  2. the rendered trend reflects the server-provided `totalElements`;
  *  3. a rejected request hides the trend entirely (no hardcoded fallback, no crash).
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import HomePage from './HomePage'
 import { templatesApi } from '../api/templatesApi'
 import { documentsApi } from '../api/documentsApi'
@@ -69,6 +69,21 @@ function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/']}>
       <HomePage />
+    </MemoryRouter>,
+  )
+}
+
+/** Renders the page next to a probe of the router location. */
+function renderPageWithLocationProbe() {
+  function LocationProbe() {
+    const location = useLocation()
+    return <div data-testid="location">{location.pathname}</div>
+  }
+
+  return render(
+    <MemoryRouter initialEntries={['/']}>
+      <HomePage />
+      <LocationProbe />
     </MemoryRouter>,
   )
 }
@@ -137,5 +152,47 @@ describe('HomePage — weekly templates counter (BUG-044)', () => {
 
     expect(screen.queryByText(/за неделю/)).not.toBeInTheDocument()
     expect(screen.getByText('Шаблонов')).toBeInTheDocument()
+  })
+})
+
+/**
+ * BUG-057 — «Импорт DOCX» на главной выглядит рабочим, но ничего не делает.
+ *
+ * DOCX import is out of MVP scope, so the entry point was removed entirely
+ * rather than left as a disabled placeholder. The quick-action copy no longer
+ * promises DOCX import; it points at the template catalogue instead.
+ */
+describe('HomePage — DOCX import entry point removed (BUG-057)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(documentsApi.list).mockResolvedValue(EMPTY_DOCS_PAGE)
+    vi.mocked(templatesApi.getTemplates).mockResolvedValue(templatesPage(0))
+  })
+
+  it('renders no «Импорт DOCX» button at all', () => {
+    renderPage()
+
+    expect(screen.queryByRole('button', { name: /Импорт DOCX/i })).toBeNull()
+  })
+
+  it('no longer promises DOCX import and offers the template catalogue instead', async () => {
+    renderPage()
+
+    await screen.findByText('Быстрые действия')
+
+    expect(document.body).not.toHaveTextContent(/импортируйте DOCX/i)
+    expect(document.body).toHaveTextContent('выберите готовый шаблон')
+  })
+
+  it('navigates to /templates when the primary «Новый шаблон» button is clicked', async () => {
+    renderPageWithLocationProbe()
+
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/$/)
+
+    fireEvent.click(screen.getByRole('button', { name: /Новый шаблон/i }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent('/templates'),
+    )
   })
 })
