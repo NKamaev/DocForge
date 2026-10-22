@@ -14,6 +14,7 @@ import com.docforge.template.dto.UpdateTemplateRequest;
 import com.docforge.template.model.TemplateSnapshot;
 import org.springframework.data.domain.Page;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -24,7 +25,8 @@ public interface TemplateService {
 
     TemplateResponse getById(UUID id);
 
-    Page<TemplateListItemResponse> list(int page, int size, String category, Boolean isPublished);
+    Page<TemplateListItemResponse> list(int page, int size, String category, Boolean isPublished,
+                                        OffsetDateTime createdAfter);
 
     TemplateResponse update(UUID id, UpdateTemplateRequest request);
 

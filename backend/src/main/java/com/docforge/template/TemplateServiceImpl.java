@@ -101,7 +101,8 @@ public class TemplateServiceImpl implements TemplateService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<TemplateListItemResponse> list(int page, int size, String category, Boolean isPublished) {
+    public Page<TemplateListItemResponse> list(int page, int size, String category, Boolean isPublished,
+                                               OffsetDateTime createdAfter) {
         Specification<TemplateRegistry> spec = Specification.where(null);
 
         if (category != null) {
@@ -109,6 +110,9 @@ public class TemplateServiceImpl implements TemplateService {
         }
         if (isPublished != null) {
             spec = spec.and((root, query, cb) -> cb.equal(root.get("published"), isPublished));
+        }
+        if (createdAfter != null) {
+            spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("createdAt"), createdAfter));
         }
 
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by("createdAt").descending());

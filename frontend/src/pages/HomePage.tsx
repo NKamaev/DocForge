@@ -5,6 +5,7 @@ import { documentsApi } from '../api/documentsApi'
 import { templatesApi } from '../api/templatesApi'
 import type { DocumentListItem } from '../types/document'
 import { Icon } from '../components/Icon'
+import { startOfWeek } from '../utils/startOfWeek'
 
 function StatCard({
   icon,
@@ -47,10 +48,15 @@ export default function HomePage() {
   const user = useAuthStore((s) => s.user)
   const [docs, setDocs] = useState<DocumentListItem[]>([])
   const [templateCount, setTemplateCount] = useState<number | null>(null)
+  const [weekTemplateCount, setWeekTemplateCount] = useState<number | null>(null)
 
   useEffect(() => {
     documentsApi.list(0, 4).then((p) => setDocs(p.content)).catch(() => {})
     templatesApi.getTemplates({ page: 0, size: 1 }).then((p) => setTemplateCount(p.totalElements)).catch(() => {})
+    templatesApi
+      .getTemplates({ page: 0, size: 1, createdAfter: startOfWeek().toISOString() })
+      .then((p) => setWeekTemplateCount(p.totalElements))
+      .catch(() => {})
   }, [])
 
   const firstName = user?.displayName?.split(' ')[0] ?? 'пользователь'
@@ -75,7 +81,12 @@ export default function HomePage() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 22 }}>
-        <StatCard icon="templates" num={templateCount !== null ? templateCount : '—'} label="Шаблонов" trend="+2 за неделю" />
+        <StatCard
+          icon="templates"
+          num={templateCount !== null ? templateCount : '—'}
+          label="Шаблонов"
+          trend={weekTemplateCount !== null ? `+${weekTemplateCount} за неделю` : undefined}
+        />
         <StatCard icon="doc" num={docs.length} label="Документов в работе" />
         <StatCard icon="users" num="—" label="Активных соавторов" color="var(--accent-green-soft)" />
         <StatCard icon="download" num="—" label="Экспортов в этом месяце" />

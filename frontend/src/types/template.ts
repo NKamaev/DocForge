@@ -68,6 +68,8 @@ export interface TemplateListParams {
   size?: number
   category?: string
   published?: boolean
+  /** ISO date-time; вернуть только шаблоны, созданные не раньше указанного момента */
+  createdAfter?: string
 }
 
 /** Immutable snapshot created on each template publish. Mirrors backend TemplateSnapshot. */

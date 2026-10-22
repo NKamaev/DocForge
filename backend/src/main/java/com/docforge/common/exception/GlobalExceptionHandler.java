@@ -1,6 +1,7 @@
 package com.docforge.common.exception;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
@@ -45,6 +46,18 @@ public class GlobalExceptionHandler {
                         fe -> fe.getDefaultMessage() != null ? fe.getDefaultMessage() : "invalid"));
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Ошибка валидации");
         problem.setProperty("errors", errors);
+        return problem;
+    }
+
+    /**
+     * Неверный тип/формат параметра запроса (например, кривой ISO-date в {@code createdAfter})
+     * — это ошибка клиента, а не внутренняя ошибка сервера.
+     */
+    @ExceptionHandler(TypeMismatchException.class)
+    public ProblemDetail handleTypeMismatch(TypeMismatchException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, "Некорректное значение параметра запроса");
+        problem.setProperty("parameter", ex.getPropertyName());
         return problem;
     }
 
