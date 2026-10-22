@@ -75,6 +75,11 @@
 | `BUG-050` | `tickets/BUG-050.md` | Документные эндпоинты без permission-check: export docx/pdf, participants — закрыт (`805820f`) |
 | `BUG-051` | — (только tracker) | Legacy participants API: MANAGER может выдать OWNER (эскалация) — TODO |
 | `BUG-052` | — (только tracker) | `POST /api/documents` без проверки доступа к шаблону/папке — TODO |
+| `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
+| `BUG-053` | `tickets/BUG-053.md` | Дубли снимков шаблона → 500 при создании документа — закрыт (`d80c55a`) |
+| `BUG-054` | — (только tracker) | Конфликт нумерации publish()/saveVersion() в `version_number` — TODO |
+| `BUG-055` | — (только tracker) | Unique-индекс снимков + защита от конкурентной публикации — TODO |
+| `BUG-056` | — (только tracker) | Yjs «Unexpected end of array» в консоли на `/fill` — TODO |
 
 ---
 

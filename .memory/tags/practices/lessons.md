@@ -1,6 +1,13 @@
 # Извлечённые уроки
 
-> Тег: `practices:lessons` · Обновлено: `2026-10-12`
+> Тег: `practices:lessons` · Обновлено: `2026-10-22`
+
+## [2026-10-22] UUID в MongoDB: legacy-порядок байт
+
+- **MongoDB хранит UUID в legacy-порядке Java-драйвера** (слова по 4 байта в обратном порядке, halves переставлены). Поэтому `mongosh` с `Binary.createFromBase64(<big-endian bytes>)` **не находит** документы, которые видит приложение. Пример: UUID `710749c1-de06-492a-a4fb-a96b73cafd13` хранится как base64 `KkkG3sFJB3ET/cpza6n7pA==`. Для проверок в mongosh либо декодируй через `toString("base64")` из самих документов, либо используй профайлер.
+- **Диагностика через профайлер Mongo** (`db.setProfilingLevel(2)`, затем `db.system.profile`) показывает фактический `filter` и `nreturned` — быстрее, чем гадать по стеку Spring.
+- **`IncorrectResultSizeDataAccessException` = дубли, а не неверный UUID.** Если finder возвращает `Optional`, а данных ≥2 — Spring бросает исключение. Лечится ordered-finder'ом (`findFirstBy...OrderBy...Desc`), а не удалением данных.
+- **Две записи в разные хранилища = orphan'ы.** Снимок в Mongo и `TemplateVersion` в PG пишутся неатомарно; при откате PG в Mongo остаётся снимок. Любая нумерация «по одной БД» должна учитывать максимум из обеих.
 
 ## [2026-10-12] Тестовые шаблоны/документы — только полные
 
