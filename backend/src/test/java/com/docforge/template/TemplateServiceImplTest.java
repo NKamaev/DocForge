@@ -8,6 +8,7 @@ import com.docforge.template.dto.DiffResult;
 import com.docforge.template.dto.RollbackResponse;
 import com.docforge.template.dto.SaveVersionRequest;
 import com.docforge.template.dto.SaveVersionResponse;
+import com.docforge.template.dto.TemplateResponse;
 import com.docforge.template.dto.TemplateVersionDTO;
 import com.docforge.template.model.Template;
 import com.docforge.template.model.TemplateRegistry;
@@ -248,7 +249,7 @@ class TemplateServiceImplTest {
         when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry));
         when(templateRepository.findById(templateId)).thenReturn(Optional.of(template));
         when(templateRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(snapshotRepository.findByTemplateIdAndVersionNumber(templateId, 10001))
+        when(snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, 10001))
                 .thenReturn(Optional.of(oldSnapshot));
         when(registryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(versionRepository.save(any())).thenAnswer(inv -> {
@@ -307,7 +308,7 @@ class TemplateServiceImplTest {
     void rollback_throwsResourceNotFoundException_whenSnapshotNotFound() {
         when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry(templateId, 1, 2)));
         when(templateRepository.findById(templateId)).thenReturn(Optional.of(template(templateId)));
-        when(snapshotRepository.findByTemplateIdAndVersionNumber(templateId, 999))
+        when(snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, 999))
                 .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> templateService.rollback(templateId, 999))
@@ -334,9 +335,9 @@ class TemplateServiceImplTest {
         );
 
         when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry));
-        when(snapshotRepository.findByTemplateIdAndVersionNumber(templateId, 10001))
+        when(snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, 10001))
                 .thenReturn(Optional.of(fromSnapshot));
-        when(snapshotRepository.findByTemplateIdAndVersionNumber(templateId, 10002))
+        when(snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, 10002))
                 .thenReturn(Optional.of(toSnapshot));
         when(templateDiffService.diff(fromSnapshot, toSnapshot)).thenReturn(expectedDiff);
 
@@ -356,7 +357,7 @@ class TemplateServiceImplTest {
     @DisplayName("getDiff() throws ResourceNotFoundException when a snapshot is missing")
     void getDiff_throwsResourceNotFoundException_whenSnapshotNotFound() {
         when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry(templateId, 1, 2)));
-        when(snapshotRepository.findByTemplateIdAndVersionNumber(templateId, 10001))
+        when(snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, 10001))
                 .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> templateService.getDiff(templateId, 10001, 10002))
@@ -448,6 +449,110 @@ class TemplateServiceImplTest {
         assertThatThrownBy(() -> templateService.listVersions(templateId))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining(templateId.toString());
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    //  BUG-053 regression: duplicate-safe snapshot lookup & publish versioning
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Test
+    @DisplayName("getSnapshot() uses the duplicate-safe ordered finder and never the deprecated one")
+    void getSnapshot_usesOrderedFinder_toAvoidDuplicateResultException() {
+        // given
+        TemplateRegistry registry = registry(templateId, 1, 0);
+        TemplateSnapshot duplicateSafe = snapshot(UUID.randomUUID(), templateId, 10001, 1, 1);
+
+        when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry));
+        when(snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, 10001))
+                .thenReturn(Optional.of(duplicateSafe));
+
+        // when
+        TemplateSnapshot result = templateService.getSnapshot(templateId, 10001);
+
+        // then — returns the snapshot selected by the ordered finder
+        assertThat(result).isSameAs(duplicateSafe);
+        verify(snapshotRepository)
+                .findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, 10001);
+        // no other repository interaction (in particular, not the deprecated duplicate-prone finder)
+        verifyNoMoreInteractions(snapshotRepository);
+    }
+
+    @Test
+    @DisplayName("publish() takes max(pgMax, mongoMax) + 1 to avoid orphan-snapshot collision")
+    void publish_avoidsOrphanSnapshotCollision() {
+        // given — PostgreSQL knows only about v2, but MongoDB already has an orphan snapshot v5
+        TemplateRegistry registry = registry(templateId, 1, 0);
+        Template template = template(templateId);
+        TemplateSnapshot orphanSnapshot = snapshot(UUID.randomUUID(), templateId, 5, 1, 0);
+
+        when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry));
+        when(templateRepository.findById(templateId)).thenReturn(Optional.of(template));
+        when(versionRepository.findMaxVersionNumber(templateId)).thenReturn(2);
+        when(snapshotRepository.findFirstByTemplateIdOrderByVersionNumberDesc(templateId))
+                .thenReturn(Optional.of(orphanSnapshot));
+        when(registryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(versionRepository.save(any())).thenAnswer(inv -> {
+            TemplateVersion v = inv.getArgument(0);
+            if (v.getId() == null) v.setId(UUID.randomUUID());
+            return v;
+        });
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // when
+        TemplateResponse response = templateService.publish(templateId);
+
+        // then — both records get versionNumber = 6 (5 + 1), not 3 (2 + 1)
+        ArgumentCaptor<TemplateVersion> versionCaptor = ArgumentCaptor.forClass(TemplateVersion.class);
+        verify(versionRepository).save(versionCaptor.capture());
+        TemplateVersion savedVersion = versionCaptor.getValue();
+        assertThat(savedVersion.getVersionNumber()).isEqualTo(6);
+        assertThat(savedVersion.getBumpType()).isEqualTo("PUBLISH");
+
+        ArgumentCaptor<TemplateSnapshot> snapshotCaptor = ArgumentCaptor.forClass(TemplateSnapshot.class);
+        verify(snapshotRepository).save(snapshotCaptor.capture());
+        TemplateSnapshot savedSnapshot = snapshotCaptor.getValue();
+        assertThat(savedSnapshot.getVersionNumber()).isEqualTo(6);
+        assertThat(savedSnapshot.getId()).isEqualTo(savedVersion.getId());
+
+        ArgumentCaptor<TemplateRegistry> registryCaptor = ArgumentCaptor.forClass(TemplateRegistry.class);
+        verify(registryRepository).save(registryCaptor.capture());
+        assertThat(registryCaptor.getValue().getVersion()).isEqualTo(6);
+        assertThat(registryCaptor.getValue().isPublished()).isTrue();
+
+        assertThat(response.version()).isEqualTo(6);
+    }
+
+    @Test
+    @DisplayName("publish() falls back to pgMax + 1 when MongoDB has no snapshots")
+    void publish_usesPgMax_whenNoSnapshotsInMongo() {
+        // given
+        TemplateRegistry registry = registry(templateId, 1, 0);
+        Template template = template(templateId);
+
+        when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry));
+        when(templateRepository.findById(templateId)).thenReturn(Optional.of(template));
+        when(versionRepository.findMaxVersionNumber(templateId)).thenReturn(4);
+        when(snapshotRepository.findFirstByTemplateIdOrderByVersionNumberDesc(templateId))
+                .thenReturn(Optional.empty());
+        when(registryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(versionRepository.save(any())).thenAnswer(inv -> {
+            TemplateVersion v = inv.getArgument(0);
+            if (v.getId() == null) v.setId(UUID.randomUUID());
+            return v;
+        });
+        when(snapshotRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // when
+        templateService.publish(templateId);
+
+        // then
+        ArgumentCaptor<TemplateVersion> versionCaptor = ArgumentCaptor.forClass(TemplateVersion.class);
+        verify(versionRepository).save(versionCaptor.capture());
+        assertThat(versionCaptor.getValue().getVersionNumber()).isEqualTo(5);
+
+        ArgumentCaptor<TemplateSnapshot> snapshotCaptor = ArgumentCaptor.forClass(TemplateSnapshot.class);
+        verify(snapshotRepository).save(snapshotCaptor.capture());
+        assertThat(snapshotCaptor.getValue().getVersionNumber()).isEqualTo(5);
     }
 
     // ── Helper ─────────────────────────────────────────────────────────────────

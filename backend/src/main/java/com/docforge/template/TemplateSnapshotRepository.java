@@ -8,5 +8,7 @@ import java.util.UUID;
 
 public interface TemplateSnapshotRepository extends MongoRepository<TemplateSnapshot, UUID> {
 
-    Optional<TemplateSnapshot> findByTemplateIdAndVersionNumber(UUID templateId, int versionNumber);
+    Optional<TemplateSnapshot> findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(UUID templateId, int versionNumber);
+
+    Optional<TemplateSnapshot> findFirstByTemplateIdOrderByVersionNumberDesc(UUID templateId);
 }

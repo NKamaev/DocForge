@@ -328,7 +328,7 @@ public class TemplateServiceImpl implements TemplateService {
     @Override
     public TemplateSnapshot getSnapshot(UUID templateId, int versionNumber) {
         findRegistryOrThrow(templateId);
-        return snapshotRepository.findByTemplateIdAndVersionNumber(templateId, versionNumber)
+        return snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, versionNumber)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Снимок шаблона не найден: templateId=" + templateId + " version=" + versionNumber));
     }
@@ -354,7 +354,11 @@ public class TemplateServiceImpl implements TemplateService {
         Template template = findTemplateOrThrow(id);
 
         if (published) {
-            int nextVersion = versionRepository.findMaxVersionNumber(id) + 1;
+            int pgMax = versionRepository.findMaxVersionNumber(id);
+            int mongoMax = snapshotRepository.findFirstByTemplateIdOrderByVersionNumberDesc(id)
+                    .map(TemplateSnapshot::getVersionNumber)
+                    .orElse(0);
+            int nextVersion = Math.max(pgMax, mongoMax) + 1;
             registry.setVersion(nextVersion);
 
             TemplateVersion version = new TemplateVersion();
