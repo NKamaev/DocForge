@@ -81,6 +81,7 @@
 | `BUG-054` | — (только tracker) | Конфликт нумерации publish()/saveVersion() в `version_number` — TODO |
 | `BUG-055` | — (только tracker) | Unique-индекс снимков + защита от конкурентной публикации — TODO |
 | `BUG-056` | — (только tracker) | Yjs «Unexpected end of array» в консоли на `/fill` — TODO |
+| `BUG-057` | `tickets/BUG-057.md` | Мёртвая кнопка «Импорт DOCX» на главной — закрыт (`25b830a`) |
 
 ---
 
