@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-type ToastType = 'success' | 'error'
+type ToastType = 'success' | 'error' | 'warning'
 
 interface ToastItem {
   id: number
@@ -77,7 +77,7 @@ export function ToastContainer() {
             borderRadius: 8,
             fontSize: 13,
             color: '#fff',
-            background: t.type === 'error' ? '#e53e3e' : '#16a34a',
+            background: t.type === 'error' ? '#e53e3e' : t.type === 'warning' ? '#d97706' : '#16a34a',
             boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
             maxWidth: 360,
           }}

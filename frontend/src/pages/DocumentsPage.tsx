@@ -34,12 +34,25 @@ import { useMyFolderRole } from '../hooks/useMyRole'
 import CreateDocumentModal from '../components/document-list/CreateDocumentModal'
 import ShareDialog from '../components/ShareDialog'
 import { Icon } from '../components/Icon'
+import { showToast } from '@/components/ui/toast'
 
 function showNotification(type: 'success' | 'error' | 'warning', message: string) {
-  console.log(`[${type.toUpperCase()}]`, message)
-  if (type === 'error') {
-    alert(message)
-  }
+  // User-visible toast (app-wide mechanism, see BUG-029).
+  showToast(message, type)
+}
+
+/** Strip characters that are invalid in a download filename. */
+function sanitizeFileName(name: string): string {
+  return name.replace(/[/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'document'
+}
+
+/** Build a unique `*.docx` name, disambiguating collisions with the document id. */
+function uniqueDocxName(name: string, id: string, used: Set<string>): string {
+  const base = sanitizeFileName(name)
+  let candidate = `${base}.docx`
+  if (used.has(candidate.toLowerCase())) candidate = `${base} (${id}).docx`
+  used.add(candidate.toLowerCase())
+  return candidate
 }
 
 // ── Color presets ─────────────────────────────────────────────────────────────
@@ -377,6 +390,11 @@ export default function DocumentsPage() {
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null)
   const [deleteFolderId, setDeleteFolderId] = useState<string | null>(null)
 
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkDownloading, setBulkDownloading] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null)
+
   const dragDocId = useRef<string | null>(null)
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null)
 
@@ -418,6 +436,10 @@ export default function DocumentsPage() {
     const folderParam = searchParams.get('folder') ?? null
     if (folderParam !== currentFolder) setCurrentFolder(folderParam)
   }, [searchParams])
+
+  // Bulk selection is scoped to the visible folder. Clear it whenever the folder
+  // changes — including browser back/forward, which bypasses `openFolder`.
+  useEffect(() => { setSelected(new Set()) }, [currentFolder])
 
   // Expand ancestors for folder from URL on initial load
   const initialUrlFolderExpanded = useRef(false)
@@ -525,6 +547,131 @@ export default function DocumentsPage() {
   const toggleSel = (id: string) => setSelected(prev => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
   })
+
+  // ── Bulk actions (BUG-049) ───────────────────────────────────────────────────
+
+  /** Selection keys that are folders (`f:<id>`) are out of scope for bulk actions. */
+  const selectedDocIds = useMemo(
+    () => Array.from(selected).filter(id => !id.startsWith('f:')),
+    [selected],
+  )
+
+  const docsById = useMemo(() => new Map(docs.map(d => [d.id, d])), [docs])
+
+  const handleBulkDownload = useCallback(async () => {
+    if (bulkDownloading || bulkDeleting) return
+    if (selectedDocIds.length === 0) return
+
+    const total = selectedDocIds.length
+    setBulkDownloading(true)
+    setBulkProgress({ done: 0, total })
+
+    // Each export is independent: one failing document must not abort the rest,
+    // so the failure is collected per item instead of thrown.
+    const usedNames = new Set<string>()
+    const failed: string[] = []
+    let downloaded = 0
+
+    try {
+      for (const id of selectedDocIds) {
+        try {
+          const blob = await documentsApi.exportDocx(id)
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = uniqueDocxName(docsById.get(id)?.name ?? 'document', id, usedNames)
+          // The anchor must be attached to the DOM for the click to be honoured
+          // by Firefox/Safari.
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          // Revoking synchronously can cancel the download in some browsers.
+          setTimeout(() => URL.revokeObjectURL(url), 0)
+          downloaded += 1
+        } catch {
+          failed.push(id)
+        } finally {
+          setBulkProgress({ done: downloaded + failed.length, total })
+        }
+      }
+
+      if (failed.length === 0) {
+        showNotification(
+          'success',
+          total === 1 ? 'Документ экспортирован' : `Экспортировано документов: ${downloaded}`,
+        )
+      } else if (downloaded === 0) {
+        showNotification('error', 'Не удалось скачать документы')
+      } else {
+        showNotification(
+          'warning',
+          `Скачано: ${downloaded} из ${total}. Не удалось скачать: ${failed.length}`,
+        )
+      }
+    } finally {
+      setBulkDownloading(false)
+      setBulkProgress(null)
+    }
+  }, [bulkDownloading, bulkDeleting, selectedDocIds, docsById])
+
+  const handleBulkDelete = useCallback(async () => {
+    if (bulkDeleting || bulkDownloading) return
+    if (selectedDocIds.length === 0) return
+    setBulkDeleting(true)
+
+    // Partial-failure resilience: every id is deleted on its own, so one failure
+    // neither aborts the remaining deletes nor hides the ones that succeeded.
+    // The outcome is collected (not thrown) so the `finally` block below can
+    // always reconcile the selection and refresh the list.
+    const succeeded = new Set<string>()
+    const failed: string[] = []
+
+    try {
+      for (const id of selectedDocIds) {
+        try {
+          await documentsApi.delete(id)
+          succeeded.add(id)
+        } catch {
+          failed.push(id)
+        }
+      }
+
+      const total = selectedDocIds.length
+      if (failed.length === 0) {
+        showNotification(
+          'success',
+          total === 1 ? 'Документ удалён' : `Удалено документов: ${succeeded.size}`,
+        )
+      } else if (succeeded.size === 0) {
+        showNotification('error', 'Не удалось удалить документы')
+      } else {
+        showNotification(
+          'warning',
+          `Удалено: ${succeeded.size} из ${total}. Не удалось удалить: ${failed.length}`,
+        )
+      }
+    } finally {
+      // Always drop the ids that were actually deleted from the selection, so the
+      // bulk bar count stays truthful after a partial failure. The failed ids stay
+      // selected and can be retried by the user.
+      if (succeeded.size > 0) {
+        setSelected(prev => {
+          const next = new Set(prev)
+          succeeded.forEach(id => next.delete(id))
+          return next
+        })
+      }
+
+      // Always reload, even when some deletes failed — folders/counters may have
+      // shifted. Inner try/finally guarantees the dialog never gets stuck open.
+      try {
+        await Promise.all([loadDocs(), loadFolders()])
+      } finally {
+        setBulkDeleting(false)
+        setBulkDeleteOpen(false)
+      }
+    }
+  }, [bulkDeleting, bulkDownloading, selectedDocIds, loadDocs, loadFolders])
 
   const visibleDocs = useMemo(
     () => currentFolder === null
@@ -637,6 +784,33 @@ export default function DocumentsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => { if (!open && !bulkDeleting) setBulkDeleteOpen(false) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {selectedDocIds.length === 1
+                ? 'Удалить выбранный документ?'
+                : `Удалить выбранные документы (${selectedDocIds.length})?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Это действие нельзя отменить.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting} onClick={() => setBulkDeleteOpen(false)}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={bulkDeleting}
+              // `AlertDialogAction` closes the dialog by default — preventDefault
+              // keeps it open with the busy state until handleBulkDelete finishes.
+              onClick={(e) => { e.preventDefault(); void handleBulkDelete() }}
+            >
+              {bulkDeleting ? 'Удаление…' : 'Удалить'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {shareFolder && (
         <ShareDialog
           open={shareOpen}
@@ -717,8 +891,7 @@ export default function DocumentsPage() {
 
   // ── List view ───────────────────────────────────────────────────────────────
 
-  const allChecked = (visibleFolders.length + visibleDocs.length) > 0
-    && visibleDocs.every(d => selected.has(d.id))
+  const allChecked = visibleDocs.length > 0 && visibleDocs.every(d => selected.has(d.id))
 
   return (
     <div className="docs-page">
@@ -756,9 +929,31 @@ export default function DocumentsPage() {
 
         {selected.size > 0 && (
           <div className="bulk-bar" style={{ flexShrink: 0 }}>
-            <span className="bulk-count">Выбрано: {selected.size}</span>
-            <button className="btn xs"><Icon name="download" size={12} /> Скачать</button>
-            <button className="btn xs danger"><Icon name="trash" size={12} /> Удалить</button>
+            <span className="bulk-count">
+              Выбрано: {selectedDocIds.length}
+              {selected.size > selectedDocIds.length
+                ? ` (папок: ${selected.size - selectedDocIds.length})`
+                : ''}
+            </span>
+            <button
+              className="btn xs"
+              disabled={selectedDocIds.length === 0 || bulkDownloading || bulkDeleting}
+              onClick={handleBulkDownload}
+            >
+              <Icon name="download" size={12} />{' '}
+              {bulkDownloading
+                ? bulkProgress
+                  ? `Скачивание ${bulkProgress.done}/${bulkProgress.total}…`
+                  : 'Скачивание…'
+                : 'Скачать'}
+            </button>
+            <button
+              className="btn xs danger"
+              disabled={selectedDocIds.length === 0 || bulkDownloading || bulkDeleting}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Icon name="trash" size={12} /> Удалить
+            </button>
             <button className="btn xs ghost" onClick={() => setSelected(new Set())} style={{ marginLeft: 'auto' }}>Снять выбор</button>
           </div>
         )}
@@ -769,7 +964,7 @@ export default function DocumentsPage() {
               <thead>
                 <tr>
                   <th style={{ width: 36 }}>
-                    <input type="checkbox" checked={allChecked}
+                    <input type="checkbox" aria-label="Выбрать все документы" checked={allChecked}
                       onChange={e => {
                         if (e.target.checked) setSelected(new Set(visibleDocs.map(d => d.id)))
                         else setSelected(new Set())

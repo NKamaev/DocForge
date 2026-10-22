@@ -24,7 +24,7 @@ export const documentsApi = {
     api.post<Document>('/documents', data).then(r => r.data),
 
   delete: (id: string) =>
-    api.delete(`/documents/${id}`),
+    api.delete(`/documents/${id}`).then(() => undefined),
 
   getQuestionnaire: (id: string) =>
     api.get<Questionnaire>(`/documents/${id}/questionnaire`).then(r => r.data),
