@@ -80,6 +80,7 @@
 | `BUG-060` | — (только tracker) | OWNER-роль неизменяема: нет снятия/передачи владения — TODO |
 | `BUG-061` | — (только tracker) | `currentUserId()` глотает исключение внутри транзакции → `UnexpectedRollbackException` — TODO |
 | `BUG-062` | — (только tracker) | Черновик шаблона: version=1 при major/minor=1.0 — TODO |
+| `BUG-063` | — (только tracker) | `current_body` без валидации: CCE/500 на attrs/body-кастах — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
 | `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
@@ -98,3 +99,4 @@
 Источники Git: ветка `main` (текущий проект DocForge; legacy-версия переименована в DocForgeOld и заархивирована).
 
 <!-- Добавляй новые категории/секции по мере роста памяти. -->
+| `BUG-021` | `tickets/BUG-021.md` | NPE в applyAnswers (switch на null type) — закрыт (`9619f81`) |
