@@ -63,7 +63,7 @@
 | `TASK-064` | `tickets/TASK-064.md` | Structural rich-diff редакций (вариант B) — закрыт |
 | `BUG-010` | `tickets/BUG-010.md` | ОЛ/ответы не синхронизируются в реалтайме — закрыт (канал yAnswers) |
 | `BUG-012` | `tickets/BUG-012.md` | Все условные блоки видны на /fill — закрыт |
-| `BUG-019` | `tickets/BUG-019.md` | Скрытые блоки в DOCX/PDF — закрыт (единая фильтрация) |
+| `BUG-019` | `tickets/BUG-019.md` | Скрытые блоки в DOCX/PDF — закрыт (`9d972fe`, `ConditionalNodeFilter`) |
 | `BUG-020` | `tickets/BUG-020.md` | yAnswers инициализируется до WS-sync — закрыт (seeding guard) |
 | `BUG-029` | `tickets/BUG-029.md` | Toast не показывался программно — закрыт (CustomEvent app-toast) |
 | `BUG-046` | `tickets/BUG-046.md` | Откат к редакции через reload — закрыт (программный Yjs-reset) |
@@ -81,6 +81,11 @@
 | `BUG-061` | — (только tracker) | `currentUserId()` глотает исключение внутри транзакции → `UnexpectedRollbackException` — TODO |
 | `BUG-062` | — (только tracker) | Черновик шаблона: version=1 при major/minor=1.0 — TODO |
 | `BUG-063` | — (только tracker) | `current_body` без валидации: CCE/500 на attrs/body-кастах — TODO |
+| `BUG-064` | — (только tracker) | Единая семантика условий: генератор не обрабатывает `conditionalInline` — TODO |
+| `BUG-065` | — (только tracker) | `NodeResolver` читает `clauseId` вместо `id`/`refId` — TODO |
+| `BUG-066` | — (только tracker) | Экспорт теряет текст видимого `numberedClause` — TODO |
+| `BUG-067` | — (только tracker) | `HttpMessageNotReadableException` → 500 вместо 400 — TODO |
+| `TASK-066` | — (только tracker) | Вынести пайплайн экспорта из `DocumentController` в сервис — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
 | `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
