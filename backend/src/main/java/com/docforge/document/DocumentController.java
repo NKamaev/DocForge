@@ -2,6 +2,7 @@ package com.docforge.document;
 
 import com.docforge.document.dto.*;
 import com.docforge.document.dto.MoveFolderRequest;
+import com.docforge.document.generator.ConditionalNodeFilter;
 import com.docforge.document.generator.ParameterSubstitutor;
 import com.docforge.document.generator.TipTapTreeWalker;
 import com.docforge.document.model.DocumentPermission;
@@ -50,6 +51,7 @@ public class DocumentController {
     private final PdfExportService pdfExportService;
     private final TemplateService templateService;
     private final TipTapTreeWalker treeWalker;
+    private final ConditionalNodeFilter conditionalNodeFilter;
     private final ParameterSubstitutor substitutor;
     private final NodeResolver nodeResolver;
 
@@ -404,10 +406,13 @@ public class DocumentController {
         if (body == null) return body;
         Map<String, Object> safeAnswers = answers != null ? answers : Map.of();
 
-        // Pre-compute clause numbering so every clauseRef in the tree can be resolved
-        Map<String, String> clauseNumbering = nodeResolver.buildClauseNumberingMap(body);
+        // Сначала убираем контент, скрытый условиями (иначе он попадёт в файл),
+        // и только потом считаем нумерацию пунктов — скрытые пункты не должны
+        // участвовать в счётчиках.
+        Map<String, Object> visibleBody = conditionalNodeFilter.filter(body, safeAnswers);
+        Map<String, String> clauseNumbering = nodeResolver.buildClauseNumberingMap(visibleBody);
 
-        return treeWalker.transform(body, node -> {
+        return treeWalker.transform(visibleBody, node -> {
             // null-safe: узел без "type" (например, после Yjs-правок) должен
             // попадать в default, а не ронять экспорт NPE
             return switch (String.valueOf(node.get("type"))) {

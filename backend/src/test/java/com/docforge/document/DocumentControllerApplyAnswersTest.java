@@ -4,7 +4,10 @@ import com.docforge.common.exception.GlobalExceptionHandler;
 import com.docforge.common.format.FioFormatterService;
 import com.docforge.common.format.NumberToWordsService;
 import com.docforge.document.dto.DocumentResponse;
+import com.docforge.document.generator.ConditionEvaluator;
+import com.docforge.document.generator.ConditionalNodeFilter;
 import com.docforge.document.generator.ParameterSubstitutor;
+import com.docforge.document.generator.PythonConditionEvaluator;
 import com.docforge.document.generator.TipTapTreeWalker;
 import com.docforge.document.model.DocumentPermission;
 import com.docforge.export.DocxExportService;
@@ -15,6 +18,8 @@ import com.docforge.export.PdfExportServiceImpl;
 import com.docforge.template.TemplateService;
 import com.docforge.template.model.Parameter;
 import com.docforge.template.model.ParameterType;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,13 +39,17 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -76,6 +85,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@link DocumentControllerPermissionsTest}: mocked collaborators, the real
  * {@link GlobalExceptionHandler}, and {@link AuthenticationPrincipalArgumentResolver} backed by
  * the {@code SecurityContextHolder}.</p>
+ *
+ * <h2>BUG-019 — hidden-by-condition content must never reach the exporter</h2>
+ *
+ * <p>Since the BUG-019 fix {@code applyAnswers()} first runs
+ * {@link com.docforge.document.generator.ConditionalNodeFilter} over the body (dropping /
+ * unwrapping {@code conditionalBlock}, {@code conditionalInline} and {@code numberedClause}
+ * according to their conditions) and only then builds clause numbering and substitutes
+ * parameters. The {@code BUG-019} cases below assert on the map handed to the mocked exporter
+ * (the same style as the BUG-021 cases) and, for DOCX, on the real {@code word/document.xml}
+ * bytes produced by {@link DocxExportServiceImpl}.</p>
+ *
+ * <p>The nested cases ({@code ...NestedFalse...}) pin the fix's recursion: a conditional node that
+ * only becomes the direct replacement of an unwrapped conditional node must itself be evaluated,
+ * otherwise the inner hidden text reaches the exporter (residual leak found after the first
+ * BUG-019 fix).</p>
  */
 @ExtendWith(MockitoExtension.class)
 class DocumentControllerApplyAnswersTest {
@@ -96,6 +120,10 @@ class DocumentControllerApplyAnswersTest {
     @Mock private PdfExportService pdfExportService;
     @Mock private TemplateService templateService;
     @Mock private NodeResolver nodeResolver;
+    // Python-оценщик мокается: GraalPython на тестовой JVM не нужен, BUG-019-тесты
+    // используют simple-условия. Реальный фильтр — чтобы applyAnswers действительно
+    // вырезал скрытые узлы перед экспортом.
+    @Mock private PythonConditionEvaluator pythonConditionEvaluator;
     // ParameterSubstitutor's own collaborators — mocked so the real substitutor can be constructed.
     @Mock private NumberToWordsService numberToWords;
     @Mock private FioFormatterService fioFormatter;
@@ -117,6 +145,7 @@ class DocumentControllerApplyAnswersTest {
                 pdfExportService,
                 templateService,
                 treeWalker,
+                conditionalNodeFilter(),
                 substitutor,
                 nodeResolver);
 
@@ -287,6 +316,244 @@ class DocumentControllerApplyAnswersTest {
                 .contains("attachment").contains(".pdf");
     }
 
+    // ── BUG-019: content hidden by conditions must not reach the exporter ───────
+
+    @Test
+    @DisplayName("BUG-019: a false conditionalBlock reaches the DOCX exporter without its hidden text")
+    void exportDocx_withFalseConditionalBlock_bodyHasNoHiddenText() throws Exception {
+        // given — body = [скрытый блок, видимый абзац], has_penalty == false
+        givenReadableDocumentWithBodyAndAnswers(
+                docWithContent(
+                        conditionalBlock("has_penalty == true",
+                                paragraph(List.of(text("HIDDEN_BLOCK_TEXT")))),
+                        paragraph(List.of(text("VISIBLE_TEXT")))),
+                Map.of("has_penalty", false));
+        when(docxExportService.export(any(), eq(null))).thenReturn(DOCX_BYTES);
+
+        // when / then
+        mockMvc.perform(get("/api/documents/{id}/export/docx", DOC_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(DOCX_BYTES));
+
+        // then — блок не только без текста: от него не осталось узла
+        Map<String, Object> resolved = capturedDocxBody();
+        assertThat(collectTexts(resolved)).containsExactly("VISIBLE_TEXT");
+        assertThat(docChildTypes(resolved)).containsExactly("paragraph");
+    }
+
+    @Test
+    @DisplayName("BUG-019: a false conditionalInline reaches the PDF exporter without its hidden text")
+    void exportPdf_withFalseConditionalInline_bodyHasNoHiddenText() throws Exception {
+        // given — скрытый inline-фрагмент внутри абзаца
+        givenReadableDocumentWithBodyAndAnswers(
+                docWithContent(paragraph(List.of(
+                        text("Начало "),
+                        conditionalInline("has_penalty == true", text("HIDDEN_INLINE_TEXT")),
+                        text(" конец")))),
+                Map.of("has_penalty", false));
+        when(pdfExportService.export(any(), eq(null))).thenReturn(PDF_BYTES);
+
+        // when / then
+        mockMvc.perform(get("/api/documents/{id}/export/pdf", DOC_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(PDF_BYTES));
+
+        // then — соседи по абзацу сохранены, скрытого фрагмента нет
+        Map<String, Object> resolved = capturedPdfBody();
+        assertThat(collectTexts(resolved)).containsExactly("Начало ", " конец");
+        assertThat(nodeContent(resolved, 0, "content"))
+                .containsExactly(text("Начало "), text(" конец"));
+    }
+
+    @Test
+    @DisplayName("BUG-019: a true conditionalBlock is unwrapped — its text stays in the exported body")
+    void exportDocx_withTrueConditionalBlock_keepsBlockContent() throws Exception {
+        // given — has_penalty == true → блок виден и должен быть развёрнут
+        givenReadableDocumentWithBodyAndAnswers(
+                docWithContent(conditionalBlock("has_penalty == true",
+                        paragraph(List.of(text("VISIBLE_BLOCK_TEXT"))))),
+                Map.of("has_penalty", true));
+        when(docxExportService.export(any(), eq(null))).thenReturn(DOCX_BYTES);
+
+        // when / then
+        mockMvc.perform(get("/api/documents/{id}/export/docx", DOC_ID))
+                .andExpect(status().isOk());
+
+        // then — экспортёр получает обычный paragraph, а не узел conditionalBlock
+        Map<String, Object> resolved = capturedDocxBody();
+        assertThat(collectTexts(resolved)).containsExactly("VISIBLE_BLOCK_TEXT");
+        assertThat(docChildTypes(resolved)).containsExactly("paragraph");
+    }
+
+    @Test
+    @DisplayName("BUG-019: the clause numbering map is built from the filtered tree")
+    void exportDocx_withHiddenNumberedClause_numberingMapBuiltFromFilteredTree() throws Exception {
+        // given — на вход NodeResolver попадает уже отфильтрованное дерево:
+        // скрытого пункта в нём нет. Сам расчёт номеров здесь не проверяется
+        // (сломан смежным багом в именах атрибутов и вне scope этого теста).
+        givenReadableDocumentWithBodyAndAnswers(
+                docWithContent(
+                        numberedClause("has_penalty == true", "clause-1",
+                                paragraph(List.of(text("HIDDEN_CLAUSE_TEXT")))),
+                        numberedClause(null, "clause-2",
+                                paragraph(List.of(text("VISIBLE_CLAUSE_TEXT"))))),
+                Map.of("has_penalty", false));
+        when(docxExportService.export(any(), eq(null))).thenReturn(DOCX_BYTES);
+
+        // when / then
+        mockMvc.perform(get("/api/documents/{id}/export/docx", DOC_ID))
+                .andExpect(status().isOk());
+
+        // then
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(nodeResolver).buildClauseNumberingMap(captor.capture());
+        assertThat(collectTexts(captor.getValue())).containsExactly("VISIBLE_CLAUSE_TEXT");
+    }
+
+    // ── BUG-019 residual: nested conditionals must be re-evaluated after unwrapping ─
+
+    @Test
+    @DisplayName("BUG-019: a nested false block inside a true block does not reach the DOCX exporter")
+    void exportDocx_withNestedFalseBlockInsideTrueBlock_bodyHasNoHiddenText() throws Exception {
+        // given — внешний блок виден, вложенный скрыт. Развёрнутый внешний блок поднимает
+        // вложенный узел на своё место, и именно там он раньше «проскакивал» в файл.
+        givenReadableDocumentWithBodyAndAnswers(
+                docWithContent(
+                        conditionalBlock("has_penalty == true",
+                                paragraph(List.of(text("OUTER_VISIBLE_TEXT"))),
+                                conditionalBlock("penalty_percent > 10",
+                                        paragraph(List.of(text("INNER_HIDDEN_TEXT")))))),
+                Map.of("has_penalty", true, "penalty_percent", 5));
+        when(docxExportService.export(any(), eq(null))).thenReturn(DOCX_BYTES);
+
+        // when / then
+        mockMvc.perform(get("/api/documents/{id}/export/docx", DOC_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(DOCX_BYTES));
+
+        // then — экспортёр получает только видимый абзац; узлов-условий в теле нет
+        Map<String, Object> resolved = capturedDocxBody();
+        assertThat(collectTexts(resolved)).containsExactly("OUTER_VISIBLE_TEXT");
+        assertThat(docChildTypes(resolved)).containsExactly("paragraph");
+    }
+
+    @Test
+    @DisplayName("BUG-019: a nested false inline inside a true inline does not reach the PDF exporter")
+    void exportPdf_withNestedFalseInlineInsideTrueInline_bodyHasNoHiddenText() throws Exception {
+        // given — тот же сценарий на inline-уровне внутри абзаца
+        givenReadableDocumentWithBodyAndAnswers(
+                docWithContent(paragraph(List.of(
+                        text("BEFORE "),
+                        conditionalInline("has_penalty == true",
+                                text("INLINE_VISIBLE"),
+                                conditionalInline("penalty_percent > 10", text("INLINE_HIDDEN"))),
+                        text(" AFTER")))),
+                Map.of("has_penalty", true, "penalty_percent", 5));
+        when(pdfExportService.export(any(), eq(null))).thenReturn(PDF_BYTES);
+
+        // when / then
+        mockMvc.perform(get("/api/documents/{id}/export/pdf", DOC_ID))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(PDF_BYTES));
+
+        // then — порядок inline-соседей сохранён, скрытого фрагмента нет
+        Map<String, Object> resolved = capturedPdfBody();
+        assertThat(nodeContent(resolved, 0, "content")).containsExactly(
+                text("BEFORE "), text("INLINE_VISIBLE"), text(" AFTER"));
+        assertThat(collectTexts(resolved)).containsExactly("BEFORE ", "INLINE_VISIBLE", " AFTER");
+    }
+
+    // ── BUG-019: same path, but with the REAL exporters (bytes, not a mock) ─────
+
+    @Test
+    @DisplayName("BUG-019: real DOCX export of a false conditionalBlock omits the hidden text")
+    void exportDocx_withFalseConditionalBlock_realDocxHasNoHiddenText() throws Exception {
+        // given — реальный applyAnswers + реальный DocxExportServiceImpl
+        givenReadableDocumentWithAnswersAndNoResolverStub(
+                docWithContent(
+                        conditionalBlock("has_penalty == true",
+                                paragraph(List.of(text("HIDDEN_BLOCK_TEXT")))),
+                        paragraph(List.of(text("VISIBLE_TEXT")))),
+                Map.of("has_penalty", false));
+
+        // when
+        MvcResult result = realExporterMockMvc()
+                .perform(get("/api/documents/{id}/export/docx", DOC_ID))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        // then — смотрим в word/document.xml: скрытого текста там нет
+        String documentXml = docxDocumentXml(result.getResponse().getContentAsByteArray());
+        assertThat(documentXml).contains("VISIBLE_TEXT").doesNotContain("HIDDEN_BLOCK_TEXT");
+    }
+
+    @Test
+    @DisplayName("BUG-019: real DOCX export of a nested false block omits only the inner text")
+    void exportDocx_withNestedFalseBlock_realDocxHasNoHiddenText() throws Exception {
+        // given — реальный applyAnswers + реальный DocxExportServiceImpl; внешний блок
+        // виден, вложенный скрыт
+        givenReadableDocumentWithAnswersAndNoResolverStub(
+                docWithContent(
+                        conditionalBlock("has_penalty == true",
+                                paragraph(List.of(text("OUTER_VISIBLE"))),
+                                conditionalBlock("penalty_percent > 10",
+                                        paragraph(List.of(text("INNER_HIDDEN")))))),
+                Map.of("has_penalty", true, "penalty_percent", 5));
+
+        // when
+        MvcResult result = realExporterMockMvc()
+                .perform(get("/api/documents/{id}/export/docx", DOC_ID))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        // then — word/document.xml содержит внешний текст и не содержит вложенного
+        String documentXml = docxDocumentXml(result.getResponse().getContentAsByteArray());
+        assertThat(documentXml).contains("OUTER_VISIBLE").doesNotContain("INNER_HIDDEN");
+    }
+
+    @Test
+    @DisplayName("BUG-019: real DOCX export of a true conditionalBlock keeps the unwrapped text")
+    void exportDocx_withTrueConditionalBlock_realDocxKeepsUnwrappedText() throws Exception {
+        // given
+        givenReadableDocumentWithAnswersAndNoResolverStub(
+                docWithContent(conditionalBlock("has_penalty == true",
+                        paragraph(List.of(text("VISIBLE_BLOCK_TEXT"))))),
+                Map.of("has_penalty", true));
+
+        // when
+        MvcResult result = realExporterMockMvc()
+                .perform(get("/api/documents/{id}/export/docx", DOC_ID))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        // then
+        assertThat(docxDocumentXml(result.getResponse().getContentAsByteArray()))
+                .contains("VISIBLE_BLOCK_TEXT");
+    }
+
+    @Test
+    @DisplayName("BUG-019: real PDF export of a false conditionalInline omits the hidden text")
+    void exportPdf_withFalseConditionalInline_realPdfHasNoHiddenText() throws Exception {
+        // given — ASCII-метки: PDF-текст извлекается надёжно, а кириллица в подмножестве шрифта нет
+        givenReadableDocumentWithAnswersAndNoResolverStub(
+                docWithContent(paragraph(List.of(
+                        text("BEFORE "),
+                        conditionalInline("has_penalty == true", text("HIDDEN_INLINE_TEXT")),
+                        text(" AFTER")))),
+                Map.of("has_penalty", false));
+
+        // when
+        MvcResult result = realExporterMockMvc()
+                .perform(get("/api/documents/{id}/export/pdf", DOC_ID))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        // then — в реальном PDF остались только видимые соседи
+        String text = pdfText(result.getResponse().getContentAsByteArray());
+        assertThat(text).contains("BEFORE").contains("AFTER").doesNotContain("HIDDEN_INLINE_TEXT");
+    }
+
     // ── regression: normal parameterField substitution is not weakened ──────────
 
     @Test
@@ -374,12 +641,23 @@ class DocumentControllerApplyAnswersTest {
                 new PdfExportServiceImpl(),
                 templateService,
                 new TipTapTreeWalker(),
+                conditionalNodeFilter(),
                 new ParameterSubstitutor(numberToWords, fioFormatter),
                 new NodeResolver());
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
                 .build();
+    }
+
+    /**
+     * Real {@link ConditionalNodeFilter} (it walks the tree itself — no walker argument since the
+     * BUG-019 fix) with the real {@link ConditionEvaluator}; only the GraalPython-backed evaluator
+     * is mocked. A real filter is required here — BUG-019 lives precisely in the interaction
+     * «filter → numbering → substitution» inside {@code applyAnswers}.
+     */
+    private ConditionalNodeFilter conditionalNodeFilter() {
+        return new ConditionalNodeFilter(new ConditionEvaluator(), pythonConditionEvaluator);
     }
 
     private void givenReadableDocumentWithBodyAndAnswers(
@@ -392,6 +670,22 @@ class DocumentControllerApplyAnswersTest {
         when(templateService.getById(TEMPLATE_ID))
                 .thenThrow(new IllegalStateException("template not needed for this slice"));
         when(nodeResolver.buildClauseNumberingMap(any())).thenReturn(Map.of());
+    }
+
+    /**
+     * Same as {@link #givenReadableDocumentWithBodyAndAnswers} but <em>without</em> the
+     * {@code nodeResolver.buildClauseNumberingMap} stub — required when the real
+     * {@link NodeResolver} is wired in. Keeps explicit answers so conditions are evaluated
+     * against real values (BUG-019).
+     */
+    private void givenReadableDocumentWithAnswersAndNoResolverStub(
+            Map<String, Object> body, Map<String, Object> answers) {
+        when(ownerResolver.resolve(LOGIN)).thenReturn(USER_ID);
+        when(documentPermissionService.hasPermission(DOC_ID, USER_ID, DocumentPermission.READ))
+                .thenReturn(true);
+        when(documentService.getById(DOC_ID)).thenReturn(documentWithBodyAndAnswers(body, answers));
+        when(templateService.getById(TEMPLATE_ID))
+                .thenThrow(new IllegalStateException("template not needed for this slice"));
     }
 
     @SuppressWarnings("unchecked")
@@ -485,6 +779,101 @@ class DocumentControllerApplyAnswersTest {
         node.put("type", "parameterField");
         node.put("attrs", Map.of("parameterCode", code, "display", display));
         return node;
+    }
+
+    // ── BUG-019 node builders ──────────────────────────────────────────────────
+
+    private static Map<String, Object> simpleCondition(String expression) {
+        return Map.of("type", "simple", "expression", expression);
+    }
+
+    private static Map<String, Object> conditionalBlock(
+            String expression, Map<String, Object>... children) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("type", "conditionalBlock");
+        node.put("attrs", Map.of(
+                "condition", simpleCondition(expression),
+                "label", "Блок неустойки"));
+        node.put("content", new ArrayList<Object>(List.of(children)));
+        return node;
+    }
+
+    private static Map<String, Object> conditionalInline(
+            String expression, Map<String, Object>... children) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("type", "conditionalInline");
+        node.put("attrs", Map.of(
+                "condition", simpleCondition(expression),
+                "label", "Условный текст"));
+        node.put("content", new ArrayList<Object>(List.of(children)));
+        return node;
+    }
+
+    /** {@code expression == null} → пункт без условия (показывать всегда). */
+    private static Map<String, Object> numberedClause(
+            String expression, String id, Map<String, Object>... children) {
+        Map<String, Object> attrs = new LinkedHashMap<>();
+        attrs.put("level", 1);
+        attrs.put("numberingStyle", "decimal");
+        attrs.put("id", id);
+        if (expression != null) attrs.put("condition", simpleCondition(expression));
+
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("type", "numberedClause");
+        node.put("attrs", attrs);
+        node.put("content", new ArrayList<Object>(List.of(children)));
+        return node;
+    }
+
+    /** Все тексты дерева в порядке обхода — «скрытого текста в теле нет». */
+    private static List<String> collectTexts(Map<String, Object> node) {
+        List<String> texts = new ArrayList<>();
+        collectTexts(node, texts);
+        return texts;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void collectTexts(Map<String, Object> node, List<String> out) {
+        if (node.get("text") instanceof String value) {
+            out.add(value);
+        }
+        if (node.get("content") instanceof List<?> children) {
+            for (Object child : children) {
+                if (child instanceof Map<?, ?> childMap) {
+                    collectTexts((Map<String, Object>) childMap, out);
+                }
+            }
+        }
+    }
+
+    private static List<Object> docChildTypes(Map<String, Object> doc) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> children = (List<Map<String, Object>>) doc.get("content");
+        List<Object> types = new ArrayList<>();
+        for (Map<String, Object> child : children) {
+            types.add(child.get("type"));
+        }
+        return types;
+    }
+
+    /** Extracts {@code word/document.xml} from a DOCX (OOXML zip) container. */
+    private static String docxDocumentXml(byte[] docx) throws IOException {
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(docx))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if ("word/document.xml".equals(entry.getName())) {
+                    return new String(zip.readAllBytes(), StandardCharsets.UTF_8);
+                }
+            }
+        }
+        throw new AssertionError("word/document.xml not found in the DOCX archive");
+    }
+
+    /** Extracts the text layer of a PDF (ASCII labels only — no font-subset issues). */
+    private static String pdfText(byte[] pdf) throws IOException {
+        try (PDDocument document = PDDocument.load(pdf)) {
+            return new PDFTextStripper().getText(document);
+        }
     }
 
     private static Map<String, Object> nodeWithType(Object type) {

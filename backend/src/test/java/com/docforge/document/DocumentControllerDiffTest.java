@@ -3,7 +3,10 @@ package com.docforge.document;
 import com.docforge.common.exception.GlobalExceptionHandler;
 import com.docforge.common.exception.ResourceNotFoundException;
 import com.docforge.document.dto.RevisionDiffResponse;
+import com.docforge.document.generator.ConditionEvaluator;
+import com.docforge.document.generator.ConditionalNodeFilter;
 import com.docforge.document.generator.ParameterSubstitutor;
+import com.docforge.document.generator.PythonConditionEvaluator;
 import com.docforge.document.generator.TipTapTreeWalker;
 import com.docforge.document.model.DocumentPermission;
 import com.docforge.export.DocxExportService;
@@ -64,6 +67,7 @@ class DocumentControllerDiffTest {
     @Mock private TipTapTreeWalker treeWalker;
     @Mock private ParameterSubstitutor substitutor;
     @Mock private NodeResolver nodeResolver;
+    @Mock private PythonConditionEvaluator pythonConditionEvaluator;
 
     private MockMvc mockMvc;
 
@@ -78,6 +82,10 @@ class DocumentControllerDiffTest {
                 pdfExportService,
                 templateService,
                 treeWalker,
+                // Real filter (BUG-019 constructor change: the filter walks the tree itself,
+                // no walker argument). The diff endpoint never calls applyAnswers, so this
+                // collaborator stays unused here.
+                new ConditionalNodeFilter(new ConditionEvaluator(), pythonConditionEvaluator),
                 substitutor,
                 nodeResolver);
 

@@ -6,7 +6,10 @@ import com.docforge.document.dto.DocumentResponse;
 import com.docforge.document.dto.DocumentRevisionDTO;
 import com.docforge.document.dto.GenerateResponse;
 import com.docforge.document.dto.SaveAnswersResponse;
+import com.docforge.document.generator.ConditionEvaluator;
+import com.docforge.document.generator.ConditionalNodeFilter;
 import com.docforge.document.generator.ParameterSubstitutor;
+import com.docforge.document.generator.PythonConditionEvaluator;
 import com.docforge.document.generator.TipTapTreeWalker;
 import com.docforge.document.model.DocumentPermission;
 import com.docforge.document.model.DocumentRevisionBody;
@@ -112,6 +115,7 @@ class DocumentControllerPermissionsTest {
     @Mock private TipTapTreeWalker treeWalker;
     @Mock private ParameterSubstitutor substitutor;
     @Mock private NodeResolver nodeResolver;
+    @Mock private PythonConditionEvaluator pythonConditionEvaluator;
 
     private MockMvc mockMvc;
 
@@ -126,6 +130,11 @@ class DocumentControllerPermissionsTest {
                 pdfExportService,
                 templateService,
                 treeWalker,
+                // Real filter over the mocked walker: the export tests stub
+                // treeWalker.transform(...) as a pass-through, so the filter stays a no-op
+                // and those stubs are still consumed (BUG-019 constructor change: the filter
+                // walks the tree itself, no walker argument).
+                new ConditionalNodeFilter(new ConditionEvaluator(), pythonConditionEvaluator),
                 substitutor,
                 nodeResolver);
 
