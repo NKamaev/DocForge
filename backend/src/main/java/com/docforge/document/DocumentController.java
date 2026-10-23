@@ -408,8 +408,9 @@ public class DocumentController {
         Map<String, String> clauseNumbering = nodeResolver.buildClauseNumberingMap(body);
 
         return treeWalker.transform(body, node -> {
-            String type = (String) node.get("type");
-            return switch (type) {
+            // null-safe: узел без "type" (например, после Yjs-правок) должен
+            // попадать в default, а не ронять экспорт NPE
+            return switch (String.valueOf(node.get("type"))) {
                 case "parameterField" -> {
                     Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
                     String code = attrs != null ? (String) attrs.get("parameterCode") : null;
