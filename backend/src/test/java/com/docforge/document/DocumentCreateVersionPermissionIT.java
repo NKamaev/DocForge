@@ -1,6 +1,8 @@
 package com.docforge.document;
 
 import com.docforge.AbstractIT;
+import com.docforge.AuditTestSupport;
+import com.docforge.TestAuth;
 import com.docforge.document.model.Document;
 import com.docforge.security.JwtTokenProvider;
 import com.docforge.template.TemplateService;
@@ -127,6 +129,7 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
 
     /** Owner of the template. */
     private UUID userBId;
+    private String userBLogin;
     private String userBToken;
 
     /** Template owned by {@code userB}; published in {@link #setUp()}. */
@@ -147,6 +150,7 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
 
         userAId = createUser(loginA, "Ver Perm A");
         userBId = createUser(loginB, "Ver Perm B");
+        userBLogin = loginB;
         userAToken = jwtTokenProvider.generateToken(loginA);
         userBToken = jwtTokenProvider.generateToken(loginB);
 
@@ -157,7 +161,10 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
         templateId = created.id();
         assertThat(created.published()).isFalse();
 
-        TemplateResponse published = templateService.publish(templateId);
+        // BUG-068: публиковать может только владелец шаблона (или админ) —
+        // прямой вызов сервиса выполняется от имени владельца.
+        TemplateResponse published = TestAuth.callAs(userBLogin,
+                () -> templateService.publish(templateId));
         assertThat(published.published()).isTrue();
 
         TemplateVersionDTO publishVersion = templateService.listVersions(templateId).stream()
@@ -425,9 +432,10 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
     @DisplayName("non-owner + explicit MAJOR draft version → 403 «Нет доступа к черновой версии шаблона» and nothing persisted")
     void create_nonOwnerExplicitMajorDraftVersion_returns403AndNoRow() throws Exception {
         // given — B saves a MAJOR draft (a new major line) on top of the published version.
-        int majorVersion = templateService.saveVersion(templateId, new SaveVersionRequest("MAJOR", "мажорный черновик"))
+        int majorVersion = TestAuth.callAs(userBLogin, () -> templateService
+                .saveVersion(templateId, new SaveVersionRequest("MAJOR", "мажорный черновик"))
                 .version()
-                .versionNumber();
+                .versionNumber());
         assertThat(majorVersion).isGreaterThan(publishedVersionNumber);
         assertThat(versionOf(majorVersion).bumpType()).isEqualTo("MAJOR");
 
@@ -606,11 +614,17 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
 
     // ── helpers ────────────────────────────────────────────────────────────────
 
-    /** Saves a MINOR draft version (bumpType = "MINOR") and returns its version number. */
+    /**
+     * Saves a MINOR draft version (bumpType = "MINOR") and returns its version number.
+     *
+     * <p>BUG-068: сохранение версии доступно только владельцу шаблона (или админу) —
+     * вызов выполняется в контексте безопасности владельца (B).</p>
+     */
     private int saveMinorDraft(String comment) {
-        return templateService.saveVersion(templateId, new SaveVersionRequest("MINOR", comment))
+        return TestAuth.callAs(userBLogin, () -> templateService
+                .saveVersion(templateId, new SaveVersionRequest("MINOR", comment))
                 .version()
-                .versionNumber();
+                .versionNumber());
     }
 
     /**
@@ -618,7 +632,8 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
      * metadata of the newly created ROLLBACK version.
      */
     private TemplateVersionDTO rollbackTo(int targetVersionNumber) {
-        return templateService.rollback(templateId, targetVersionNumber).version();
+        return TestAuth.callAs(userBLogin, () -> templateService
+                .rollback(templateId, targetVersionNumber).version());
     }
 
     /**
@@ -631,10 +646,12 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
      * afterwards, so that the non-owner can still act on it.</p>
      */
     private TemplateVersionDTO rollbackToDraftWhileUnpublished(int targetVersionNumber) {
-        templateService.unpublish(templateId);
-        TemplateVersionDTO rollback = templateService.rollback(templateId, targetVersionNumber).version();
-        templateService.publish(templateId);
-        return rollback;
+        return TestAuth.callAs(userBLogin, () -> {
+            templateService.unpublish(templateId);
+            TemplateVersionDTO rollback = templateService.rollback(templateId, targetVersionNumber).version();
+            templateService.publish(templateId);
+            return rollback;
+        });
     }
 
     /** The newest published version of the test template. */
@@ -809,6 +826,7 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
      */
     @AfterEach
     void cleanUp() {
+        TestAuth.clear();
         if (templateId != null) {
             mongoTemplate.remove(Query.query(Criteria.where("template_id").is(templateId)), "documents");
             jdbcTemplate.update("DELETE FROM document_registry WHERE template_id = ?", templateId);
@@ -816,11 +834,13 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
             mongoTemplate.remove(Query.query(Criteria.where("template_id").is(templateId)), "template_snapshots");
             mongoTemplate.remove(Query.query(Criteria.where("_id").is(templateId)), "templates");
             jdbcTemplate.update("DELETE FROM template_registry WHERE id = ?", templateId);
+            jdbcTemplate.update("DELETE FROM audit_log WHERE entity_id = ?", templateId);
         }
         for (UUID userId : List.of(userAId, userBId)) {
             if (userId == null) continue;
-            jdbcTemplate.update("DELETE FROM audit_log WHERE user_id = ?", userId);
-            jdbcTemplate.update("DELETE FROM users WHERE id = ?", userId);
+            // Аудит пишется асинхронно (@Async) — удаляем пользователя вместе с его
+            // строками аудита детерминированно (retry при поздней строке аудита).
+            AuditTestSupport.deleteUserWithAuditRows(jdbcTemplate, userId);
         }
     }
 }

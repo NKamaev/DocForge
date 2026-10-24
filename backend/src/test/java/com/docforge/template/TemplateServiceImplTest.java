@@ -1,5 +1,6 @@
 package com.docforge.template;
 
+import com.docforge.TestAuth;
 import com.docforge.audit.AuditService;
 import com.docforge.common.exception.ResourceNotFoundException;
 import com.docforge.document.DocumentService;
@@ -15,6 +16,8 @@ import com.docforge.template.model.TemplateRegistry;
 import com.docforge.template.model.TemplateSnapshot;
 import com.docforge.template.model.TemplateVersion;
 import com.docforge.user.UserService;
+import com.docforge.user.dto.UserDTO;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -54,12 +58,40 @@ class TemplateServiceImplTest {
 
     private final UUID templateId = UUID.randomUUID();
 
+    /** Логин владельца шаблона — вызывающего в контексте безопасности. */
+    private static final String OWNER_LOGIN = "template-impl-test-owner";
+
+    /** Id владельца шаблона. */
+    private static final UUID OWNER_ID = UUID.randomUUID();
+
+    @AfterEach
+    void clearSecurityContext() {
+        TestAuth.clear();
+    }
+
+    /**
+     * BUG-068: {@code TemplateServiceImpl.assertCanModify} resolves the caller from the
+     * security context and compares its id with {@code template_registry.owner_id}.
+     * Without an authenticated owner the service refuses the call with
+     * {@code 403 «Нет прав на изменение шаблона»}, so the tests of the mutating
+     * operations have to act as the owner of the template.
+     */
+    private void authenticateAsOwner() {
+        // Mockito's @InjectMocks does not fill the @Autowired field of the service —
+        // the mock of UserService is injected explicitly.
+        ReflectionTestUtils.setField(templateService, "userService", userService);
+        when(userService.findUser(OWNER_LOGIN)).thenReturn(Optional.of(
+                new UserDTO(OWNER_ID, OWNER_LOGIN, "Owner", null, false, null)));
+        TestAuth.authenticateAs(OWNER_LOGIN);
+    }
+
     // ── Helper factories ───────────────────────────────────────────────────────
 
     private static TemplateRegistry registry(UUID id, int major, int minor) {
         TemplateRegistry r = new TemplateRegistry();
         r.setId(id);
         r.setName("Test Template");
+        r.setOwnerId(OWNER_ID);
         r.setMajorVersion(major);
         r.setMinorVersion(minor);
         r.setVersion(major * 10000 + minor);
@@ -93,6 +125,7 @@ class TemplateServiceImplTest {
     @DisplayName("saveVersion() with MINOR bump creates version 1.1 and persists snapshot")
     void saveVersion_minorBump_incrementsMinor() {
         // given
+        authenticateAsOwner();
         TemplateRegistry registry = registry(templateId, 1, 0);
         Template template = template(templateId);
 
@@ -125,7 +158,10 @@ class TemplateServiceImplTest {
         assertThat(savedVersion.getComment()).isEqualTo("Added new parameter");
         assertThat(savedVersion.getAutoDescription()).isEqualTo("Первая версия");
         assertThat(savedVersion.getRollbackFrom()).isNull();
-        assertThat(savedVersion.getCreatedBy()).isNull();                     // no security context
+        // BUG-068: вызывающий аутентифицирован (владелец шаблона) — поэтому
+        // created_by теперь содержит его id. Раньше он был null только из-за
+        // отсутствия контекста безопасности.
+        assertThat(savedVersion.getCreatedBy()).isEqualTo(OWNER_ID);
 
         // then — snapshot
         ArgumentCaptor<TemplateSnapshot> snapshotCaptor = ArgumentCaptor.forClass(TemplateSnapshot.class);
@@ -164,6 +200,7 @@ class TemplateServiceImplTest {
     @DisplayName("saveVersion() with MAJOR bump increments major and resets minor to 0")
     void saveVersion_majorBump_resetsMinor() {
         // given
+        authenticateAsOwner();
         TemplateRegistry registry = registry(templateId, 2, 5);              // v2.5 → bump MAJOR → v3.0
         Template template = template(templateId);
 
@@ -229,6 +266,7 @@ class TemplateServiceImplTest {
     @DisplayName("rollback() restores template from snapshot and creates ROLLBACK version")
     void rollback_restoresTemplateContentFromSnapshot() {
         // given
+        authenticateAsOwner();
         TemplateRegistry registry = registry(templateId, 1, 2);               // current v1.2
         Template template = template(templateId);
         UUID versionId = UUID.randomUUID();
@@ -306,6 +344,7 @@ class TemplateServiceImplTest {
     @Test
     @DisplayName("rollback() throws ResourceNotFoundException when snapshot not found")
     void rollback_throwsResourceNotFoundException_whenSnapshotNotFound() {
+        authenticateAsOwner();
         when(registryRepository.findById(templateId)).thenReturn(Optional.of(registry(templateId, 1, 2)));
         when(templateRepository.findById(templateId)).thenReturn(Optional.of(template(templateId)));
         when(snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, 999))
@@ -481,6 +520,7 @@ class TemplateServiceImplTest {
     @DisplayName("publish() raises the semver candidate above an orphan snapshot to stay monotonic")
     void publish_raisesAboveOrphanSnapshot() {
         // given — registry 1.0 would yield 10001, but 10001 already exists (orphan snapshot)
+        authenticateAsOwner();
         TemplateRegistry registry = registry(templateId, 1, 0);
         Template template = template(templateId);
         TemplateSnapshot orphanSnapshot = snapshot(UUID.randomUUID(), templateId, 10001, 1, 1);
@@ -532,6 +572,7 @@ class TemplateServiceImplTest {
     @DisplayName("publish() uses pgMax as monotonic floor when MongoDB has no snapshots")
     void publish_usesPgMaxFloor_whenNoSnapshotsInMongo() {
         // given — PostgreSQL already knows 1.5 (10005); semver candidate 10001 must be raised
+        authenticateAsOwner();
         TemplateRegistry registry = registry(templateId, 1, 0);
         Template template = template(templateId);
 
@@ -567,6 +608,7 @@ class TemplateServiceImplTest {
     @DisplayName("saveVersion() rolls minor 9999 over to the next major (1.9999 → 2.0)")
     void saveVersion_minorOverflow_rollsOverIntoNextMajor() {
         // given — registry is already at 1.9999 and there are no version rows yet
+        authenticateAsOwner();
         TemplateRegistry registry = registry(templateId, 1, 9999);
         Template template = template(templateId);
 

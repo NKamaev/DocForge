@@ -1,6 +1,8 @@
 package com.docforge.template;
 
 import com.docforge.AbstractIT;
+import com.docforge.AuditTestSupport;
+import com.docforge.TestAuth;
 import com.docforge.document.DocumentPermissionService;
 import com.docforge.document.DocumentService;
 import com.docforge.document.model.DocumentRole;
@@ -91,6 +93,7 @@ class TemplateVersionAccessIT extends AbstractIT {
 
     /** Owner of the test template. */
     private UUID userAId;
+    private String userALogin;
     private String userAToken;
 
     /** Stranger — owns nothing. */
@@ -121,9 +124,15 @@ class TemplateVersionAccessIT extends AbstractIT {
 
         userAId = createUser(loginA, "Template Version A");
         userBId = createUser(loginB, "Template Version B");
+        userALogin = loginA;
         userAToken = jwtTokenProvider.generateToken(loginA);
         userBToken = jwtTokenProvider.generateToken(loginB);
         adminToken = jwtTokenProvider.generateToken("admin");
+
+        // BUG-068: изменять шаблон (update/publish/saveVersion/rollback) может только
+        // владелец или админ. Прямые вызовы сервиса выполняются в контексте
+        // безопасности владельца шаблона.
+        TestAuth.authenticateAs(userALogin);
 
         // The template is built in three steps, so that the versions carry different bodies:
         //   1) MINOR draft  → body "DRAFT BODY"   (a version nobody but the owner may see)
@@ -151,6 +160,7 @@ class TemplateVersionAccessIT extends AbstractIT {
         publishedVersionNumber = publishVersion.versionNumber();
         publishedSnapshotId = publishVersion.id();
         assertThat(publishedVersionNumber).isGreaterThan(draftVersionNumber);
+        TestAuth.clear();
     }
 
     // ── 1. rollback guard ─────────────────────────────────────────────────────
@@ -235,10 +245,10 @@ class TemplateVersionAccessIT extends AbstractIT {
     void getVersion_documentCollaborator_draftExceptionIsNarrow() throws Exception {
         // given — a second draft version B, and a document pinned to version A that is
         // shared with the stranger.
-        int draftVersionB = templateService
+        int draftVersionB = TestAuth.callAs(userALogin, () -> templateService
                 .saveVersion(templateId, new SaveVersionRequest("MINOR", "черновик B"))
                 .version()
-                .versionNumber();
+                .versionNumber());
         assertThat(draftVersionB).isGreaterThan(draftVersionNumber);
         assertThat(draftVersionB).isNotEqualTo(publishedVersionNumber);
 
@@ -273,9 +283,10 @@ class TemplateVersionAccessIT extends AbstractIT {
     void listVersions_rollbackOfPublishedVersion_visibleToStranger() throws Exception {
         // given — the owner rolls the template back to the published version; the rollback
         // creates a new version (bumpType = "ROLLBACK", rollback_from = the published one).
-        int rollbackVersionNumber = templateService.rollback(templateId, publishedVersionNumber)
+        int rollbackVersionNumber = TestAuth.callAs(userALogin, () -> templateService
+                .rollback(templateId, publishedVersionNumber)
                 .version()
-                .versionNumber();
+                .versionNumber());
         assertThat(rollbackVersionNumber).isGreaterThan(publishedVersionNumber);
 
         // when — a stranger lists the versions.
@@ -296,7 +307,7 @@ class TemplateVersionAccessIT extends AbstractIT {
     @Test
     @DisplayName("ROLLBACK of a published version → the draft version stays invisible to a non-owner")
     void listVersions_rollbackOfPublishedVersion_draftStillHiddenFromStranger() throws Exception {
-        templateService.rollback(templateId, publishedVersionNumber);
+        TestAuth.runAs(userALogin, () -> templateService.rollback(templateId, publishedVersionNumber));
 
         mockMvc.perform(get("/api/templates/{id}/versions", templateId)
                         .header("Authorization", bearer(userBToken)))
@@ -412,9 +423,17 @@ class TemplateVersionAccessIT extends AbstractIT {
      * template (FK cascade to {@code template_version}), then the users. Every statement is
      * scoped to the ids created by this test; failures are <em>not</em> swallowed — a broken
      * cleanup must fail the test, otherwise leftovers silently distort the next runs.
+     *
+     * <p>The audit writer is asynchronous ({@code @Async}), so its rows can land
+     * <em>after</em> the business call has returned. Deleting the users while such a row
+     * is on its way breaks the FK {@code audit_log → users}. The cleanup therefore removes
+     * every user together with its audit rows through
+     * {@link AuditTestSupport#deleteUserWithAuditRows}, which retries the deletion when a
+     * late audit row blocks it — the cleanup becomes deterministic.</p>
      */
     @AfterEach
     void cleanUp() {
+        TestAuth.clear();
         if (templateId != null) {
             mongoTemplate.remove(Query.query(Criteria.where("template_id").is(templateId)), "documents");
             mongoTemplate.remove(Query.query(Criteria.where("template_id").is(templateId)), "template_snapshots");
@@ -427,8 +446,9 @@ class TemplateVersionAccessIT extends AbstractIT {
         }
         for (UUID userId : List.of(userAId, userBId)) {
             if (userId == null) continue;
-            jdbcTemplate.update("DELETE FROM audit_log WHERE user_id = ?", userId);
-            jdbcTemplate.update("DELETE FROM users WHERE id = ?", userId);
+            // Аудит асинхронный (@Async) — удаляем пользователя вместе с его строками
+            // аудита детерминированно (retry при поздней строке аудита).
+            AuditTestSupport.deleteUserWithAuditRows(jdbcTemplate, userId);
         }
     }
 }

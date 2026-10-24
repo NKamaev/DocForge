@@ -1,5 +1,6 @@
 package com.docforge.template;
 
+import com.docforge.TestAuth;
 import com.docforge.audit.AuditService;
 import com.docforge.common.exception.TemplatePublishedException;
 import com.docforge.document.DocumentService;
@@ -8,12 +9,16 @@ import com.docforge.template.dto.UpdateTemplateRequest;
 import com.docforge.template.model.Template;
 import com.docforge.template.model.TemplateRegistry;
 import com.docforge.user.UserService;
+import com.docforge.user.dto.UserDTO;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -38,6 +43,34 @@ class TemplateServiceTest {
     @InjectMocks
     private TemplateServiceImpl templateService;
 
+    /** Логин владельца шаблона — вызывающего в контексте безопасности. */
+    private static final String OWNER_LOGIN = "template-service-test-owner";
+
+    /** Id владельца шаблона. */
+    private static final UUID OWNER_ID = UUID.randomUUID();
+
+    /**
+     * BUG-068: {@code TemplateServiceImpl.assertCanModify} resolves the caller from the
+     * security context and compares its id with {@code template_registry.owner_id}.
+     * The test therefore acts as the owner of the template — otherwise the service would
+     * refuse the call with {@code 403 «Нет прав на изменение шаблона»} before the
+     * business rule under test is even reached.
+     */
+    @BeforeEach
+    void authenticateAsOwner() {
+        // Mockito's @InjectMocks does not fill the @Autowired field of the service —
+        // the mock of UserService is injected explicitly.
+        ReflectionTestUtils.setField(templateService, "userService", userService);
+        when(userService.findUser(OWNER_LOGIN)).thenReturn(Optional.of(
+                new UserDTO(OWNER_ID, OWNER_LOGIN, "Owner", null, false, null)));
+        TestAuth.authenticateAs(OWNER_LOGIN);
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        TestAuth.clear();
+    }
+
     @Test
     @DisplayName("update() throws TemplatePublishedException for a published template")
     void update_publishedTemplate_throwsException() {
@@ -45,6 +78,7 @@ class TemplateServiceTest {
         TemplateRegistry registry = new TemplateRegistry();
         registry.setId(id);
         registry.setName("Published Template");
+        registry.setOwnerId(OWNER_ID);
         registry.setPublished(true);
 
         when(registryRepository.findById(id)).thenReturn(Optional.of(registry));
@@ -65,6 +99,7 @@ class TemplateServiceTest {
         TemplateRegistry registry = new TemplateRegistry();
         registry.setId(id);
         registry.setName("Published Template");
+        registry.setOwnerId(OWNER_ID);
         registry.setPublished(true);
 
         when(registryRepository.findById(id)).thenReturn(Optional.of(registry));
@@ -81,6 +116,7 @@ class TemplateServiceTest {
         TemplateRegistry registry = new TemplateRegistry();
         registry.setId(id);
         registry.setName("Draft Template");
+        registry.setOwnerId(OWNER_ID);
         registry.setPublished(false);
 
         Template template = Template.builder().id(id).version(1).build();

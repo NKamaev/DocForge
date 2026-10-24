@@ -70,8 +70,10 @@ export default function VersionHistoryPanel({ templateId, onRollback, refreshKey
       setRollbackTarget(null)
       showNotification('success', 'Шаблон восстановлен до версии')
       load()
-    } catch {
-      showNotification('error', 'Не удалось выполнить откат')
+    } catch (err: unknown) {
+      // Сервер отвечает 403 «Нет прав на изменение шаблона» — показываем его
+      // текст вместо общего отказа.
+      showNotification('error', extractServerMessage(err) ?? 'Не удалось выполнить откат')
     } finally {
       setRollingBack(false)
     }

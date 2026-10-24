@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { isTemplateOwner, canManageTemplate, canEditTemplate, getReadOnlyHint } from './templateAccess'
+import {
+  isTemplateOwner,
+  canManageTemplate,
+  canEditTemplate,
+  getReadOnlyHint,
+  getTemplateMutationRights,
+} from './templateAccess'
 
 describe('isTemplateOwner', () => {
   it('is true for the owner of the template', () => {
@@ -83,5 +89,63 @@ describe('getReadOnlyHint', () => {
   it('is absent while the user identity or the template is unknown', () => {
     expect(getReadOnlyHint({ ownerId: 'u-1' }, null)).toBeNull()
     expect(getReadOnlyHint(null, { id: 'u-2', admin: false })).toBeNull()
+  })
+})
+
+/**
+ * BUG-068 — сервер требует владельца (или администратора) для любой
+ * изменяющей операции: publish, unpublish, delete, POST /versions, rollback.
+ * Фронтенд не должен предлагать эти действия чужим шаблонам.
+ */
+describe('getTemplateMutationRights', () => {
+  it('grants every mutating action to the owner', () => {
+    expect(getTemplateMutationRights({ ownerId: 'u-1' }, { id: 'u-1', admin: false })).toEqual({
+      canPublish: true,
+      canDelete: true,
+      canSaveVersion: true,
+      canRollback: true,
+    })
+  })
+
+  it('grants every mutating action to an administrator', () => {
+    expect(getTemplateMutationRights({ ownerId: 'u-1' }, { id: 'u-2', admin: true })).toEqual({
+      canPublish: true,
+      canDelete: true,
+      canSaveVersion: true,
+      canRollback: true,
+    })
+  })
+
+  it('denies every mutating action to a non-owner', () => {
+    expect(getTemplateMutationRights({ ownerId: 'u-1' }, { id: 'u-2', admin: false })).toEqual({
+      canPublish: false,
+      canDelete: false,
+      canSaveVersion: false,
+      canRollback: false,
+    })
+  })
+
+  it('denies every mutating action for a template without an owner', () => {
+    expect(getTemplateMutationRights({ ownerId: null }, { id: 'u-1', admin: false })).toEqual({
+      canPublish: false,
+      canDelete: false,
+      canSaveVersion: false,
+      canRollback: false,
+    })
+  })
+
+  it('is fail-closed while the user identity is unknown', () => {
+    expect(getTemplateMutationRights({ ownerId: 'u-1' }, null)).toEqual({
+      canPublish: false,
+      canDelete: false,
+      canSaveVersion: false,
+      canRollback: false,
+    })
+    expect(getTemplateMutationRights(null, { id: 'u-1', admin: false })).toEqual({
+      canPublish: false,
+      canDelete: false,
+      canSaveVersion: false,
+      canRollback: false,
+    })
   })
 })

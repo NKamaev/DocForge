@@ -80,3 +80,47 @@ export function getReadOnlyHint(
   if (canManageTemplate(template, user)) return null
   return 'Вы не владелец шаблона — редактирование недоступно'
 }
+
+/**
+ * Права на изменяющие операции над шаблоном.
+ *
+ * Зеркалит серверное правило BUG-068: любую изменяющую операцию
+ * (`publish`, `unpublish`, `delete`, `POST /versions`, `rollback`) выполнять
+ * может только владелец шаблона или администратор; остальным сервер
+ * отвечает 403 «Нет прав на изменение шаблона».
+ *
+ * Флаги вынесены поимённо, чтобы UI мог решать по каждому действию
+ * отдельно: правила сервера могут разойтись, а список действий уже сейчас
+ * разный (в списке — публикация и удаление, в конструкторе — ещё версии
+ * и откат).
+ */
+export interface TemplateMutationRights {
+  /** Публикация / снятие с публикации (`POST .../publish`, `.../unpublish`). */
+  canPublish: boolean
+  /** Удаление шаблона (`DELETE /templates/{id}`). */
+  canDelete: boolean
+  /** Сохранение новой версии (`POST /templates/{id}/versions`). */
+  canSaveVersion: boolean
+  /** Откат к версии (`POST /templates/{id}/rollback/{n}`). */
+  canRollback: boolean
+}
+
+/**
+ * Права на изменяющие операции: владелец шаблона или администратор.
+ *
+ * Fail-closed: пока личность пользователя неизвестна (`user == null`),
+ * никаких изменяющих действий не предлагаем — сервер в этом случае
+ * всё равно ответит 403.
+ */
+export function getTemplateMutationRights(
+  template: TemplateOwnerLike | null | undefined,
+  user: TemplateUserLike | null | undefined,
+): TemplateMutationRights {
+  const allowed = canManageTemplate(template, user)
+  return {
+    canPublish: allowed,
+    canDelete: allowed,
+    canSaveVersion: allowed,
+    canRollback: allowed,
+  }
+}

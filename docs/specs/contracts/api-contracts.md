@@ -47,17 +47,26 @@ Base URL: `/api/{resource}` — plural nouns, kebab-case.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/templates` | List (paginated, filtered) |
+| GET | `/api/templates` | List (paginated, filtered) — чужие черновики скрыты |
 | POST | `/api/templates` | Create |
-| GET | `/api/templates/{id}` | Full template (body + questionnaire + scripts) |
-| PUT | `/api/templates/{id}` | Update |
-| DELETE | `/api/templates/{id}` | Delete |
-| POST | `/api/templates/{id}/publish` | Publish |
-| POST | `/api/templates/{id}/unpublish` | Unpublish |
-| POST | `/api/templates/{id}/validate` | Validate integrity |
-| POST | `/api/templates/{id}/scripts/test` | Test script with mock data |
+| GET | `/api/templates/{id}` | Full template (body + questionnaire + scripts) — черновик только для владельца/админа |
+| PUT | `/api/templates/{id}` | Update — только владелец/админ |
+| DELETE | `/api/templates/{id}` | Delete — только владелец/админ |
+| POST | `/api/templates/{id}/publish` | Publish — только владелец/админ |
+| POST | `/api/templates/{id}/unpublish` | Unpublish — только владелец/админ |
+| POST | `/api/templates/{id}/validate` | Validate integrity — только владелец/админ |
+| POST | `/api/templates/{id}/scripts/test` | Test script with mock data — только владелец/админ |
+| GET | `/api/templates/{id}/versions` | Список версий — постороннему только опубликованные |
+| GET | `/api/templates/{id}/versions/{n}` | Снимок версии — постороннему только опубликованные (исключение: участник документа, привязанного к версии) |
+| GET | `/api/templates/{id}/versions/diff?from=&to=` | Diff версий — обе версии должны быть читаемы вызывающим |
+| POST | `/api/templates/{id}/versions` | Сохранить черновую версию — только владелец/админ |
+| POST | `/api/templates/{id}/rollback/{n}` | Откат к версии — только владелец/админ |
 | POST | `/api/templates/{id}/export/docx` | Export DOCX |
 | POST | `/api/templates/{id}/export/pdf` | Export PDF |
+
+Ошибки прав: `403` с `ProblemDetail` — «Нет доступа к шаблону» (чтение),
+«Нет доступа к версии шаблона» (чтение версии),
+«Нет прав на изменение шаблона» (изменение).
 
 ### Documents
 

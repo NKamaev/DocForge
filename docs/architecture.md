@@ -1772,6 +1772,7 @@ CREATE TABLE dictionaries (
 - Аутентификация: JWT, refresh-token.
 - **Permission check**: все эндпоинты документов, включая `GET /api/documents/{id}/questionnaire`, проверяют `DocumentPermission.READ` перед выдачей данных. Раньше questionnaire отдавал данные любому аутентифицированному пользователю.
 - **Permission check (шаблоны)**: чтение шаблона (`GET /api/templates/{id}`, `.../versions`, `.../versions/{n}`) и список шаблонов ограничены владением: опубликованный шаблон доступен всем, черновик (неопубликованный шаблон, черновые версии `MAJOR`/`MINOR`) — только владельцу и администратору. Исключение: черновую версию может прочитать участник документа, привязанного к этой версии (`DocumentService.hasAccessibleDocumentForTemplateVersion`).
+- **Permission check (шаблоны, запись)**: изменение шаблона (`PUT`, `DELETE`, `publish`, `unpublish`, `POST .../versions`, `POST .../rollback/{n}`, а также read-оракулы `POST .../validate` и `POST .../scripts/test`) разрешено только владельцу (`template_registry.owner_id`) или администратору, иначе `403` «Нет прав на изменение шаблона». Шаблоны без владельца (`owner_id IS NULL`, легаси-данные) изменяемы только администратором; V019 частично восстанавливает владельцев из `template_version.created_by` и `audit_log`.
 - Python-скрипты: GraalPython sandbox — нет доступа к FS, сети, Java-классам.
 - Валидация входных данных на уровне DTO (Jakarta Validation).
 - CORS — настраиваемый whitelist.

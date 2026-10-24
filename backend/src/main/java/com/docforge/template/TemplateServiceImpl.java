@@ -54,6 +54,10 @@ public class TemplateServiceImpl implements TemplateService {
     private static final int VERSION_PAGE_SIZE = 100;
     /** Глубина разбора цепочки откатов (ROLLBACK → источник). */
     private static final int ROLLBACK_PROVENANCE_DEPTH = 5;
+    /** Роль администратора (см. {@code UserDetailsServiceImpl}). */
+    private static final String ROLE_ADMIN = "ROLE_ADMIN";
+    /** Сообщение об отказе в изменении шаблона (BUG-068). */
+    private static final String MODIFY_DENIED = "Нет прав на изменение шаблона";
 
     private final TemplateRegistryRepository registryRepository;
     private final TemplateRepository templateRepository;
@@ -175,6 +179,7 @@ public class TemplateServiceImpl implements TemplateService {
     @Transactional
     public TemplateResponse update(UUID id, UpdateTemplateRequest request) {
         TemplateRegistry registry = findRegistryOrThrow(id);
+        assertCanModify(registry);
         if (registry.isPublished()) {
             throw new TemplatePublishedException(id);
         }
@@ -202,6 +207,7 @@ public class TemplateServiceImpl implements TemplateService {
     @Transactional
     public void delete(UUID id) {
         TemplateRegistry registry = findRegistryOrThrow(id);
+        assertCanModify(registry);
         if (registry.isPublished()) {
             throw new TemplatePublishedException(id);
         }
@@ -237,6 +243,7 @@ public class TemplateServiceImpl implements TemplateService {
     @Transactional
     public SaveVersionResponse saveVersion(UUID templateId, SaveVersionRequest request) {
         TemplateRegistry registry = findRegistryOrThrow(templateId);
+        assertCanModify(registry);
         Template template = findTemplateOrThrow(templateId);
 
         // Ensure current content is persisted before snapshot
@@ -299,6 +306,7 @@ public class TemplateServiceImpl implements TemplateService {
     @Transactional
     public RollbackResponse rollback(UUID templateId, int versionNumber) {
         TemplateRegistry registry = findRegistryOrThrow(templateId);
+        assertCanModify(registry);
         Template template = findTemplateOrThrow(templateId);
         TemplateSnapshot snapshot = getSnapshot(templateId, versionNumber);
 
@@ -708,6 +716,9 @@ public class TemplateServiceImpl implements TemplateService {
 
     private TemplateResponse setPublished(UUID id, boolean published) {
         TemplateRegistry registry = findRegistryOrThrow(id);
+        // Проверка прав делается здесь — единственном месте для publish/unpublish:
+        // внутренний путь publish → setPublished не должен проверять права дважды.
+        assertCanModify(registry);
         Template template = findTemplateOrThrow(id);
 
         if (published) {
@@ -799,7 +810,8 @@ public class TemplateServiceImpl implements TemplateService {
     private TemplateListItemResponse toListItem(TemplateRegistry r) {
         return new TemplateListItemResponse(
                 r.getId(), r.getCode(), r.getName(), r.getDescription(),
-                r.getCategory(), r.isPublished(), r.getMajorVersion(), r.getMinorVersion(),
+                r.getCategory(), r.isPublished(), r.getOwnerId(),
+                r.getMajorVersion(), r.getMinorVersion(),
                 r.getCreatedAt()
         );
     }
@@ -822,6 +834,10 @@ public class TemplateServiceImpl implements TemplateService {
     @Override
     @Transactional(readOnly = true)
     public TemplateValidationResult validate(UUID id) {
+        // Валидация — «оракул» по содержимому шаблона: не владелец не должен
+        // узнавать детали чужого черновика (BUG-068).
+        TemplateRegistry registry = findRegistryOrThrow(id);
+        assertCanModify(registry);
         Template template = findTemplateOrThrow(id);
         return templateValidator.validate(template);
     }
@@ -829,6 +845,10 @@ public class TemplateServiceImpl implements TemplateService {
     @Override
     @Transactional(readOnly = true)
     public ScriptTestResult testScript(UUID templateId, ScriptTestRequest request) {
+        // Тест скрипта исполняет код черновика и возвращает текст исключения,
+        // который может содержать литералы скрипта → только владелец/админ (BUG-068).
+        TemplateRegistry registry = findRegistryOrThrow(templateId);
+        assertCanModify(registry);
         Template template = findTemplateOrThrow(templateId);
 
         List<Script> scripts = template.getScripts();
@@ -868,6 +888,87 @@ public class TemplateServiceImpl implements TemplateService {
         // помечил бы её rollback-only и вызвал UnexpectedRollbackException при
         // коммите (BUG-061).
         return userService.findUser(login).map(UserDTO::id).orElse(null);
+    }
+
+    /**
+     * Текущий пользователь по контексту безопасности.
+     *
+     * <p>Пусто, если вызывающего нет в {@code users} (или нет контекста
+     * безопасности). Исключений не бросает — см. {@link UserService#findUser}.
+     */
+    private Optional<UserDTO> currentUser() {
+        String login = currentLogin();
+        if (login == null) return Optional.empty();
+        return userService.findUser(login);
+    }
+
+    /**
+     * Есть ли у вызывающего роль {@code ROLE_ADMIN} в контексте безопасности.
+     *
+     * <p>Роль выдаётся {@code UserDetailsServiceImpl} по признаку
+     * {@code users.is_admin}, поэтому в реальном запросе {@code ROLE_ADMIN}
+     * в authorities эквивалентен {@code UserDTO.admin()}.
+     */
+    private boolean hasRoleAdmin() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getAuthorities() == null) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .anyMatch(authority -> ROLE_ADMIN.equals(authority.getAuthority()));
+    }
+
+    /**
+     * Проверка права на изменение шаблона (BUG-068).
+     *
+     * <p>Изменять шаблон может только владелец
+     * ({@code template_registry.owner_id == id вызывающего}) или
+     * администратор. Всё остальное — 403 «Нет прав на изменение шаблона».
+     *
+     * <p>Правило живёт в сервисе, а не в контроллере: вызывающий резолвится
+     * из контекста безопасности, поэтому обойти проверку нельзя ни через
+     * другой эндпоинт, ни прямым вызовом сервиса.
+     *
+     * <p>Неизвестный вызывающий (логин, которого нет в {@code users}) — не
+     * владелец и не администратор: проверка закрыта по умолчанию (fail closed).
+     *
+     * <p>Отсутствие контекста безопасности — тоже отказ. Все точки входа
+     * {@code /api/templates/**} требуют аутентификации
+     * ({@code SecurityConfig}), поэтому во внешнем запросе вызывающий всегда
+     * есть; внутренние вызовы, которым нужны mutating-операции, должны
+     * аутентифицироваться явно (например, через {@code TestAuth}/сервисный
+     * контекст), а не рассчитывать на «пропуск» проверки.
+     */
+    private void assertCanModify(TemplateRegistry registry) {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            // Fail closed: без контекста безопасности вызывающего нет — прав нет.
+            log.warn("Попытка изменить шаблон id={} без аутентификации", registry.getId());
+            throw new AccessDeniedException(MODIFY_DENIED);
+        }
+        // Администратор: ROLE_ADMIN в контексте безопасности или users.is_admin.
+        // Проверяем ДО поиска пользователя: иначе админ с логином, которого нет
+        // в users, отсекался бы «неизвестным пользователем».
+        if (hasRoleAdmin()) {
+            return;
+        }
+        Optional<UserDTO> caller = currentUser();
+        if (caller.isEmpty()) {
+            // Логин неизвестен: ни владельцем быть нельзя, ни прав админа нет.
+            log.warn("Попытка изменить шаблон id={} неизвестным пользователем '{}'",
+                    registry.getId(), auth.getName());
+            throw new AccessDeniedException(MODIFY_DENIED);
+        }
+        UserDTO user = caller.get();
+        if (user.admin()) {
+            return;
+        }
+        // Владелец: owner_id реестра шаблона совпадает с id вызывающего.
+        if (user.id().equals(registry.getOwnerId())) {
+            return;
+        }
+        log.warn("Попытка изменить чужой шаблон id={} (login={})", registry.getId(), auth.getName());
+        throw new AccessDeniedException(MODIFY_DENIED);
     }
 
     /**

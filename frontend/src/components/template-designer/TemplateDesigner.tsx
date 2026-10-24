@@ -57,7 +57,7 @@ import {
 import { templatesApi } from '../../api/templatesApi'
 import { foldersApi } from '../../api/foldersApi'
 import { extractServerMessage, getErrorStatus } from '../../api/errorMessages'
-import { canEditTemplate, canManageTemplate, getReadOnlyHint } from '../../utils/templateAccess'
+import { canEditTemplate, getReadOnlyHint, getTemplateMutationRights } from '../../utils/templateAccess'
 import { useAuthStore } from '../../store/authStore'
 import { formattingToCssVars } from '../../utils/formattingCssVars'
 import type { DocumentFormatting, Parameter, Phrasing, Questionnaire, Script, Template } from '../../types/template'
@@ -328,11 +328,16 @@ export default function TemplateDesigner() {
   // Права на управление шаблоном: владелец или администратор. Остальным
   // сервер закрывает черновики и черновые версии (403), поэтому действия
   // записи им не предлагаем.
-  const canManage = canManageTemplate(template, currentUser)
+  const mutationRights = getTemplateMutationRights(template, currentUser)
+  const canPublish = mutationRights.canPublish
   // Редактирование доступно только владельцу (или админу) и только пока
   // шаблон не опубликован: опубликованный шаблон сервер на запись закрывает
   // (PUT → 409). Для всех остальных конструктор открыт только для чтения.
   const canEdit = canEditTemplate(template, currentUser, published)
+  // Сохранение версии и откат — тоже операции записи (BUG-068): сервер
+  // требует владельца шаблона или администратора.
+  const canSaveVersion = mutationRights.canSaveVersion
+  const canRollback = mutationRights.canRollback
   // Подсказка «вы не владелец» показывается только когда личность
   // пользователя уже известна — иначе владелец увидел бы её на миг-долю
   // секунды, пока едет ответ `GET /users/me`.
@@ -455,7 +460,7 @@ export default function TemplateDesigner() {
 
   // ── Confirm version save ────────────────────────────────────────────────────
   const handleVersionConfirm = useCallback(async (bumpType: 'MAJOR' | 'MINOR', comment: string) => {
-    if (!id || !canEdit) return
+    if (!id || !canEdit || !canSaveVersion) return
     const { parameters, questionnaire, scripts, phrasings, editorJson, template, formatting, defaultFolderId } = stateRef.current
     if (!template) return
     setSaving(true)
@@ -481,16 +486,18 @@ export default function TemplateDesigner() {
       setBumpDialogOpen(false)
       setVersionRefreshKey((k) => k + 1)
       showNotification('success', `Сохранена версия v${result.version.majorVersion}.${result.version.minorVersion}`)
-    } catch {
-      showNotification('error', 'Ошибка при сохранении версии')
+    } catch (err: unknown) {
+      // Текст сервера (например, «Нет прав на изменение шаблона») объясняет
+      // причину отказа лучше общего сообщения.
+      showNotification('error', extractServerMessage(err) ?? 'Ошибка при сохранении версии')
     } finally {
       setSaving(false)
     }
-  }, [id, canEdit])
+  }, [id, canEdit, canSaveVersion])
 
   // ── Rollback ────────────────────────────────────────────────────────────────
   const handleRollback = useCallback(async (versionNumber: number) => {
-    if (!id || !canManage) return
+    if (!id || !canRollback) return
     const result = await templatesApi.rollback(id, versionNumber)
     setTemplate(result.template)
     setParameters(result.template.parameters ?? [])
@@ -504,10 +511,10 @@ export default function TemplateDesigner() {
     }
     setIsDirty(false)
     setVersionRefreshKey((k) => k + 1)
-  }, [id, editor, canManage])
+  }, [id, editor, canRollback])
 
   const handlePublish = useCallback(async () => {
-    if (!id || !canManage) return
+    if (!id || !canPublish) return
     setPublishing(true)
     try {
       const updated = published
@@ -515,12 +522,14 @@ export default function TemplateDesigner() {
         : await templatesApi.publishTemplate(id)
       setPublished(updated.published ?? false)
       showNotification('success', published ? 'Шаблон снят с публикации — создание документов закрыто' : 'Шаблон опубликован — теперь можно создавать документы')
-    } catch {
-      showNotification('error', published ? 'Не удалось снять шаблон с публикации' : 'Не удалось опубликовать шаблон')
+    } catch (err: unknown) {
+      // Сервер отвечает 403 «Нет прав на изменение шаблона» — показываем его
+      // текст, а не общий отказ.
+      showNotification('error', extractServerMessage(err) ?? (published ? 'Не удалось снять шаблон с публикации' : 'Не удалось опубликовать шаблон'))
     } finally {
       setPublishing(false)
     }
-  }, [id, published, canManage])
+  }, [id, published, canPublish])
 
   const handleExport = useCallback(async (format: 'docx' | 'pdf') => {
     if (!id) return
@@ -639,7 +648,7 @@ export default function TemplateDesigner() {
           templateId={id}
           onRollback={handleRollback}
           refreshKey={versionRefreshKey}
-          canRollback={canManage}
+          canRollback={canRollback}
         />
       ) : (
         <div className="empty" style={{ padding: 24 }}>
@@ -677,7 +686,7 @@ export default function TemplateDesigner() {
         </div>
       ),
     },
-  ], [parameters, handleParametersChange, usedCodes, questionnaire, handleQuestionnaireChange, phrasings, handlePhrasingsChange, editor, canEdit, defaultFolderId, folders, id, handleRollback, versionRefreshKey, canManage])
+  ], [parameters, handleParametersChange, usedCodes, questionnaire, handleQuestionnaireChange, phrasings, handlePhrasingsChange, editor, canEdit, defaultFolderId, folders, id, handleRollback, versionRefreshKey, canRollback])
 
   // Ошибка загрузки шаблона: чужой черновик сервер закрывает (BUG-059),
   // показываем понятное объяснение вместо пустого конструктора.
@@ -784,7 +793,7 @@ export default function TemplateDesigner() {
             </DropdownMenu>
             {!published ? (
               <>
-                {canManage && (
+                {canEdit && canSaveVersion && (
                   <button
                     className="btn sm primary"
                     disabled={!isDirty || saving}
@@ -794,7 +803,7 @@ export default function TemplateDesigner() {
                     <Icon name="save" size={13} /> Сохранить
                   </button>
                 )}
-                {canManage && (
+                {canPublish && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <button className="btn sm success icon-only" disabled={publishing} title="Опубликовать шаблон">
@@ -817,7 +826,7 @@ export default function TemplateDesigner() {
                 )}
               </>
             ) : (
-              canManage && (
+              canPublish && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <button className="btn sm danger icon-only" disabled={publishing} title="Снять с публикации">
@@ -854,7 +863,7 @@ export default function TemplateDesigner() {
               )}
               {readOnlyHint && <b className="b-strong">{readOnlyHint}</b>}
             </span>
-            {published && canManage && (
+            {published && canPublish && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <button className="btn xs">Снять с публикации</button>

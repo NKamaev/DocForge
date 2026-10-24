@@ -1,6 +1,8 @@
 package com.docforge.document;
 
 import com.docforge.AbstractIT;
+import com.docforge.AuditTestSupport;
+import com.docforge.TestAuth;
 import com.docforge.document.dto.FolderRequest;
 import com.docforge.document.dto.FolderResponse;
 import com.docforge.document.model.Document;
@@ -74,6 +76,7 @@ class DocumentCreatePermissionIT extends AbstractIT {
 
     /** Foreign owner of the draft template / foreign folder. */
     private UUID userBId;
+    private String userBLogin;
 
     /** userB's unpublished (draft) template. */
     private UUID draftTemplateId;
@@ -93,6 +96,7 @@ class DocumentCreatePermissionIT extends AbstractIT {
 
         userAId = createUser(loginA, "Create Perm A");
         userBId = createUser(loginB, "Create Perm B");
+        userBLogin = loginB;
         userAToken = jwtTokenProvider.generateToken(loginA);
 
         // B owns a draft template and a published one.
@@ -105,7 +109,10 @@ class DocumentCreatePermissionIT extends AbstractIT {
         TemplateResponse published = templateService.create(
                 userBId,
                 new CreateTemplateRequest("CreatePermIT Published " + suffix, null, null, null));
-        publishedTemplateId = templateService.publish(published.id()).id();
+        // BUG-068: публиковать может только владелец шаблона (или админ) —
+        // прямой вызов сервиса выполняется в контексте безопасности B.
+        publishedTemplateId = TestAuth.callAs(userBLogin,
+                () -> templateService.publish(published.id())).id();
 
         // B owns a folder; A owns another one.
         FolderResponse folderB = folderService.create(

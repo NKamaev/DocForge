@@ -12,6 +12,14 @@ export interface TemplateListItem {
   majorVersion: number
   minorVersion: number
   createdAt: string
+  /**
+   * Владелец шаблона.
+   *
+   * Сервер (BUG-068) отдаёт его в списке шаблонов, чтобы клиент мог скрыть
+   * изменяющие действия (публикация, удаление) для чужих шаблонов: владельцем
+   * является только он или администратор, остальным сервер отвечает 403.
+   */
+  ownerId: string | null
 }
 
 export interface Template {
@@ -24,7 +32,11 @@ export interface Template {
   majorVersion: number
   minorVersion: number
   published: boolean
-  ownerId: string
+  /**
+   * Владелец шаблона. Колонка в БД nullable — шаблон без владельца
+   * (`ownerId == null`) не принадлежит никому (см. `isTemplateOwner`).
+   */
+  ownerId: string | null
   defaultFolderId: string | null
   createdAt: string
   updatedAt: string

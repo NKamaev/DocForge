@@ -1,6 +1,8 @@
 package com.docforge.template;
 
 import com.docforge.AbstractIT;
+import com.docforge.AuditTestSupport;
+import com.docforge.TestAuth;
 import com.docforge.document.DocumentPermissionService;
 import com.docforge.document.DocumentService;
 import com.docforge.document.model.DocumentRole;
@@ -24,7 +26,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
@@ -89,6 +93,7 @@ class TemplateReadPermissionIT extends AbstractIT {
 
     /** Owner of both test templates. */
     private UUID userAId;
+    private String userALogin;
     private String userAToken;
 
     /** Stranger — owns nothing. */
@@ -119,11 +124,16 @@ class TemplateReadPermissionIT extends AbstractIT {
 
         userAId = createUser(loginA, "Template Read A");
         userBId = createUser(loginB, "Template Read B");
+        userALogin = loginA;
         userAToken = jwtTokenProvider.generateToken(loginA);
         userBToken = jwtTokenProvider.generateToken(loginB);
         // The administrator is a seeded account — its JWT is issued the same way, so the
         // real UserDetailsServiceImpl grants ROLE_ADMIN.
         adminToken = jwtTokenProvider.generateToken("admin");
+
+        // BUG-068: изменять шаблон может только владелец (или админ). Прямые вызовы
+        // сервиса в подготовке теста выполняются в контексте безопасности владельца.
+        TestAuth.authenticateAs(userALogin);
 
         // 1) A draft template — never published, so only its owner (and admins) may read it.
         TemplateResponse draft = templateService.create(
@@ -150,6 +160,7 @@ class TemplateReadPermissionIT extends AbstractIT {
                 .version()
                 .versionNumber();
         assertThat(draftVersionNumber).isGreaterThan(publishedVersionNumber);
+        TestAuth.clear();
     }
 
     // ── 1. GET /api/templates/{id} — draft template ───────────────────────────
@@ -432,7 +443,15 @@ class TemplateReadPermissionIT extends AbstractIT {
      */
     @AfterEach
     void cleanUp() {
-        List<UUID> templateIds = List.of(draftTemplateId, publishedTemplateId);
+        TestAuth.clear();
+        // Идентификаторы могут быть null, если подготовка теста упала раньше —
+        // List.of() с null элементом упал бы с NPE и оставил бы мусор в базе.
+        List<UUID> templateIds = Stream.of(draftTemplateId, publishedTemplateId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (templateIds.isEmpty()) {
+            return;
+        }
 
         mongoTemplate.remove(Query.query(Criteria.where("template_id").in(templateIds)), "documents");
         mongoTemplate.remove(Query.query(Criteria.where("template_id").in(templateIds)), "template_snapshots");
@@ -449,8 +468,9 @@ class TemplateReadPermissionIT extends AbstractIT {
                 draftTemplateId, publishedTemplateId);
         for (UUID userId : List.of(userAId, userBId)) {
             if (userId == null) continue;
-            jdbcTemplate.update("DELETE FROM audit_log WHERE user_id = ?", userId);
-            jdbcTemplate.update("DELETE FROM users WHERE id = ?", userId);
+            // Аудит асинхронный (@Async) — удаляем пользователя вместе с его строками
+            // аудита детерминированно (retry при поздней строке аудита).
+            AuditTestSupport.deleteUserWithAuditRows(jdbcTemplate, userId);
         }
     }
 }

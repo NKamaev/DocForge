@@ -15,6 +15,9 @@ import {
   showToast,
 } from '@/components/ui'
 import { templatesApi } from '../api/templatesApi'
+import { extractServerMessage } from '../api/errorMessages'
+import { useAuthStore } from '../store/authStore'
+import { getTemplateMutationRights } from '../utils/templateAccess'
 import type { TemplateListItem } from '../types/template'
 import CreateTemplateModal from '../components/template-list/CreateTemplateModal'
 import { Icon } from '../components/Icon'
@@ -27,6 +30,7 @@ type Filter = 'all' | 'published' | 'draft'
 
 export default function TemplatesPage() {
   const navigate = useNavigate()
+  const currentUser = useAuthStore((s) => s.user)
   const [items, setItems] = useState<TemplateListItem[]>([])
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
@@ -53,6 +57,9 @@ export default function TemplatesPage() {
   useEffect(() => { load() }, [])
 
   const handlePublish = async (template: TemplateListItem) => {
+    // Сервер (BUG-068) отвечает 403 на публикацию чужого шаблона — действие
+    // не предлагаем, даже если состояние интерфейса устарело.
+    if (!getTemplateMutationRights(template, currentUser).canPublish) return
     if (publishingRef.current) return
     publishingRef.current = true
     try {
@@ -69,7 +76,9 @@ export default function TemplatesPage() {
       })
       showToast(template.published ? 'Шаблон снят с публикации' : 'Шаблон опубликован', 'success')
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      // Текст сервера (например, «Нет прав на изменение шаблона») важнее
+      // общего текста: он объясняет, почему действие не удалось.
+      const detail = extractServerMessage(err)
       showToast(detail ?? (template.published ? 'Не удалось снять шаблон с публикации' : 'Не удалось опубликовать шаблон'), 'error')
     } finally {
       publishingRef.current = false
@@ -77,6 +86,7 @@ export default function TemplatesPage() {
   }
 
   const handleDelete = async (template: TemplateListItem) => {
+    if (!getTemplateMutationRights(template, currentUser).canDelete) return
     try {
       await templatesApi.deleteTemplate(template.id)
       startTransition(() => {
@@ -84,7 +94,7 @@ export default function TemplatesPage() {
       })
       showToast('Шаблон удалён', 'success')
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      const detail = extractServerMessage(err)
       showToast(detail ?? 'Не удалось удалить шаблон', 'error')
     }
   }
@@ -167,72 +177,84 @@ export default function TemplatesPage() {
             {!loading && filtered.length === 0 && (
               <tr><td colSpan={5} style={{ textAlign: 'center', padding: 32, color: 'var(--ink-3)' }}>Нет шаблонов</td></tr>
             )}
-            {filtered.map((t) => (
-              <tr key={t.id}>
-                <td>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--bg-soft)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', border: '1px solid var(--line)', flexShrink: 0 }}>
-                      <Icon name="doc" size={14} />
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 500, cursor: 'pointer' }} onClick={() => navigate(`/templates/${t.id}/edit`)}>
-                        {t.name}
+            {filtered.map((t) => {
+              // Публикация и удаление доступны только владельцу шаблона
+              // (или администратору): для чужих шаблонов сервер отвечает 403,
+              // поэтому такие действия в списке не показываем (BUG-068).
+              const rights = getTemplateMutationRights(t, currentUser)
+              return (
+                <tr key={t.id}>
+                  <td>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--bg-soft)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center', border: '1px solid var(--line)', flexShrink: 0 }}>
+                        <Icon name="doc" size={14} />
                       </div>
-                      <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
-                        v{t.majorVersion ?? 1}.{t.minorVersion ?? 0}
+                      <div>
+                        <div style={{ fontWeight: 500, cursor: 'pointer' }} onClick={() => navigate(`/templates/${t.id}/edit`)}>
+                          {t.name}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
+                          v{t.majorVersion ?? 1}.{t.minorVersion ?? 0}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </td>
-                <td>
-                  {t.category ? <span className="tag">{t.category}</span> : <span className="muted">—</span>}
-                </td>
-                <td>
-                  {t.published
-                    ? <span className="tag green"><span className="dot" />Опубликован</span>
-                    : <span className="tag amber"><span className="dot" />Черновик</span>}
-                </td>
-                <td className="muted tabular">{new Date(t.createdAt).toLocaleDateString('ru-RU')}</td>
-                <td>
-                  <div className="row-actions">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button className="btn xs icon-only" onClick={() => navigate(`/templates/${t.id}/edit`)}>
-                          <Icon name="edit" size={14} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>Открыть редактор</TooltipContent>
-                    </Tooltip>
+                  </td>
+                  <td>
+                    {t.category ? <span className="tag">{t.category}</span> : <span className="muted">—</span>}
+                  </td>
+                  <td>
+                    {t.published
+                      ? <span className="tag green"><span className="dot" />Опубликован</span>
+                      : <span className="tag amber"><span className="dot" />Черновик</span>}
+                  </td>
+                  <td className="muted tabular">{new Date(t.createdAt).toLocaleDateString('ru-RU')}</td>
+                  <td>
+                    <div className="row-actions">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button className="btn xs icon-only" aria-label="Открыть редактор" onClick={() => navigate(`/templates/${t.id}/edit`)}>
+                            <Icon name="edit" size={14} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Открыть редактор</TooltipContent>
+                      </Tooltip>
 
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          className={`btn xs icon-only ${t.published ? 'warning' : 'success'}`}
-                          onClick={() => setDialogState({ type: 'publish', template: t })}
-                        >
-                          <Icon name={t.published ? 'x' : 'check'} size={14} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t.published ? 'Снять с публикации' : 'Опубликовать шаблон'}
-                      </TooltipContent>
-                    </Tooltip>
+                      {rights.canPublish && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              className={`btn xs icon-only ${t.published ? 'warning' : 'success'}`}
+                              aria-label={t.published ? 'Снять с публикации' : 'Опубликовать шаблон'}
+                              onClick={() => setDialogState({ type: 'publish', template: t })}
+                            >
+                              <Icon name={t.published ? 'x' : 'check'} size={14} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t.published ? 'Снять с публикации' : 'Опубликовать шаблон'}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
 
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          className="btn xs icon-only danger"
-                          onClick={() => setDialogState({ type: 'delete', template: t })}
-                        >
-                          <Icon name="trash" size={14} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>Удалить шаблон</TooltipContent>
-                    </Tooltip>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                      {rights.canDelete && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              className="btn xs icon-only danger"
+                              aria-label="Удалить шаблон"
+                              onClick={() => setDialogState({ type: 'delete', template: t })}
+                            >
+                              <Icon name="trash" size={14} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Удалить шаблон</TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
         <div className="tbl-foot">

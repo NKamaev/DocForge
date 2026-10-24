@@ -1,6 +1,8 @@
 package com.docforge.template;
 
 import com.docforge.AbstractIT;
+import com.docforge.AuditTestSupport;
+import com.docforge.TestAuth;
 import com.docforge.security.JwtTokenProvider;
 import com.docforge.template.dto.CreateTemplateRequest;
 import com.docforge.template.dto.TemplateResponse;
@@ -25,7 +27,9 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -82,6 +86,7 @@ class TemplateExportPermissionIT extends AbstractIT {
 
     /** Owner of both test templates. */
     private UUID userAId;
+    private String userALogin;
     private String userAToken;
 
     /** Stranger — owns nothing. */
@@ -106,11 +111,16 @@ class TemplateExportPermissionIT extends AbstractIT {
 
         userAId = createUser(loginA, "Template Export A");
         userBId = createUser(loginB, "Template Export B");
+        userALogin = loginA;
         userAToken = jwtTokenProvider.generateToken(loginA);
         userBToken = jwtTokenProvider.generateToken(loginB);
         // The administrator is a seeded account — its JWT is issued the same way, so the
         // real UserDetailsServiceImpl grants ROLE_ADMIN.
         adminToken = jwtTokenProvider.generateToken("admin");
+
+        // BUG-068: изменять шаблон может только владелец (или админ) — прямые вызовы
+        // сервиса в подготовке теста выполняются от имени владельца.
+        TestAuth.authenticateAs(userALogin);
 
         // 1) A draft template with a body — only its owner (and admins) may export it.
         TemplateResponse draft = templateService.create(
@@ -129,6 +139,7 @@ class TemplateExportPermissionIT extends AbstractIT {
         templateService.update(publishedTemplateId, updateRequest(
                 "BUG-059 Export Published " + suffix, body("PUBLISHED BODY")));
         assertThat(templateService.publish(publishedTemplateId).published()).isTrue();
+        TestAuth.clear();
     }
 
     // ── 1. DOCX export ────────────────────────────────────────────────────────
@@ -273,7 +284,15 @@ class TemplateExportPermissionIT extends AbstractIT {
      */
     @AfterEach
     void cleanUp() {
-        List<UUID> templateIds = List.of(draftTemplateId, publishedTemplateId);
+        TestAuth.clear();
+        // Идентификаторы могут быть null, если подготовка теста упала раньше —
+        // List.of() с null элементом упал бы с NPE и оставил бы мусор в базе.
+        List<UUID> templateIds = Stream.of(draftTemplateId, publishedTemplateId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (templateIds.isEmpty()) {
+            return;
+        }
 
         mongoTemplate.remove(Query.query(Criteria.where("template_id").in(templateIds)), "documents");
         mongoTemplate.remove(Query.query(Criteria.where("template_id").in(templateIds)), "template_snapshots");
@@ -290,8 +309,9 @@ class TemplateExportPermissionIT extends AbstractIT {
                 draftTemplateId, publishedTemplateId);
         for (UUID userId : List.of(userAId, userBId)) {
             if (userId == null) continue;
-            jdbcTemplate.update("DELETE FROM audit_log WHERE user_id = ?", userId);
-            jdbcTemplate.update("DELETE FROM users WHERE id = ?", userId);
+            // Аудит асинхронный (@Async) — удаляем пользователя вместе с его строками
+            // аудита детерминированно (retry при поздней строке аудита).
+            AuditTestSupport.deleteUserWithAuditRows(jdbcTemplate, userId);
         }
     }
 }
