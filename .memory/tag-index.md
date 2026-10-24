@@ -93,8 +93,9 @@
 | `BUG-068` | `tickets/BUG-068.md` | Авторизация на изменение шаблона (write-scope) — закрыт (`2d5487c`) |
 | `BUG-069` | — (только tracker) | Фронт читает `message` вместо `ProblemDetail.detail` (ShareDialog) — TODO |
 | `BUG-070` | — (только tracker) | Дубль BUG-068 (снятие с публикации чужого шаблона) — CANCELLED |
-| `BUG-071` | — (только tracker) | Аудит: записи теряются (catch внутри транзакции + details не JSON в JSONB) — TODO |
+| `BUG-071` | `tickets/BUG-071.md` | Аудит: записи теряются (catch внутри транзакции + details не JSON) — закрыт (`d022936`) |
 | `BUG-072` | — (только tracker) | JwtAuthFilter: неизвестный логин -> 500 вместо 401/403 — TODO |
+| `BUG-073` | — (только tracker) | FeedbackController: ручной escape ломает JSON описания баг-репорта — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
 | `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
