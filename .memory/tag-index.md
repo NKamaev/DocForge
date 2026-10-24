@@ -83,7 +83,7 @@
 | `BUG-060` | — (только tracker) | OWNER-роль неизменяема: нет снятия/передачи владения — TODO |
 | `BUG-062` | — (только tracker) | Черновик шаблона: version=1 при major/minor=1.0 — TODO |
 | `BUG-063` | `tickets/BUG-063.md` | `current_body` без валидации: CCE/500 при экспорте — закрыт (`75748cd`) |
-| `BUG-064` | — (только tracker) | Единая семантика условий: генератор не обрабатывает `conditionalInline` — TODO |
+| `BUG-064` | `tickets/BUG-064.md` | Единая семантика условий: генерация и экспорт — закрыт (`15718cf`) |
 | `BUG-065` | — (только tracker) | `NodeResolver` читает `clauseId` вместо `id`/`refId` — TODO |
 | `BUG-066` | — (только tracker) | Экспорт теряет текст видимого `numberedClause` — TODO |
 | `BUG-067` | — (только tracker) | `HttpMessageNotReadableException` → 500 вместо 400 — TODO |
@@ -97,6 +97,8 @@
 | `BUG-072` | — (только tracker) | JwtAuthFilter: неизвестный логин -> 500 вместо 401/403 — TODO |
 | `BUG-073` | — (только tracker) | FeedbackController: ручной escape ломает JSON описания баг-репорта — TODO |
 | `BUG-074` | — (только tracker) | Невалидные тела в экспортёрах: generate()/тела шаблонов/Yjs + глубокая терпимость — TODO |
+| `BUG-075` | — (только tracker) | TipTapTreeWalker не переприменяет трансформер к заменённым узлам — TODO |
+| `BUG-076` | — (только tracker) | previewRenderer: семантика условий отличается от backend — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
 | `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
