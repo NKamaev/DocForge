@@ -12,7 +12,7 @@ import java.util.Map;
  * <ul>
  *   <li>{@code templateParam} — substitutes {@code attrs.fieldId} with the value from the
  *       document answers map.</li>
- *   <li>{@code clauseRef} — substitutes {@code attrs.clauseId} with "п. X.Y" computed by
+ *   <li>{@code clauseRef} — substitutes {@code attrs.refId} (legacy: {@code attrs.clauseId}) with "п. X.Y" computed by
  *       walking the document tree and counting {@code numberedClause} nodes in order.</li>
  * </ul>
  *
@@ -48,13 +48,18 @@ public class NodeResolver {
     /**
      * Resolves a {@code clauseRef} node to a plain-text TipTap text node ("п. X.Y").
      *
-     * @param node            the {@code clauseRef} node; must have {@code attrs.clauseId}
+     * <p>TipTap-схема пишет ссылку в {@code attrs.refId} (см.
+     * {@code ClauseRefNode}); {@code attrs.clauseId} поддерживается как
+     * легаси-имя. Map {@code clauseNumbering} строится по {@code attrs.id}
+     * пункта (BUG-065).
+     *
+     * @param node            the {@code clauseRef} node
      * @param clauseNumbering pre-built map of clauseId → hierarchical number string
      * @return a TipTap {@code text} node with "п. X.Y", or "п. ?" if the clause is not found
      */
     public Map<String, Object> resolveClauseRef(
             Map<String, Object> node, Map<String, String> clauseNumbering) {
-        String clauseId = getAttr(node, "clauseId");
+        String clauseId = firstAttr(node, "refId", "clauseId");
         if (clauseId == null) return textNode("п. ?");
 
         String number = clauseNumbering.get(clauseId);
@@ -69,7 +74,8 @@ public class NodeResolver {
      * contribute to sequential counting. Other block nodes are not traversed.
      *
      * @param docBody the TipTap root node (type "doc")
-     * @return map of clauseId → number string; insertion-ordered
+     * @return map of clause id ({@code attrs.id}, legacy {@code attrs.clauseId})
+     *         → number string; insertion-ordered
      */
     @SuppressWarnings("unchecked")
     public Map<String, String> buildClauseNumberingMap(Map<String, Object> docBody) {
@@ -102,7 +108,7 @@ public class NodeResolver {
             List<Integer> current = new ArrayList<>(prefix);
             current.add(seq);
 
-            String clauseId = getAttr(node, "clauseId");
+            String clauseId = firstAttr(node, "id", "clauseId");
             if (clauseId != null) result.put(clauseId, joinNumbers(current));
 
             // Recurse into this clause's content for nested sub-clauses
@@ -124,6 +130,21 @@ public class NodeResolver {
         if (!(attrs instanceof Map<?, ?> m)) return null;
         Object val = m.get(key);
         return val != null ? val.toString() : null;
+    }
+
+    /**
+     * Первый непустой атрибут из списка ключей.
+     *
+     * <p>Схема TipTap и легаси-данные используют разные имена:
+     * пункт хранит id в {@code attrs.id}, ссылка — в {@code attrs.refId},
+     * старые документы писали {@code attrs.clauseId} (BUG-065).
+     */
+    private String firstAttr(Map<String, Object> node, String... keys) {
+        for (String key : keys) {
+            String value = getAttr(node, key);
+            if (value != null && !value.isBlank()) return value;
+        }
+        return null;
     }
 
     private Map<String, Object> textNode(String text) {

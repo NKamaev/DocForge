@@ -389,8 +389,8 @@ class DocumentControllerApplyAnswersTest {
     @DisplayName("BUG-019: the clause numbering map is built from the filtered tree")
     void exportDocx_withHiddenNumberedClause_numberingMapBuiltFromFilteredTree() throws Exception {
         // given — на вход NodeResolver попадает уже отфильтрованное дерево:
-        // скрытого пункта в нём нет. Сам расчёт номеров здесь не проверяется
-        // (сломан смежным багом в именах атрибутов и вне scope этого теста).
+        // скрытого пункта в нём нет. Итоговые номера (скрытый пункт не занимает
+        // номер) закреплены в BUG-065-тесте ниже.
         givenReadableDocumentWithBodyAndAnswers(
                 docWithContent(
                         numberedClause("has_penalty == true", "clause-1",
@@ -409,6 +409,39 @@ class DocumentControllerApplyAnswersTest {
         ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass(Map.class);
         verify(nodeResolver).buildClauseNumberingMap(captor.capture());
         assertThat(collectTexts(captor.getValue())).containsExactly("VISIBLE_CLAUSE_TEXT");
+    }
+
+    // ── BUG-065: clauseRef читает attrs.refId, пункт идентифицируется attrs.id ──
+
+    @Test
+    @DisplayName("BUG-065: refs (attrs.refId) resolve against attrs.id and a hidden clause takes no number")
+    void exportDocx_withHiddenClauseBetweenVisibleRefs_refsSkipTheHiddenNumber() throws Exception {
+        // given — реальный NodeResolver (не мок): пункты c1, c2, c3(скрыт), c4
+        // и ссылки attrs.refId на c1, c2, c4. Если бы скрытый c3 занимал номер,
+        // последняя ссылка была бы «п. 4», если бы атрибуты не читались — «п. ?».
+        givenReadableDocumentWithAnswersAndNoResolverStub(
+                docWithContent(
+                        numberedClause(null, "c1", paragraph(List.of(text("CLAUSE_1")))),
+                        numberedClause(null, "c2", paragraph(List.of(text("CLAUSE_2")))),
+                        numberedClause("has_penalty == true", "c3",
+                                paragraph(List.of(text("HIDDEN_CLAUSE_3")))),
+                        numberedClause(null, "c4", paragraph(List.of(
+                                text("ref1="), clauseRef("c1"),
+                                text(" ref2="), clauseRef("c2"),
+                                text(" ref4="), clauseRef("c4"))))),
+                Map.of("has_penalty", false));
+        when(docxExportService.export(any(), eq(null))).thenReturn(DOCX_BYTES);
+
+        // when / then
+        realResolverMockMvc()
+                .perform(get("/api/documents/{id}/export/docx", DOC_ID))
+                .andExpect(status().isOk());
+
+        // then — ref1=п. 1, ref2=п. 2, ref4=п. 3: скрытый c3 не занимает номер
+        Map<String, Object> resolved = capturedDocxBody();
+        assertThat(collectTexts(resolved)).containsExactly(
+                "CLAUSE_1", "CLAUSE_2",
+                "ref1=", "п. 1", " ref2=", "п. 2", " ref4=", "п. 3");
     }
 
     // ── BUG-019 residual: nested conditionals must be re-evaluated after unwrapping ─
@@ -651,6 +684,30 @@ class DocumentControllerApplyAnswersTest {
     }
 
     /**
+     * Standalone MockMvc with the <em>real</em> {@link NodeResolver} (BUG-065: the numbering map
+     * is keyed by {@code attrs.id} and refs read {@code attrs.refId}) but the mocked exporters —
+     * so the resolved body handed to the exporter can be asserted node by node.
+     */
+    private MockMvc realResolverMockMvc() {
+        DocumentController controller = new DocumentController(
+                documentService,
+                documentPermissionService,
+                folderPermissionService,
+                ownerResolver,
+                docxExportService,
+                pdfExportService,
+                templateService,
+                new TipTapTreeWalker(),
+                conditionalNodeFilter(),
+                new ParameterSubstitutor(numberToWords, fioFormatter),
+                new NodeResolver());
+        return MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
+                .build();
+    }
+
+    /**
      * Real {@link ConditionalNodeFilter} (it walks the tree itself — no walker argument since the
      * BUG-019 fix) with the real {@link ConditionEvaluator}; only the GraalPython-backed evaluator
      * is mocked. A real filter is required here — BUG-019 lives precisely in the interaction
@@ -822,6 +879,14 @@ class DocumentControllerApplyAnswersTest {
         node.put("type", "numberedClause");
         node.put("attrs", attrs);
         node.put("content", new ArrayList<Object>(List.of(children)));
+        return node;
+    }
+
+    /** Ссылка на пункт в реальной TipTap-схеме — цель в {@code attrs.refId} (BUG-065). */
+    private static Map<String, Object> clauseRef(String refId) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("type", "clauseRef");
+        node.put("attrs", Map.of("refId", refId));
         return node;
     }
 
