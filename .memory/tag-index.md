@@ -42,6 +42,7 @@
 | `pitfalls:tiptap-react` | `pitfalls/pitfalls-tiptap-react.md` | setContent emits onUpdate (TASK-009), stable NodeView, дубль fontSize |
 | `pitfalls:async-ui` | `pitfalls/pitfalls-async-ui.md` | Promise leak / stale state / silent catch (TASK-030) |
 | `pitfalls:build-hygiene` | `pitfalls/pitfalls-build-hygiene.md` | Stray `.js` затеняет `.tsx` в Vite, мёртвые артефакты после смены подхода |
+| `pitfalls:transactions` | `pitfalls/pitfalls-transactions.md` | `catch` вокруг вложенного `@Transactional` → rollback-only (BUG-061) |
 
 ## Best Practices & Pitfalls (якорные)
 
@@ -77,6 +78,7 @@
 | `BUG-052` | `tickets/BUG-052.md` | `POST /api/documents` без проверки доступа к шаблону/папке — закрыт (`07bef1d`) |
 | `BUG-058` | `tickets/BUG-058.md` | Инстанцирование черновых версий опубликованного шаблона — закрыт (`8a1516b`) |
 | `BUG-059` | `tickets/BUG-059.md` | Чтение чужих черновиков шаблона — закрыт (`9f5d54a`) |
+| `BUG-061` | `tickets/BUG-061.md` | `currentUserId()` глотает исключение в транзакции — закрыт (`83aa862`) |
 | `BUG-060` | — (только tracker) | OWNER-роль неизменяема: нет снятия/передачи владения — TODO |
 | `BUG-061` | — (только tracker) | `currentUserId()` глотает исключение внутри транзакции → `UnexpectedRollbackException` — TODO |
 | `BUG-062` | — (только tracker) | Черновик шаблона: version=1 при major/minor=1.0 — TODO |
