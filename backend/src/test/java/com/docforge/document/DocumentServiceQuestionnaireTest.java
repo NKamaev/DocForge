@@ -249,8 +249,10 @@ class DocumentServiceQuestionnaireTest {
     @Test
     @DisplayName("create() builds the initial questionnaire from the resolved snapshot, not the live template")
     void create_resolvesSnapshot_buildsQuestionnaireFromSnapshot() {
-        // given — live template has NO questionnaire, the latest snapshot HAS one
-        when(templateService.getById(TEMPLATE_ID)).thenReturn(liveTemplate(null));
+        // given — live template has NO questionnaire, the latest snapshot HAS one.
+        // The caller is the template owner, so create() resolves the latest snapshot of
+        // their own template (BUG-058: a non-owner would get the latest *published* one).
+        when(templateService.getById(TEMPLATE_ID)).thenReturn(liveTemplateOwnedByOwner(null));
         when(templateService.findLatestSnapshot(TEMPLATE_ID))
                 .thenReturn(Optional.of(snapshotWithQuestionnaire()));
         when(registryRepository.save(any(DocumentRegistry.class)))
@@ -355,6 +357,14 @@ class DocumentServiceQuestionnaireTest {
         return new TemplateResponse(
                 TEMPLATE_ID, "contract", "Договор", null, null,
                 1, 1, 0, true, null, null, null, null,
+                parameters(), questionnaire, Map.of(), null, null, null);
+    }
+
+    /** Live {@link TemplateResponse} owned by {@link #OWNER_ID} (owner path of create()). */
+    private static TemplateResponse liveTemplateOwnedByOwner(Questionnaire questionnaire) {
+        return new TemplateResponse(
+                TEMPLATE_ID, "contract", "Договор", null, null,
+                1, 1, 0, true, OWNER_ID, null, null, null,
                 parameters(), questionnaire, Map.of(), null, null, null);
     }
 

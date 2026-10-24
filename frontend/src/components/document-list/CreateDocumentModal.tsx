@@ -23,11 +23,112 @@ import { foldersApi } from '../../api/foldersApi'
 import type { TemplateListItem, TemplateVersionDTO } from '../../types/template'
 import type { Folder } from '../../types/folder'
 
+/**
+ * Может ли версия шаблона быть инстанцирована пользователем (не только владельцем)?
+ *
+ * Зеркалит серверную логику `TemplateServiceImpl#isPublished`:
+ *  - `PUBLISH` — опубликованная версия — доступна всем;
+ *  - `null` — легаси-строка (до появления `bump_type`), тоже публикация — доступна всем;
+ *  - `MAJOR`/`MINOR` — черновик `saveVersion` — не-владельцу недоступен (403);
+ *  - `ROLLBACK` — сервер разрешает только при откате с опубликованной версии,
+ *    что фронтенд определить не может, поэтому такие версии не предлагаем.
+ */
+export function isInstantiableVersion(version: TemplateVersionDTO): boolean {
+  const { bumpType } = version
+  // `bumpType == null` — легаси-строка (до появления bump_type): тоже публикация.
+  return bumpType === 'PUBLISH' || bumpType == null
+}
+
+/**
+ * Является ли версия черновиком (создана `saveVersion`).
+ *
+ * `ROLLBACK` черновиком НЕ является: это откат, доступность которого сервер
+ * определяет по источнику отката, поэтому в счётчик черновиков он не входит.
+ */
+export function isDraftVersion(version: TemplateVersionDTO): boolean {
+  const { bumpType } = version
+  return bumpType === 'MAJOR' || bumpType === 'MINOR'
+}
+
+/** Сводка по версиям шаблона: что можно выбрать и какие подсказки показывать. */
+export interface TemplateVersionAvailability {
+  /** Версии, доступные для инстанцирования (опубликованные и легаси-строки). */
+  instantiable: TemplateVersionDTO[]
+  /** Есть ли среди всех версий черновики (`MAJOR`/`MINOR`). */
+  hasDrafts: boolean
+  /** Есть ли у шаблона строки версий вообще. */
+  hasVersionRows: boolean
+}
+
+/**
+ * Разбирает список версий шаблона на инстанцируемые и черновики.
+ *
+ * Зеркалит серверную логику (`DocumentServiceImpl#create`):
+ *  - не-владелец может инстанцировать только опубликованную версию;
+ *  - если строки версий есть, но опубликованных нет — backend отвечает
+ *    403 «Нет опубликованной версии шаблона»;
+ *  - если строк версий нет вовсе — backend работает с live-шаблоном.
+ */
+export function analyzeTemplateVersions(all: TemplateVersionDTO[]): TemplateVersionAvailability {
+  return {
+    instantiable: all.filter(isInstantiableVersion),
+    hasDrafts: all.some(isDraftVersion),
+    hasVersionRows: all.length > 0,
+  }
+}
+
+/**
+ * Подсказка под селектором версии.
+ *
+ * Возвращает `null`, если версии есть и селектор показывается.
+ */
+export function getVersionAvailabilityHint(
+  availability: TemplateVersionAvailability,
+): string | null {
+  if (availability.instantiable.length > 0) return null
+  return availability.hasVersionRows
+    ? 'У шаблона нет опубликованных версий — создать документ нельзя'
+    : 'Нет опубликованных версий. Будет использована текущая версия шаблона.'
+}
+
+/**
+ * Заметка о черновиках версий.
+ *
+ * Черновик (`MAJOR`/`MINOR`) может инстанцировать только автор шаблона —
+ * остальным backend отвечает 403 «Нет доступа к черновой версии шаблона».
+ */
+export function getDraftVersionsNotice(
+  availability: TemplateVersionAvailability,
+): string | null {
+  return availability.hasDrafts ? 'Черновики версий доступны только автору шаблона.' : null
+}
+
 function showNotification(type: 'success' | 'error' | 'warning', message: string) {
   console.log(`[${type.toUpperCase()}]`, message)
   if (type === 'error') {
     alert(message)
   }
+}
+
+/**
+ * Достаёт текст ошибки от backend.
+ *
+ * Backend отдаёт RFC-7807 `ProblemDetail`, поэтому текст лежит в
+ * `response.data.detail`; `response.data.message` — запасной вариант
+ * (например, для нестандартных ответов). Если ничего нет — `null`,
+ * вызывающий код подставит собственное сообщение по умолчанию.
+ */
+export function extractServerMessage(error: unknown): string | null {
+  if (!error || typeof error !== 'object' || !('response' in error)) return null
+  const response = (error as { response?: { data?: unknown } }).response
+  const data = response?.data
+  if (!data || typeof data !== 'object') return null
+  const payload = data as { detail?: unknown; message?: unknown }
+  for (const key of ['detail', 'message'] as const) {
+    const value = payload[key]
+    if (typeof value === 'string' && value.trim()) return value
+  }
+  return null
 }
 
 interface Props {
@@ -50,9 +151,17 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
   const [creating, setCreating] = useState(false)
 
   // Version selection
-  const [versions, setVersions] = useState<TemplateVersionDTO[]>([])
+  const [availability, setAvailability] = useState<TemplateVersionAvailability>({
+    instantiable: [],
+    hasDrafts: false,
+    hasVersionRows: false,
+  })
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [selectedVersionNumber, setSelectedVersionNumber] = useState<number | null>(null)
+
+  const versions = availability.instantiable
+  const versionHint = getVersionAvailabilityHint(availability)
+  const draftNotice = getDraftVersionsNotice(availability)
 
   useEffect(() => {
     if (!open) return
@@ -60,7 +169,7 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
     setSelectedFolderId(defaultFolderId ?? null)
     setName('')
     setNameError('')
-    setVersions([])
+    setAvailability({ instantiable: [], hasDrafts: false, hasVersionRows: false })
     setSelectedVersionNumber(null)
 
     setLoadingTemplates(true)
@@ -79,20 +188,26 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
   // When template changes, load versions
   useEffect(() => {
     if (!selectedTemplateId) {
-      setVersions([])
+      setAvailability({ instantiable: [], hasDrafts: false, hasVersionRows: false })
       setSelectedVersionNumber(null)
       return
     }
     setLoadingVersions(true)
     templatesApi.getVersions(selectedTemplateId)
-      .then((v) => {
-        // Only published versions should be selectable; for the modal,
-        // show all versions but default to latest
-        setVersions(v)
-        setSelectedVersionNumber(v.length > 0 ? v[0].versionNumber : null)
+      .then((all) => {
+        // Черновики (MAJOR/MINOR) и откаты (ROLLBACK) нельзя инстанцировать
+        // не-владельцу шаблона — сервер вернёт 403. Оставляем только
+        // инстанцируемые версии и по умолчанию выбираем новейшую из них.
+        const analyzed = analyzeTemplateVersions(all)
+        const newest = analyzed.instantiable.reduce<TemplateVersionDTO | null>(
+          (max, v) => (max === null || v.versionNumber > max.versionNumber ? v : max),
+          null,
+        )
+        setAvailability(analyzed)
+        setSelectedVersionNumber(newest ? newest.versionNumber : null)
       })
       .catch(() => {
-        setVersions([])
+        setAvailability({ instantiable: [], hasDrafts: false, hasVersionRows: false })
         setSelectedVersionNumber(null)
       })
       .finally(() => setLoadingVersions(false))
@@ -127,8 +242,11 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
       })
       onClose()
       navigate(`/documents/${doc.id}/fill`)
-    } catch {
-      showNotification('error', 'Не удалось создать документ')
+    } catch (err) {
+      showNotification(
+        'error',
+        extractServerMessage(err) ?? 'Не удалось создать документ',
+      )
     } finally {
       setCreating(false)
     }
@@ -265,27 +383,39 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
               {loadingVersions ? (
                 <Skeleton className="h-9 w-full" />
               ) : versions.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Нет опубликованных версий. Будет использована текущая версия шаблона.
-                </p>
+                <div className="space-y-1">
+                  {versionHint && (
+                    <p className="text-xs text-muted-foreground">{versionHint}</p>
+                  )}
+                  {draftNotice && (
+                    <p className="text-xs text-muted-foreground">{draftNotice}</p>
+                  )}
+                </div>
               ) : (
-                <Select
-                  value={String(selectedVersionNumber ?? '')}
-                  onValueChange={v => setSelectedVersionNumber(v ? Number(v) : null)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Последняя версия" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {versions.map(v => (
-                      <SelectItem key={v.versionNumber} value={String(v.versionNumber)}>
-                        v{v.majorVersion}.{v.minorVersion}
-                        {v.comment ? ` — ${v.comment}` : ''}
-                        {v.bumpType === 'PUBLISH' ? ' (опубликована)' : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <>
+                  <Select
+                    value={String(selectedVersionNumber ?? '')}
+                    onValueChange={v => setSelectedVersionNumber(v ? Number(v) : null)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Последняя версия" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {versions.map(v => (
+                        <SelectItem key={v.versionNumber} value={String(v.versionNumber)}>
+                          v{v.majorVersion}.{v.minorVersion}
+                          {v.comment ? ` — ${v.comment}` : ''}
+                          {v.bumpType === 'PUBLISH' || v.bumpType == null
+                            ? ' (опубликована)'
+                            : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {draftNotice && (
+                    <p className="text-xs text-muted-foreground">{draftNotice}</p>
+                  )}
+                </>
               )}
             </div>
           )}

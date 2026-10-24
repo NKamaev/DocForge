@@ -64,7 +64,8 @@ public class DocumentServiceImpl implements DocumentService {
 
         // Шаблон доступен, если он опубликован или принадлежит пользователю.
         // Иначе можно инстанцировать чужой неопубликованный (черновой) шаблон.
-        if (!template.published() && !ownerId.equals(template.ownerId())) {
+        boolean owner = ownerId != null && ownerId.equals(template.ownerId());
+        if (!template.published() && !owner) {
             throw new AccessDeniedException("Нет доступа к шаблону");
         }
 
@@ -74,12 +75,43 @@ public class DocumentServiceImpl implements DocumentService {
             throw new AccessDeniedException("Нет прав на папку-цель");
         }
 
-        // Resolve snapshot — use specified version or latest published
+        // Resolve snapshot — use specified version or latest published.
+        // Черновые версии (saveVersion) доступны только владельцу: иначе любой
+        // пользователь мог бы инстанцировать неопубликованное содержимое.
         com.docforge.template.model.TemplateSnapshot snapshot = null;
         if (templateVersionNumber != null) {
-            snapshot = templateService.getSnapshot(templateId, templateVersionNumber);
-        } else {
+            TemplateService.VersionAccess access =
+                    templateService.resolveVersionAccess(templateId, templateVersionNumber);
+            if (!access.exists()) {
+                throw new ResourceNotFoundException(
+                        "Снимок шаблона не найден: templateId=" + templateId
+                                + " version=" + templateVersionNumber);
+            }
+            if (!owner && !access.published()) {
+                log.warn("Попытка инстанцировать черновую версию {} шаблона {} (userId={})",
+                        templateVersionNumber, templateId, ownerId);
+                throw new AccessDeniedException("Нет доступа к черновой версии шаблона");
+            }
+            snapshot = access.snapshot();
+            if (snapshot == null) {
+                throw new ResourceNotFoundException(
+                        "Снимок версии шаблона не найден: templateId=" + templateId
+                                + " version=" + templateVersionNumber);
+            }
+        } else if (owner) {
+            // Владелец работает с последней версией, включая собственный черновик.
             snapshot = templateService.findLatestSnapshot(templateId).orElse(null);
+        } else {
+            // Гостю — только последняя опубликованная версия, а не последний
+            // сохранённый черновик.
+            snapshot = templateService.findLatestPublishedSnapshot(templateId).orElse(null);
+            if (snapshot == null && templateService.hasVersions(templateId)) {
+                // Версии есть, но ни одна не опубликована — отдавать live-шаблон
+                // нельзя: после отката он может содержать черновой контент.
+                throw new AccessDeniedException("Нет опубликованной версии шаблона");
+            }
+            // У шаблона нет записей версий (опубликован до появления
+            // версионирования) — работаем с live-шаблоном.
         }
 
         UUID id = UUID.randomUUID();
@@ -103,8 +135,10 @@ public class DocumentServiceImpl implements DocumentService {
         com.docforge.document.model.Document doc = new com.docforge.document.model.Document();
         doc.setId(id);
         doc.setTemplateId(templateId);
-        doc.setTemplateVersion(template.version());
         if (snapshot != null) {
+            // Верера документа — это версия закреплённого снимка (в Mongo и в
+            // PostgreSQL одно и то же число).
+            doc.setTemplateVersion(snapshot.getVersionNumber());
             doc.setTemplateSnapshotId(snapshot.getId());
         }
         doc.setAnswers(new HashMap<>());

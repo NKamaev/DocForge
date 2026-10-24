@@ -47,6 +47,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TemplateServiceImpl implements TemplateService {
 
+    /** Сколько версий шаблона читать за раз при поиске последней опубликованной. */
+    private static final int VERSION_PAGE_SIZE = 100;
+    /** Глубина разбора цепочки откатов (ROLLBACK → источник). */
+    private static final int ROLLBACK_PROVENANCE_DEPTH = 5;
+
     private final TemplateRegistryRepository registryRepository;
     private final TemplateRepository templateRepository;
     private final TemplateVersionRepository versionRepository;
@@ -329,9 +334,22 @@ public class TemplateServiceImpl implements TemplateService {
     @Override
     public TemplateSnapshot getSnapshot(UUID templateId, int versionNumber) {
         findRegistryOrThrow(templateId);
-        return snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, versionNumber)
+        // Резолвим так же, как при инстанцировании документа (по id версии с
+        // откатом на поиск по номеру), чтобы «пин» документа и чтение снимка
+        // версии всегда указывали на один и тот же снимок.
+        Optional<TemplateVersion> version =
+                versionRepository.findByTemplateIdAndVersionNumber(templateId, versionNumber);
+        if (version.isPresent()) {
+            return findSnapshotOf(version.get(), templateId)
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Снимок шаблона не найден: templateId=" + templateId
+                                    + " version=" + versionNumber));
+        }
+        return snapshotRepository.findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(
+                        templateId, versionNumber)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Снимок шаблона не найден: templateId=" + templateId + " version=" + versionNumber));
+                        "Снимок шаблона не найден: templateId=" + templateId
+                                + " version=" + versionNumber));
     }
 
     @Override
@@ -339,7 +357,105 @@ public class TemplateServiceImpl implements TemplateService {
         return versionRepository.findByTemplateIdOrderByVersionNumberDesc(templateId)
                 .stream()
                 .findFirst()
-                .flatMap(v -> snapshotRepository.findById(v.getId()));
+                .flatMap(v -> findSnapshotOf(v, templateId));
+    }
+
+    @Override
+    public Optional<TemplateSnapshot> findLatestPublishedSnapshot(UUID templateId) {
+        int page = 0;
+        while (true) {
+            List<TemplateVersion> versions = versionRepository.findByTemplateIdOrderByVersionNumberDesc(
+                    templateId, PageRequest.of(page, VERSION_PAGE_SIZE));
+            if (versions.isEmpty()) {
+                return Optional.empty();
+            }
+            for (TemplateVersion version : versions) {
+                if (!isPublished(version, templateId, 0)) {
+                    continue;
+                }
+                Optional<TemplateSnapshot> snapshot = findSnapshotOf(version, templateId);
+                if (snapshot.isPresent()) {
+                    return snapshot;
+                }
+                // Снимок версии удалён — продолжаем искать более старую
+                // опубликованную версию со снимком.
+                log.warn("Снимок опубликованной версии {} шаблона {} не найден, ищем более старый",
+                        version.getVersionNumber(), templateId);
+            }
+            if (versions.size() < VERSION_PAGE_SIZE) {
+                return Optional.empty();
+            }
+            page++;
+        }
+    }
+
+    @Override
+    public VersionAccess resolveVersionAccess(UUID templateId, int versionNumber) {
+        Optional<TemplateVersion> version =
+                versionRepository.findByTemplateIdAndVersionNumber(templateId, versionNumber);
+        if (version.isEmpty()) {
+            return new VersionAccess(false, false, null);
+        }
+        TemplateVersion v = version.get();
+        boolean published = isPublished(v, templateId, 0);
+        TemplateSnapshot snapshot = findSnapshotOf(v, templateId).orElse(null);
+        return new VersionAccess(true, published, snapshot);
+    }
+
+    @Override
+    public boolean hasVersions(UUID templateId) {
+        return versionRepository.findMaxVersionNumber(templateId) > 0;
+    }
+
+    /**
+     * Снимок версии: по id версии из PostgreSQL
+     * ({@code template_snapshots._id == template_version.id}), с откатом на
+     * легаси-поиск по номеру версии — исторические снимки могли сохраниться
+     * с другим {@code _id} (см. BUG-053).
+     */
+    private Optional<TemplateSnapshot> findSnapshotOf(TemplateVersion version, UUID templateId) {
+        Optional<TemplateSnapshot> byId = snapshotRepository.findById(version.getId());
+        if (byId.isPresent()) {
+            return byId;
+        }
+        Optional<TemplateSnapshot> legacy = snapshotRepository
+                .findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(
+                        templateId, version.getVersionNumber());
+        legacy.ifPresent(snapshot -> log.warn(
+                "Снимок версии {} шаблона {} найден только по номеру версии (id={} не совпал)",
+                version.getVersionNumber(), templateId, version.getId()));
+        return legacy;
+    }
+
+    /**
+     * Опубликована ли версия (её можно инстанцировать не-владельцу).
+     *
+     * <ul>
+     *   <li>{@code PUBLISH} — опубликована;</li>
+     *   <li>{@code null} (легаси до {@code bump_type}) — опубликована: до
+     *       V015 единственным писателем {@code template_version} была
+     *       публикация (см. комментарий к V008);</li>
+     *   <li>{@code ROLLBACK} — опубликована только если откат сделан с
+     *       опубликованной версии ({@code rollback_from});</li>
+     *   <li>{@code MAJOR}/{@code MINOR} — черновик {@code saveVersion},
+     *       недоступен не-владельцу.</li>
+     * </ul>
+     */
+    private boolean isPublished(TemplateVersion version, UUID templateId, int depth) {
+        String bumpType = version.getBumpType();
+        if (bumpType == null || "PUBLISH".equals(bumpType)) {
+            return true;
+        }
+        if ("ROLLBACK".equals(bumpType)) {
+            Integer source = version.getRollbackFrom();
+            if (source == null || depth >= ROLLBACK_PROVENANCE_DEPTH) {
+                return false;
+            }
+            return versionRepository.findByTemplateIdAndVersionNumber(templateId, source)
+                    .map(src -> isPublished(src, templateId, depth + 1))
+                    .orElse(false);
+        }
+        return false;
     }
 
     @Override

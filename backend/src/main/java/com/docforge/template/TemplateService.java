@@ -48,6 +48,37 @@ public interface TemplateService {
 
     Optional<TemplateSnapshot> findLatestSnapshot(UUID templateId);
 
+    /**
+     * Последняя версия, которую можно инстанцировать не-владельцу шаблона:
+     * черновые версии ({@code MAJOR}/{@code MINOR}) исключены.
+     */
+    Optional<TemplateSnapshot> findLatestPublishedSnapshot(UUID templateId);
+
+    /**
+     * Результат проверки доступа к версии шаблона при инстанцировании документа.
+     *
+     * @param exists    существует ли версия
+     * @param published опубликована ли версия (черновик {@code saveVersion} — нет)
+     * @param snapshot  снимок версии (может отсутствовать, если снимок удалён)
+     */
+    record VersionAccess(boolean exists, boolean published, TemplateSnapshot snapshot) {}
+
+    /**
+     * Проверка доступа к конкретной версии шаблона: существование, признак
+     * опубликованности и снимок версии.
+     *
+     * <p>Опубликованной считается версия с {@code bump_type} {@code PUBLISH},
+     * легаси-запись без {@code bump_type} (создана до появления saveVersion) и
+     * {@code ROLLBACK}, сделанный с опубликованной версии.
+     */
+    VersionAccess resolveVersionAccess(UUID templateId, int versionNumber);
+
+    /**
+     * Есть ли у шаблона записи версий. Пусто — значит шаблон опубликован до
+     * появления версионирования, и его снимка в базе нет.
+     */
+    boolean hasVersions(UUID templateId);
+
     TemplateSnapshot getSnapshotById(UUID snapshotId);
 
     /** Save a draft version (creates version + snapshot without publishing). */

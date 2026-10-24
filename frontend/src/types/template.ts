@@ -88,6 +88,16 @@ export interface TemplateSnapshot {
   createdAt: string
 }
 
+/**
+ * Тип изменения версии шаблона. Зеркалит backend TemplateVersion.bumpType.
+ *
+ * - `PUBLISH` — версия создана публикацией шаблона;
+ * - `MAJOR` / `MINOR` — черновик, созданный `saveVersion` (не-владельцу недоступен);
+ * - `ROLLBACK` — откат (сервер разрешает не-владельцу только если откат сделан
+ *   с опубликованной версии — определить это на клиенте невозможно).
+ */
+export type TemplateVersionBumpType = 'PUBLISH' | 'MAJOR' | 'MINOR' | 'ROLLBACK'
+
 /** Version metadata from PostgreSQL. Mirrors backend TemplateVersionDTO. */
 export interface TemplateVersionDTO {
   id: string
@@ -98,7 +108,7 @@ export interface TemplateVersionDTO {
   createdAt: string
   createdBy: string | null
   comment: string | null
-  bumpType: string | null
+  bumpType: TemplateVersionBumpType | null
   autoDescription: string | null
   rollbackFrom: number | null
 }

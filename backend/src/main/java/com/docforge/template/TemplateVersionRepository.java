@@ -1,6 +1,7 @@
 package com.docforge.template;
 
 import com.docforge.template.model.TemplateVersion;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -11,6 +12,9 @@ import java.util.UUID;
 public interface TemplateVersionRepository extends JpaRepository<TemplateVersion, UUID> {
 
     List<TemplateVersion> findByTemplateIdOrderByVersionNumberDesc(UUID templateId);
+
+    /** Постраничное чтение версий (новые первыми) — чтобы не грузить всю историю. */
+    List<TemplateVersion> findByTemplateIdOrderByVersionNumberDesc(UUID templateId, Pageable pageable);
 
     Optional<TemplateVersion> findByTemplateIdAndVersionNumber(UUID templateId, int versionNumber);
 
