@@ -3,6 +3,7 @@ package com.docforge;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -80,6 +81,44 @@ public final class AuditTestSupport {
         }
         throw new AssertionError(
                 "Асинхронная запись аудита не stabilизировалась за " + TIMEOUT_MS + " мс: " + countSql);
+    }
+
+    /**
+     * Polls until the audit row for the given entity/action appears and returns its
+     * {@code details} column as text ({@code details::text}).
+     *
+     * <p>Unlike {@link #awaitQuiescence(JdbcTemplate, String, Object...)} (a heuristic
+     * that only observes an already stable count) this helper waits for the row itself,
+     * so it can be used to assert <em>what</em> the asynchronous writer has written
+     * (see BUG-071: {@code details} must be valid JSON in the {@code jsonb} column).</p>
+     *
+     * <p>The rows are ordered by {@code id DESC}: when several rows match (e.g. a test
+     * that writes the same entity/action twice) the newest one is returned deterministically
+     * instead of relying on unspecified row order.</p>
+     *
+     * @param jdbcTemplate template to query with
+     * @param entityType   {@code audit_log.entity_type}, e.g. {@code "TEMPLATE"}
+     * @param entityId     {@code audit_log.entity_id}
+     * @param action       {@code audit_log.action}, e.g. {@code "SAVE_VERSION"}
+     * @return the {@code details} column rendered as text
+     * @throws AssertionError if the row does not appear within the timeout
+     */
+    public static String awaitAuditDetails(JdbcTemplate jdbcTemplate, String entityType, UUID entityId, String action) {
+        long deadline = System.currentTimeMillis() + TIMEOUT_MS;
+        while (System.currentTimeMillis() < deadline) {
+            List<String> details = jdbcTemplate.queryForList(
+                    "SELECT details::text FROM audit_log "
+                            + "WHERE entity_type = ? AND entity_id = ? AND action = ? "
+                            + "ORDER BY id DESC",
+                    String.class, entityType, entityId, action);
+            if (!details.isEmpty()) {
+                return details.get(0);
+            }
+            sleep(POLL_INTERVAL_MS);
+        }
+        throw new AssertionError(
+                "Запись аудита " + entityType + "/" + action + " для " + entityId
+                        + " не появилась за " + TIMEOUT_MS + " мс");
     }
 
     /**
