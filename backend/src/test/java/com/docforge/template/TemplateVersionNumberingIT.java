@@ -197,6 +197,12 @@ class TemplateVersionNumberingIT extends AbstractIT {
         TemplateResponse published = templateService.publish(created.id());
         assertThat(published.version()).isEqualTo(10_002);
 
+        // BUG-059: a published template must not be rolled back to a draft version — the
+        // live template is visible to everybody while published, so the service refuses it
+        // (BusinessException). Unpublish first; unpublish does not consume a version
+        // number, so the numbering below stays the same.
+        templateService.unpublish(created.id());
+
         // rollback to 10001 creates the next monotonic version 1.3 (10003)
         RollbackResponse rollback = templateService.rollback(created.id(), 10_001);
         assertThat(rollback.version().versionNumber()).isEqualTo(10_003);

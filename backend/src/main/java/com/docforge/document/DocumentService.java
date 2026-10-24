@@ -21,6 +21,22 @@ public interface DocumentService {
 
     boolean existsByTemplateId(UUID templateId);
 
+    /**
+     * Есть ли у пользователя доступ к документу, созданному из указанной версии
+     * шаблона (документ «пришпилен» к этой версии).
+     *
+     * <p>Используется модулем {@code template} (через этот интерфейс) для
+     * исключения из правила «черновики видны только владельцу»: соавтор
+     * документа должен иметь возможность прочитать снимок версии, к которой
+     * привязан документ (BUG-059).
+     *
+     * @param templateId    шаблон
+     * @param versionNumber номер версии шаблона
+     * @param userId        пользователь
+     * @return true, если у пользователя есть эффективная роль в таком документе
+     */
+    boolean hasAccessibleDocumentForTemplateVersion(UUID templateId, int versionNumber, UUID userId);
+
     /** Опросный лист с текущими ответами и вычисленной видимостью вопросов. */
     QuestionnaireResponse getQuestionnaire(UUID documentId);
 

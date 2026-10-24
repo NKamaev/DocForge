@@ -20,6 +20,7 @@ import {
 import { templatesApi } from '../../api/templatesApi'
 import { documentsApi } from '../../api/documentsApi'
 import { foldersApi } from '../../api/foldersApi'
+import { extractServerMessage, isForbiddenError } from '../../api/errorMessages'
 import type { TemplateListItem, TemplateVersionDTO } from '../../types/template'
 import type { Folder } from '../../types/folder'
 
@@ -110,27 +111,6 @@ function showNotification(type: 'success' | 'error' | 'warning', message: string
   }
 }
 
-/**
- * Достаёт текст ошибки от backend.
- *
- * Backend отдаёт RFC-7807 `ProblemDetail`, поэтому текст лежит в
- * `response.data.detail`; `response.data.message` — запасной вариант
- * (например, для нестандартных ответов). Если ничего нет — `null`,
- * вызывающий код подставит собственное сообщение по умолчанию.
- */
-export function extractServerMessage(error: unknown): string | null {
-  if (!error || typeof error !== 'object' || !('response' in error)) return null
-  const response = (error as { response?: { data?: unknown } }).response
-  const data = response?.data
-  if (!data || typeof data !== 'object') return null
-  const payload = data as { detail?: unknown; message?: unknown }
-  for (const key of ['detail', 'message'] as const) {
-    const value = payload[key]
-    if (typeof value === 'string' && value.trim()) return value
-  }
-  return null
-}
-
 interface Props {
   open: boolean
   onClose: () => void
@@ -158,6 +138,7 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
   })
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [selectedVersionNumber, setSelectedVersionNumber] = useState<number | null>(null)
+  const [versionsError, setVersionsError] = useState<string | null>(null)
 
   const versions = availability.instantiable
   const versionHint = getVersionAvailabilityHint(availability)
@@ -171,6 +152,7 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
     setNameError('')
     setAvailability({ instantiable: [], hasDrafts: false, hasVersionRows: false })
     setSelectedVersionNumber(null)
+    setVersionsError(null)
 
     setLoadingTemplates(true)
     Promise.all([
@@ -190,14 +172,17 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
     if (!selectedTemplateId) {
       setAvailability({ instantiable: [], hasDrafts: false, hasVersionRows: false })
       setSelectedVersionNumber(null)
+      setVersionsError(null)
       return
     }
     setLoadingVersions(true)
+    setVersionsError(null)
     templatesApi.getVersions(selectedTemplateId)
       .then((all) => {
         // Черновики (MAJOR/MINOR) и откаты (ROLLBACK) нельзя инстанцировать
         // не-владельцу шаблона — сервер вернёт 403. Оставляем только
         // инстанцируемые версии и по умолчанию выбираем новейшую из них.
+        // Для не-владельца сервер и так отдаёт только опубликованные версии.
         const analyzed = analyzeTemplateVersions(all)
         const newest = analyzed.instantiable.reduce<TemplateVersionDTO | null>(
           (max, v) => (max === null || v.versionNumber > max.versionNumber ? v : max),
@@ -206,9 +191,14 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
         setAvailability(analyzed)
         setSelectedVersionNumber(newest ? newest.versionNumber : null)
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         setAvailability({ instantiable: [], hasDrafts: false, hasVersionRows: false })
         setSelectedVersionNumber(null)
+        setVersionsError(
+          isForbiddenError(err)
+            ? 'Нет доступа к версиям шаблона'
+            : (extractServerMessage(err) ?? 'Не удалось загрузить версии шаблона'),
+        )
       })
       .finally(() => setLoadingVersions(false))
   }, [selectedTemplateId])
@@ -380,11 +370,14 @@ export default function CreateDocumentModal({ open, onClose, defaultFolderId }: 
                 <History className="size-3.5 inline-block mr-1" />
                 Версия шаблона
               </Label>
+              {versionsError && (
+                <p className="text-xs text-destructive">{versionsError}</p>
+              )}
               {loadingVersions ? (
                 <Skeleton className="h-9 w-full" />
               ) : versions.length === 0 ? (
                 <div className="space-y-1">
-                  {versionHint && (
+                  {!versionsError && versionHint && (
                     <p className="text-xs text-muted-foreground">{versionHint}</p>
                   )}
                   {draftNotice && (

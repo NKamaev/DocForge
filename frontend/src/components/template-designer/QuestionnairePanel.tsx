@@ -120,7 +120,13 @@ function SortableQuestion({ question, parameters, onEdit, onDeleteRequest, onCon
       }}
     >
       <div className="flex items-center gap-1 bg-muted/30 border rounded-md px-2 py-1.5">
-        <span {...attributes} {...listeners} className="cursor-grab text-muted-foreground shrink-0">
+        <span
+          {...attributes}
+          {...(readOnly ? {} : listeners)}
+          className={readOnly
+            ? 'text-muted-foreground shrink-0'
+            : 'cursor-grab text-muted-foreground shrink-0'}
+        >
           <GripVertical className="size-3.5" />
         </span>
 
@@ -461,12 +467,14 @@ export default function QuestionnairePanel({ questionnaire, parameters, onChange
     pagesRef.current.find((p) => p.questions.some((q) => q.id === qId))
 
   const handleDragStart = (e: DragStartEvent) => {
+    if (readOnly) return
     const page = findPageByQuestionId(String(e.active.id))
     const question = page?.questions.find((q) => q.id === e.active.id)
     if (page && question) setActiveQuestion({ q: question, pageId: page._id })
   }
 
   const handleDragOver = (e: DragOverEvent) => {
+    if (readOnly) return
     const { active, over } = e
     if (!over) return
     const activeId = String(active.id)
@@ -494,7 +502,7 @@ export default function QuestionnairePanel({ questionnaire, parameters, onChange
   const handleDragEnd = (e: DragEndEvent) => {
     const { active, over } = e
     setActiveQuestion(null)
-    if (!over) return
+    if (!over || readOnly) return
 
     const activeId = String(active.id)
     const overId = String(over.id)

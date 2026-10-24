@@ -1,5 +1,6 @@
 package com.docforge.template;
 
+import com.docforge.common.exception.ResourceNotFoundException;
 import com.docforge.template.dto.CreateTemplateRequest;
 import com.docforge.template.dto.DiffResult;
 import com.docforge.template.dto.RollbackResponse;
@@ -14,6 +15,7 @@ import com.docforge.template.dto.UpdateTemplateRequest;
 import com.docforge.template.model.TemplateSnapshot;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -29,7 +31,11 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/templates")
 @RequiredArgsConstructor
+@Slf4j
 public class TemplateController {
+
+    /** Роль администратора (см. {@code UserDetailsServiceImpl}). */
+    private static final String ROLE_ADMIN = "ROLE_ADMIN";
 
     private final TemplateService templateService;
     private final TemplateOwnerResolver ownerResolver;
@@ -41,14 +47,21 @@ public class TemplateController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) Boolean published,
             @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdAfter
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdAfter,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
-        return ResponseEntity.ok(templateService.list(page, size, category, published, createdAfter));
+        UUID userId = resolveUserId(userDetails);
+        return ResponseEntity.ok(templateService.listVisible(
+                page, size, category, published, createdAfter, userId, isAdmin(userDetails)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<TemplateResponse> getById(@PathVariable UUID id) {
-        return ResponseEntity.ok(templateService.getById(id));
+    public ResponseEntity<TemplateResponse> getById(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        UUID userId = resolveUserId(userDetails);
+        return ResponseEntity.ok(templateService.getReadable(id, userId, isAdmin(userDetails)));
     }
 
     @PostMapping
@@ -100,16 +113,23 @@ public class TemplateController {
     // ── Versioning ────────────────────────────────────────────────────────────
 
     @GetMapping("/{id}/versions")
-    public ResponseEntity<List<TemplateVersionDTO>> listVersions(@PathVariable UUID id) {
-        return ResponseEntity.ok(templateService.listVersions(id));
+    public ResponseEntity<List<TemplateVersionDTO>> listVersions(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        UUID userId = resolveUserId(userDetails);
+        return ResponseEntity.ok(templateService.listVersionsVisible(id, userId, isAdmin(userDetails)));
     }
 
     @GetMapping("/{id}/versions/{versionNumber}")
     public ResponseEntity<TemplateSnapshot> getVersion(
             @PathVariable UUID id,
-            @PathVariable int versionNumber
+            @PathVariable int versionNumber,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
-        return ResponseEntity.ok(templateService.getSnapshot(id, versionNumber));
+        UUID userId = resolveUserId(userDetails);
+        return ResponseEntity.ok(templateService.getSnapshotVisible(
+                id, versionNumber, userId, isAdmin(userDetails)));
     }
 
     @PostMapping("/{id}/versions")
@@ -132,8 +152,36 @@ public class TemplateController {
     public ResponseEntity<DiffResult> getDiff(
             @PathVariable UUID id,
             @RequestParam int from,
-            @RequestParam int to
+            @RequestParam int to,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
-        return ResponseEntity.ok(templateService.getDiff(id, from, to));
+        UUID userId = resolveUserId(userDetails);
+        return ResponseEntity.ok(templateService.getDiffVisible(
+                id, from, to, userId, isAdmin(userDetails)));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Признак администратора (см. {@code UserDetailsServiceImpl}: ROLE_ADMIN). */
+    private boolean isAdmin(UserDetails userDetails) {
+        return userDetails != null && userDetails.getAuthorities().stream()
+                .anyMatch(authority -> ROLE_ADMIN.equals(authority.getAuthority()));
+    }
+
+    /**
+     * UUID вызывающего по логину. Если пользователя в {@code users} нет —
+     * {@code null}: вызывающий трактуется как «не владелец и не админ»,
+     * то есть видит только опубликованные шаблоны (BUG-059).
+     */
+    private UUID resolveUserId(UserDetails userDetails) {
+        if (userDetails == null || userDetails.getUsername() == null) {
+            return null;
+        }
+        try {
+            return ownerResolver.resolve(userDetails.getUsername());
+        } catch (ResourceNotFoundException e) {
+            log.warn("Пользователь '{}' не найден: {}", userDetails.getUsername(), e.getMessage());
+            return null;
+        }
     }
 }

@@ -5,8 +5,8 @@ import {
   analyzeTemplateVersions,
   getVersionAvailabilityHint,
   getDraftVersionsNotice,
-  extractServerMessage,
 } from './CreateDocumentModal'
+import { extractServerMessage } from '../../api/errorMessages'
 import type { TemplateVersionDTO } from '../../types/template'
 
 // ── helpers ────────────────────────────────────────────────────────────────────

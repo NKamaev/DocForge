@@ -72,6 +72,10 @@ class TemplateListCreatedAfterIT extends AbstractIT {
         registry.setCategory(category);
         registry.setCreatedAt(createdAt);
         registry.setUpdatedAt(createdAt);
+        // BUG-059: черновики (is_published = false) видны только владельцу и
+        // администратору. Тестовый principal не владеет этими шаблонами,
+        // поэтому фикстуры публикуются — иначе GET /api/templates их не вернёт.
+        registry.setPublished(true);
         TemplateRegistry saved = registryRepository.save(registry);
         createdIds.add(saved.getId());
         return saved;

@@ -29,6 +29,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -373,7 +374,7 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
         // given — the owner rolls the template back to a DRAFT version; the rollback inherits
         // the draft status of its source and stays invisible to non-owners.
         int draftVersion = saveMinorDraft("черновик-источник отката");
-        TemplateVersionDTO rollbackVersion = rollbackTo(draftVersion);
+        TemplateVersionDTO rollbackVersion = rollbackToDraftWhileUnpublished(draftVersion);
         assertThat(rollbackVersion.bumpType()).isEqualTo("ROLLBACK");
         assertThat(rollbackVersion.rollbackFrom()).isEqualTo(draftVersion);
 
@@ -397,8 +398,12 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
     void create_nonOwnerWithoutVersion_pinsToPublishNotToRollbackOfDraft() throws Exception {
         // given — a draft and a rollback of that draft.
         int draftVersion = saveMinorDraft("черновик-источник отката");
-        TemplateVersionDTO rollbackVersion = rollbackTo(draftVersion);
+        TemplateVersionDTO rollbackVersion = rollbackToDraftWhileUnpublished(draftVersion);
         assertThat(rollbackVersion.versionNumber()).isGreaterThan(draftVersion);
+
+        // the re-publication after the rollback is the newest published version
+        TemplateVersionDTO latestPublished = latestPublishedVersion();
+        assertThat(latestPublished.versionNumber()).isGreaterThan(rollbackVersion.versionNumber());
 
         // when — A creates a document without specifying a version.
         mockMvc.perform(post("/api/documents")
@@ -406,12 +411,12 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createBody(templateId, "Rollback Draft No Version Doc " + suffix, null, null)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.templateVersionNumber").value(publishedVersionNumber))
-                .andExpect(jsonPath("$.templateSnapshotId").value(publishedSnapshotId.toString()));
+                .andExpect(jsonPath("$.templateVersionNumber").value(latestPublished.versionNumber()))
+                .andExpect(jsonPath("$.templateSnapshotId").value(latestPublished.id().toString()));
 
         // then — neither the draft nor its rollback is published, so the newest PUBLISH
         // version wins.
-        assertPinnedTo(publishedVersionNumber, publishedSnapshotId);
+        assertPinnedTo(latestPublished.versionNumber(), latestPublished.id());
     }
 
     // ── 9. MAJOR draft → draft for non-owners ─────────────────────────────────
@@ -614,6 +619,30 @@ class DocumentCreateVersionPermissionIT extends AbstractIT {
      */
     private TemplateVersionDTO rollbackTo(int targetVersionNumber) {
         return templateService.rollback(templateId, targetVersionNumber).version();
+    }
+
+    /**
+     * Rolls the template back to a <em>draft</em> version.
+     *
+     * <p>BUG-059: a published template must not be rolled back to a draft version — the live
+     * template is visible to everybody while {@code published = true}, so the service refuses
+     * the rollback with a {@code BusinessException}. To obtain a ROLLBACK of a draft at all,
+     * the template is unpublished for the moment of the rollback and published again
+     * afterwards, so that the non-owner can still act on it.</p>
+     */
+    private TemplateVersionDTO rollbackToDraftWhileUnpublished(int targetVersionNumber) {
+        templateService.unpublish(templateId);
+        TemplateVersionDTO rollback = templateService.rollback(templateId, targetVersionNumber).version();
+        templateService.publish(templateId);
+        return rollback;
+    }
+
+    /** The newest published version of the test template. */
+    private TemplateVersionDTO latestPublishedVersion() {
+        return templateService.listVersions(templateId).stream()
+                .filter(v -> "PUBLISH".equals(v.bumpType()))
+                .max(Comparator.comparingInt(TemplateVersionDTO::versionNumber))
+                .orElseThrow(() -> new AssertionError("PUBLISH version not found"));
     }
 
     /** Metadata of a single version of the test template. */

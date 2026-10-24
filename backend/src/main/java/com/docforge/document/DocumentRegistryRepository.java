@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface DocumentRegistryRepository extends JpaRepository<DocumentRegistry, UUID> {
@@ -29,6 +30,14 @@ public interface DocumentRegistryRepository extends JpaRepository<DocumentRegist
     Page<DocumentRegistry> findAccessibleByUser(@Param("userId") UUID userId, Pageable pageable);
 
     boolean existsByTemplateId(UUID templateId);
+
+    /**
+     * Документы, созданные из конкретной версии шаблона (пин версии).
+     * Нужны, чтобы определить, кому можно читать снимок этой версии
+     * (например, соавтору документа — BUG-059).
+     */
+    List<DocumentRegistry> findByTemplateIdAndTemplateVersionNumber(UUID templateId,
+                                                                     Integer templateVersionNumber);
 
     long countByFolderId(UUID folderId);
 }

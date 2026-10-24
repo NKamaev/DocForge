@@ -25,8 +25,33 @@ public interface TemplateService {
 
     TemplateResponse getById(UUID id);
 
+    /**
+     * Чтение шаблона с проверкой прав (BUG-059).
+     *
+     * <p>Опубликованный шаблон доступен любому аутентифицированному
+     * пользователю (поведение каталога). Черновик (неопубликованный шаблон)
+     * доступен только владельцу и администратору, иначе — 403.
+     *
+     * @param id     шаблон
+     * @param userId вызывающий пользователь
+     * @param admin  является ли вызывающий администратором
+     */
+    TemplateResponse getReadable(UUID id, UUID userId, boolean admin);
+
     Page<TemplateListItemResponse> list(int page, int size, String category, Boolean isPublished,
                                         OffsetDateTime createdAfter);
+
+    /**
+     * Список шаблонов, видимых вызывающему (BUG-059).
+     *
+     * <p>Не-администратор видит опубликованные шаблоны и собственные
+     * черновики; чужие черновики не показываются. Администратор видит всё.
+     *
+     * @param userId вызывающий пользователь
+     * @param admin  является ли вызывающий администратором
+     */
+    Page<TemplateListItemResponse> listVisible(int page, int size, String category, Boolean isPublished,
+                                                OffsetDateTime createdAfter, UUID userId, boolean admin);
 
     TemplateResponse update(UUID id, UpdateTemplateRequest request);
 
@@ -44,7 +69,25 @@ public interface TemplateService {
 
     List<TemplateVersionDTO> listVersions(UUID templateId);
 
+    /**
+     * Список версий шаблона с проверкой прав (BUG-059).
+     *
+     * <p>Владелец и администратор видят все версии, остальные — только
+     * опубликованные (черновики {@code saveVersion} в список не попадают).
+     */
+    List<TemplateVersionDTO> listVersionsVisible(UUID templateId, UUID userId, boolean admin);
+
     TemplateSnapshot getSnapshot(UUID templateId, int versionNumber);
+
+    /**
+     * Чтение снимка версии шаблона с проверкой прав (BUG-059).
+     *
+     * <p>Владелец и администратор видят любую версию, остальные — только
+     * опубликованные. Исключение: версию, к которой привязан документ,
+     * доступный вызывающему, прочитать можно (сотрудничество над документом).
+     * Иначе — 403 «Нет доступа к версии шаблона».
+     */
+    TemplateSnapshot getSnapshotVisible(UUID templateId, int versionNumber, UUID userId, boolean admin);
 
     Optional<TemplateSnapshot> findLatestSnapshot(UUID templateId);
 
@@ -89,4 +132,14 @@ public interface TemplateService {
 
     /** Generate diff between two snapshots. */
     DiffResult getDiff(UUID templateId, int fromVersion, int toVersion);
+
+    /**
+     * Diff двух версий с проверкой прав (BUG-059).
+     *
+     * <p>Diff раскрывает содержимое снимков, поэтому обе версии должны быть
+     * читаемы вызывающим: владелец и администратор — любые, остальные —
+     * опубликованные (или версии, к которой привязан доступный им документ).
+     */
+    DiffResult getDiffVisible(UUID templateId, int fromVersion, int toVersion,
+                              UUID userId, boolean admin);
 }

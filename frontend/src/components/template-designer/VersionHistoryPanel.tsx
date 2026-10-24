@@ -12,6 +12,7 @@ import {
   showToast,
 } from '@/components/ui'
 import { templatesApi } from '../../api/templatesApi'
+import { extractServerMessage, isForbiddenError } from '../../api/errorMessages'
 import type { TemplateVersionDTO } from '../../types/template'
 import { Icon } from '../Icon'
 
@@ -20,23 +21,40 @@ interface Props {
   onRollback: (versionNumber: number) => Promise<void>
   /** Trigger refetch when parent template version changes */
   refreshKey?: number
+  /**
+   * Может ли текущий пользователь откатывать версии (владелец шаблона или админ).
+   *
+   * Не-владельцу сервер отдаёт только опубликованные версии, а откат — это
+   * операция записи, поэтому кнопку «Откатить» ему показывать нельзя.
+   * Значение по умолчанию — `false` (fail-closed).
+   */
+  canRollback?: boolean
 }
 
 function showNotification(type: 'success' | 'error', message: string) {
   showToast(message, type === 'error' ? 'error' : 'success')
 }
 
-export default function VersionHistoryPanel({ templateId, onRollback, refreshKey }: Props) {
+export default function VersionHistoryPanel({ templateId, onRollback, refreshKey, canRollback = false }: Props) {
   const [versions, setVersions] = useState<TemplateVersionDTO[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [rollbackTarget, setRollbackTarget] = useState<number | null>(null)
   const [rollingBack, setRollingBack] = useState(false)
 
   const load = () => {
     setLoading(true)
+    setError(null)
     templatesApi.getVersions(templateId)
       .then(setVersions)
-      .catch(() => showNotification('error', 'Не удалось загрузить историю версий'))
+      .catch((err: unknown) => {
+        setVersions([])
+        setError(
+          isForbiddenError(err)
+            ? 'Нет доступа к истории версий шаблона'
+            : (extractServerMessage(err) ?? 'Не удалось загрузить историю версий'),
+        )
+      })
       .finally(() => setLoading(false))
   }
 
@@ -79,13 +97,29 @@ export default function VersionHistoryPanel({ templateId, onRollback, refreshKey
     )
   }
 
+  if (error) {
+    return (
+      <div className="empty" style={{ padding: 24 }}>
+        <div className="ill"><Icon name="history" size={22} /></div>
+        <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink-1)', marginBottom: 4 }}>
+          Не удалось загрузить историю версий
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', textAlign: 'center', maxWidth: 220 }}>
+          {error}
+        </div>
+      </div>
+    )
+  }
+
   if (versions.length === 0) {
     return (
       <div className="empty" style={{ padding: 24 }}>
         <div className="ill"><Icon name="history" size={22} /></div>
         <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink-1)', marginBottom: 4 }}>Нет версий</div>
         <div style={{ fontSize: 12, color: 'var(--ink-3)', textAlign: 'center', maxWidth: 220 }}>
-          При сохранении шаблона здесь появится история изменений.
+          {canRollback
+            ? 'При сохранении шаблона здесь появится история изменений.'
+            : 'У шаблона нет опубликованных версий.'}
         </div>
       </div>
     )
@@ -93,15 +127,23 @@ export default function VersionHistoryPanel({ templateId, onRollback, refreshKey
 
   return (
     <div style={{ padding: '8px 0' }}>
+      {!canRollback && (
+        <div style={{ padding: '4px 12px 8px', fontSize: 11.5, color: 'var(--ink-3)' }}>
+          Показаны только опубликованные версии — черновики и откат доступны владельцу шаблона.
+        </div>
+      )}
       {versions.map((v, idx) => {
-        const isLatest = idx === 0
+        // Отметка «Текущая» корректна только для владельца: у остальных
+        // актуальная версия может быть черновиком, которого нет в списке.
+        const isNewest = idx === 0
+        const isLatest = canRollback && isNewest
         return (
           <div
             key={v.id}
             style={{
               padding: '10px 12px',
               borderBottom: '1px solid var(--line)',
-              opacity: isLatest ? 1 : 0.75,
+              opacity: isNewest ? 1 : 0.75,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -133,7 +175,7 @@ export default function VersionHistoryPanel({ templateId, onRollback, refreshKey
               <span>№{v.versionNumber}</span>
               <span>·</span>
               <span>{new Date(v.createdAt).toLocaleString('ru-RU')}</span>
-              {!isLatest && (
+              {canRollback && !isLatest && (
                 <>
                   <span>·</span>
                   <button

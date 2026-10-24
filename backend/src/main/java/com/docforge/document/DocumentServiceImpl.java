@@ -8,6 +8,7 @@ import com.docforge.document.generator.DocumentGenerator;
 import com.docforge.document.generator.PythonConditionEvaluator;
 import com.docforge.document.generator.ScriptExecutionException;
 import com.docforge.document.model.Document;
+import com.docforge.document.model.DocumentPermission;
 import com.docforge.document.model.DocumentRegistry;
 import com.docforge.document.model.DocumentRole;
 import com.docforge.document.model.DocumentRevision;
@@ -197,6 +198,25 @@ public class DocumentServiceImpl implements DocumentService {
     @Transactional(readOnly = true)
     public boolean existsByTemplateId(UUID templateId) {
         return registryRepository.existsByTemplateId(templateId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasAccessibleDocumentForTemplateVersion(UUID templateId, int versionNumber, UUID userId) {
+        if (userId == null) {
+            return false;
+        }
+        List<DocumentRegistry> documents = registryRepository
+                .findByTemplateIdAndTemplateVersionNumber(templateId, versionNumber);
+        for (DocumentRegistry document : documents) {
+            // Проверяем именно право чтения: так правило останется верным,
+            // если появится роль без доступа к содержимому.
+            if (documentPermissionService.hasPermission(
+                    document.getId(), userId, DocumentPermission.READ)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ── getQuestionnaire ──────────────────────────────────────────────────────

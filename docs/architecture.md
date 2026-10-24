@@ -1771,6 +1771,7 @@ CREATE TABLE dictionaries (
 ### 10.2 Безопасность
 - Аутентификация: JWT, refresh-token.
 - **Permission check**: все эндпоинты документов, включая `GET /api/documents/{id}/questionnaire`, проверяют `DocumentPermission.READ` перед выдачей данных. Раньше questionnaire отдавал данные любому аутентифицированному пользователю.
+- **Permission check (шаблоны)**: чтение шаблона (`GET /api/templates/{id}`, `.../versions`, `.../versions/{n}`) и список шаблонов ограничены владением: опубликованный шаблон доступен всем, черновик (неопубликованный шаблон, черновые версии `MAJOR`/`MINOR`) — только владельцу и администратору. Исключение: черновую версию может прочитать участник документа, привязанного к этой версии (`DocumentService.hasAccessibleDocumentForTemplateVersion`).
 - Python-скрипты: GraalPython sandbox — нет доступа к FS, сети, Java-классам.
 - Валидация входных данных на уровне DTO (Jakarta Validation).
 - CORS — настраиваемый whitelist.

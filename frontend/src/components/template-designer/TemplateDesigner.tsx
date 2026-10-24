@@ -39,6 +39,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -52,6 +56,9 @@ import {
 } from '@/components/ui'
 import { templatesApi } from '../../api/templatesApi'
 import { foldersApi } from '../../api/foldersApi'
+import { extractServerMessage, getErrorStatus } from '../../api/errorMessages'
+import { canEditTemplate, canManageTemplate, getReadOnlyHint } from '../../utils/templateAccess'
+import { useAuthStore } from '../../store/authStore'
 import { formattingToCssVars } from '../../utils/formattingCssVars'
 import type { DocumentFormatting, Parameter, Phrasing, Questionnaire, Script, Template } from '../../types/template'
 import type { Folder } from '../../types/folder'
@@ -270,8 +277,12 @@ function collectUsedCodes(node: JSONContent): Set<string> {
 export default function TemplateDesigner() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const currentUser = useAuthStore((s) => s.user)
+  const isUserResolved = useAuthStore((s) => s.isUserResolved)
   const [template, setTemplate] = useState<Template | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<'access_denied' | 'not_found' | 'unknown' | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [saving, setSaving] = useState(false)
   const [isDirty, setIsDirty] = useState(false)
   const [parameters, setParameters] = useState<Parameter[]>([])
@@ -314,6 +325,19 @@ export default function TemplateDesigner() {
 
   const usedCodes = useMemo(() => collectUsedCodes(editorJson), [editorJson])
 
+  // Права на управление шаблоном: владелец или администратор. Остальным
+  // сервер закрывает черновики и черновые версии (403), поэтому действия
+  // записи им не предлагаем.
+  const canManage = canManageTemplate(template, currentUser)
+  // Редактирование доступно только владельцу (или админу) и только пока
+  // шаблон не опубликован: опубликованный шаблон сервер на запись закрывает
+  // (PUT → 409). Для всех остальных конструктор открыт только для чтения.
+  const canEdit = canEditTemplate(template, currentUser, published)
+  // Подсказка «вы не владелец» показывается только когда личность
+  // пользователя уже известна — иначе владелец увидел бы её на миг-долю
+  // секунды, пока едет ответ `GET /users/me`.
+  const readOnlyHint = getReadOnlyHint(template, currentUser)
+
   const handleParametersChange = useCallback((params: Parameter[]) => {
     setParameters(params)
     setIsDirty(true)
@@ -348,6 +372,8 @@ export default function TemplateDesigner() {
 
   useEffect(() => {
     if (!id) return
+    setLoading(true)
+    setLoadError(null)
     templatesApi.getTemplate(id)
       .then((t) => {
         setTemplate(t)
@@ -366,14 +392,32 @@ export default function TemplateDesigner() {
         }
         setIsDirty(false)
       })
-      .catch(() => showNotification('error', 'Не удалось загрузить шаблон'))
+      .catch((err: unknown) => {
+        // Чужие черновики сервер закрывает (BUG-059) — показываем понятное
+        // сообщение вместо общей ошибки загрузки.
+        const status = getErrorStatus(err)
+        if (status === 403) {
+          setLoadError('access_denied')
+        } else if (status === 404) {
+          setLoadError('not_found')
+        } else {
+          setLoadError('unknown')
+          showNotification('error', extractServerMessage(err) ?? 'Не удалось загрузить шаблон')
+        }
+      })
       .finally(() => setLoading(false))
-  }, [id, editor])
+  }, [id, editor, reloadKey])
 
   // ── Save (silent, no version — for autosave) ───────────────────────────────
-  const save = useCallback(async (silent = false) => {
+  // Возвращает `true`, если содержимое сохранено. Ошибка показывается
+  // пользователю всегда (в т.ч. для автосейва): раньше 409/400 от сервера
+  // проглатывался молча и правки выглядели потерянными.
+  const save = useCallback(async (silent = false): Promise<boolean> => {
     const { parameters, questionnaire, scripts, phrasings, editorJson, template, formatting, defaultFolderId } = stateRef.current
-    if (!id || !template) return
+    if (!id || !template) return false
+    // Запись закрыта для не-владельцев: сервер всё равно отклонил бы PUT
+    // (409/403), а «проглоченный» автосейв выглядел бы как потеря правок.
+    if (!canEdit) return false
     setSaving(true)
     try {
       await templatesApi.updateTemplate(id, {
@@ -390,29 +434,28 @@ export default function TemplateDesigner() {
       })
       setIsDirty(false)
       if (!silent) showNotification('success', 'Шаблон сохранён')
-    } catch {
-      if (!silent) showNotification('error', 'Ошибка при сохранении')
+      return true
+    } catch (err: unknown) {
+      showNotification('error', extractServerMessage(err) ?? 'Ошибка при сохранении')
+      return false
     } finally {
       setSaving(false)
     }
-  }, [id])
+  }, [id, canEdit])
 
   // ── Manual save with version bump dialog ────────────────────────────────────
   const handleManualSave = useCallback(() => {
-    if (!id || published) return
+    if (!id || published || !canEdit) return
     // First silently save current content
     save(true)
-      .then(() => {
-        setBumpDialogOpen(true)
+      .then((saved) => {
+        if (saved) setBumpDialogOpen(true)
       })
-      .catch(() => {
-        showNotification('error', 'Не удалось сохранить шаблон перед созданием версии')
-      })
-  }, [id, published, save])
+  }, [id, published, canEdit, save])
 
   // ── Confirm version save ────────────────────────────────────────────────────
   const handleVersionConfirm = useCallback(async (bumpType: 'MAJOR' | 'MINOR', comment: string) => {
-    if (!id) return
+    if (!id || !canEdit) return
     const { parameters, questionnaire, scripts, phrasings, editorJson, template, formatting, defaultFolderId } = stateRef.current
     if (!template) return
     setSaving(true)
@@ -443,11 +486,11 @@ export default function TemplateDesigner() {
     } finally {
       setSaving(false)
     }
-  }, [id])
+  }, [id, canEdit])
 
   // ── Rollback ────────────────────────────────────────────────────────────────
   const handleRollback = useCallback(async (versionNumber: number) => {
-    if (!id) return
+    if (!id || !canManage) return
     const result = await templatesApi.rollback(id, versionNumber)
     setTemplate(result.template)
     setParameters(result.template.parameters ?? [])
@@ -461,10 +504,10 @@ export default function TemplateDesigner() {
     }
     setIsDirty(false)
     setVersionRefreshKey((k) => k + 1)
-  }, [id, editor])
+  }, [id, editor, canManage])
 
   const handlePublish = useCallback(async () => {
-    if (!id) return
+    if (!id || !canManage) return
     setPublishing(true)
     try {
       const updated = published
@@ -477,7 +520,7 @@ export default function TemplateDesigner() {
     } finally {
       setPublishing(false)
     }
-  }, [id, published])
+  }, [id, published, canManage])
 
   const handleExport = useCallback(async (format: 'docx' | 'pdf') => {
     if (!id) return
@@ -496,21 +539,23 @@ export default function TemplateDesigner() {
     }
   }, [id])
 
-  // ── Sync editor editable state with published ──────────────────────────────
+  // ── Sync editor editable state with edit rights ────────────────────────────
   useEffect(() => {
     if (!editor) return
-    editor.setEditable(!published, false)
-  }, [editor, published])
+    editor.setEditable(canEdit, false)
+  }, [editor, canEdit])
 
   // ── Autosave (debounce 30s) ────────────────────────────────────────────────
+  // Автосейв запускается только у того, кому разрешена запись: у не-владельца
+  // он только тратил бы запросы, которые сервер отклонит (409/403).
   useEffect(() => {
-    if (!isDirty || published) return
+    if (!isDirty || !canEdit) return
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
     autosaveTimerRef.current = setTimeout(() => save(true), AUTOSAVE_DELAY)
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
     }
-  }, [isDirty, editorJson, parameters, questionnaire, scripts, phrasings, save])
+  }, [isDirty, editorJson, parameters, questionnaire, scripts, phrasings, save, canEdit])
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -519,14 +564,14 @@ export default function TemplateDesigner() {
         e.preventDefault()
         if (!published) handleManualSave()
       }
-      if (!published && (e.ctrlKey || e.metaKey) && e.key === 'f') {
+      if (canEdit && (e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault()
         setSearchOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [handleManualSave, published])
+  }, [handleManualSave, published, canEdit])
 
   // ── Resizable side panel ──────────────────────────────────────────────────
   const startDrag = useCallback((e: React.MouseEvent) => {
@@ -557,7 +602,7 @@ export default function TemplateDesigner() {
           parameters={parameters}
           onChange={handleParametersChange}
           usedCodes={usedCodes}
-          readOnly={published}
+          readOnly={!canEdit}
         />
       ),
     },
@@ -569,7 +614,7 @@ export default function TemplateDesigner() {
           questionnaire={questionnaire}
           parameters={parameters}
           onChange={handleQuestionnaireChange}
-          readOnly={published}
+          readOnly={!canEdit}
         />
       ),
     },
@@ -582,7 +627,7 @@ export default function TemplateDesigner() {
           parameters={parameters}
           editor={editor}
           onChange={handlePhrasingsChange}
-          readOnly={published}
+          readOnly={!canEdit}
         />
       ),
     },
@@ -594,6 +639,7 @@ export default function TemplateDesigner() {
           templateId={id}
           onRollback={handleRollback}
           refreshKey={versionRefreshKey}
+          canRollback={canManage}
         />
       ) : (
         <div className="empty" style={{ padding: 24 }}>
@@ -613,7 +659,7 @@ export default function TemplateDesigner() {
               setDefaultFolderId(v === '' ? null : v)
               setIsDirty(true)
             }}
-            disabled={published}
+            disabled={!canEdit}
           >
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Выберите папку" />
@@ -631,12 +677,52 @@ export default function TemplateDesigner() {
         </div>
       ),
     },
-  ], [parameters, handleParametersChange, usedCodes, questionnaire, handleQuestionnaireChange, phrasings, handlePhrasingsChange, editor, published, defaultFolderId, folders, id, handleRollback, versionRefreshKey])
+  ], [parameters, handleParametersChange, usedCodes, questionnaire, handleQuestionnaireChange, phrasings, handlePhrasingsChange, editor, canEdit, defaultFolderId, folders, id, handleRollback, versionRefreshKey, canManage])
 
-  if (loading) {
+  // Ошибка загрузки шаблона: чужой черновик сервер закрывает (BUG-059),
+  // показываем понятное объяснение вместо пустого конструктора.
+  // Проверка идёт ДО проверки прав: 403 должен быть виден сразу, не дожидаясь
+  // ответа `GET /users/me`.
+  if (loadError) {
+    const isAccessDenied = loadError === 'access_denied'
+    const title = isAccessDenied
+      ? 'Нет доступа к шаблону'
+      : loadError === 'not_found'
+        ? 'Шаблон не найден'
+        : 'Ошибка загрузки шаблона'
+    const description = isAccessDenied
+      ? 'Этот шаблон недоступен — вы не его владелец. Черновики шаблонов доступны только их автору.'
+      : loadError === 'not_found'
+        ? 'Шаблон был удалён или ссылка устарела.'
+        : 'Не удалось загрузить шаблон. Попробуйте повторить попытку.'
+    return (
+      <div className="m-6 space-y-3">
+        <Alert variant={isAccessDenied ? 'default' : 'destructive'}>
+          <AlertTitle>{title}</AlertTitle>
+          <AlertDescription>{description}</AlertDescription>
+        </Alert>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => navigate('/templates')}>
+            К списку шаблонов
+          </Button>
+          {loadError === 'unknown' && (
+            <Button onClick={() => setReloadKey((k) => k + 1)}>Повторить</Button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Пока личность пользователя не выяснена, права определить нельзя:
+  // показать действия владельца до ответа `GET /users/me` нельзя (у владельца
+  // они мигнули бы и исчезли), а объявлять «вы не владелец» — рано. Поэтому
+  // до выяснения личности конструктор не рисуем вовсе.
+  if (loading || !isUserResolved) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', padding: 48 }}>
-        <div style={{ color: 'var(--ink-3)', fontSize: 14 }}>Загрузка шаблона…</div>
+        <div style={{ color: 'var(--ink-3)', fontSize: 14 }}>
+          {loading ? 'Загрузка шаблона…' : 'Проверка прав доступа…'}
+        </div>
       </div>
     )
   }
@@ -663,7 +749,7 @@ export default function TemplateDesigner() {
 
           <div className="actions">
             <div style={{ width: 1, height: 18, background: 'var(--line)', margin: '0 4px' }} />
-            {!published && (
+            {canEdit && (
               <button
                 className={'btn sm icon-only' + (searchOpen ? ' active' : '')}
                 onClick={() => setSearchOpen((v) => !v)}
@@ -672,7 +758,7 @@ export default function TemplateDesigner() {
                 <Icon name="search" size={13} />
               </button>
             )}
-            {!published && (
+            {canEdit && (
               <button
                 className="btn sm icon-only"
                 onClick={() => setPageSettingsOpen(true)}
@@ -698,40 +784,80 @@ export default function TemplateDesigner() {
             </DropdownMenu>
             {!published ? (
               <>
-                <button
-                  className="btn sm primary"
-                  disabled={!isDirty || saving}
-                  onClick={handleManualSave}
-                  title="Сохранить · ⌘S"
-                >
-                  <Icon name="save" size={13} /> Сохранить
-                </button>
+                {canManage && (
+                  <button
+                    className="btn sm primary"
+                    disabled={!isDirty || saving}
+                    onClick={handleManualSave}
+                    title="Сохранить · ⌘S"
+                  >
+                    <Icon name="save" size={13} /> Сохранить
+                  </button>
+                )}
+                {canManage && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <button className="btn sm success icon-only" disabled={publishing} title="Опубликовать шаблон">
+                        <Icon name="publish" size={13} />
+                      </button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Опубликовать шаблон?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          По шаблону можно будет создавать документы.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Отмена</AlertDialogCancel>
+                        <AlertDialogAction onClick={handlePublish}>Опубликовать</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </>
+            ) : (
+              canManage && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <button className="btn sm success icon-only" disabled={publishing} title="Опубликовать шаблон">
-                      <Icon name="publish" size={13} />
+                    <button className="btn sm danger icon-only" disabled={publishing} title="Снять с публикации">
+                      <Icon name="lock" size={13} />
                     </button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Опубликовать шаблон?</AlertDialogTitle>
+                      <AlertDialogTitle>Снять с публикации?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        По шаблону можно будет создавать документы.
+                        По шаблону нельзя будет создавать документы.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Отмена</AlertDialogCancel>
-                      <AlertDialogAction onClick={handlePublish}>Опубликовать</AlertDialogAction>
+                      <AlertDialogAction onClick={handlePublish}>Да, снять</AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
-              </>
-            ) : (
+              )
+            )}
+          </div>
+        </div>
+
+        {/* Статус доступа: опубликован / нет прав на редактирование */}
+        {(published || readOnlyHint) && (
+          <div className="banner">
+            <Icon name="info" size={14} />
+            <span>
+              {published && (
+                <>
+                  <b className="b-strong">Шаблон опубликован.</b> Редактирование заблокировано — все документы, созданные после, наследуют эту версию.{' '}
+                </>
+              )}
+              {readOnlyHint && <b className="b-strong">{readOnlyHint}</b>}
+            </span>
+            {published && canManage && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <button className="btn sm danger icon-only" disabled={publishing} title="Снять с публикации">
-                    <Icon name="lock" size={13} />
-                  </button>
+                  <button className="btn xs">Снять с публикации</button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
@@ -748,33 +874,6 @@ export default function TemplateDesigner() {
               </AlertDialog>
             )}
           </div>
-        </div>
-
-        {/* Published banner */}
-        {published && (
-          <div className="banner">
-            <Icon name="info" size={14} />
-            <span>
-              <b className="b-strong">Шаблон опубликован.</b> Редактирование заблокировано — все документы, созданные после, наследуют эту версию.
-            </span>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <button className="btn xs">Снять с публикации</button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Снять с публикации?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    По шаблону нельзя будет создавать документы.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Отмена</AlertDialogCancel>
-                  <AlertDialogAction onClick={handlePublish}>Да, снять</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
         )}
 
         {/* Designer Body */}
@@ -784,7 +883,7 @@ export default function TemplateDesigner() {
         >
           {/* Editor pane */}
           <div className="editor-pane">
-            {editor && !published && (
+            {editor && canEdit && (
               <EditorToolbar
                 editor={editor}
                 parameters={parameters}
@@ -793,15 +892,15 @@ export default function TemplateDesigner() {
                 formatting={formatting}
               />
             )}
-            {editor && !published && (
+            {editor && canEdit && (
               <SearchReplacePanel editor={editor} open={searchOpen} onClose={() => setSearchOpen(false)} />
             )}
-            {editor && !published && <TableBubbleMenu editor={editor} />}
-            {editor && !published && <TextBubbleMenu editor={editor} parameters={parameters} />}
-            {editor && !published && <FloatingInsertMenu editor={editor} parameters={parameters} />}
+            {editor && canEdit && <TableBubbleMenu editor={editor} />}
+            {editor && canEdit && <TextBubbleMenu editor={editor} parameters={parameters} />}
+            {editor && canEdit && <FloatingInsertMenu editor={editor} parameters={parameters} />}
             <div
               className="editor-canvas"
-              onContextMenu={editor && !published ? (e) => handleContextMenu(e, editor, parameters) : undefined}
+              onContextMenu={editor && canEdit ? (e) => handleContextMenu(e, editor, parameters) : undefined}
             >
               <div className="tiptap-page" style={formattingToCssVars(formatting)}>
                 <EditorContent editor={editor} />

@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { ToastContainer, TooltipProvider } from '@/components/ui'
 import { useAuthStore } from './store/authStore'
 import { authApi } from './api/authApi'
+import { getErrorStatus } from './api/errorMessages'
 import LoginPage from './pages/LoginPage'
 import HomePage from './pages/HomePage'
 import TemplatesPage from './pages/TemplatesPage'
@@ -20,15 +21,34 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
+  const markUserResolved = useAuthStore((s) => s.markUserResolved)
   const logout = useAuthStore((s) => s.logout)
 
+  // Профиль всегда синхронизируется с сервером: authStore отдаёт закэшированные
+  // данные сразу (чтобы права на ресурс были известны без мигания кнопок), а
+  // этот запрос их обновляет — в том числе флаг admin.
   useEffect(() => {
-    if (isAuthenticated && !user) {
-      authApi.me().then(setUser).catch(() => logout())
-    }
-  }, [isAuthenticated, user, setUser, logout])
+    if (!isAuthenticated) return
+    let cancelled = false
+    authApi.me()
+      .then((u) => { if (!cancelled) setUser(u) })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        // Сессия недействительна — выходим. Временная сетевая ошибка не должна
+        // выкидывать пользователя: закэшированный профиль остаётся актуальным.
+        const status = getErrorStatus(err)
+        if (status === 401 || status === 403) {
+          logout()
+          return
+        }
+        // Профиль выяснить не удалось: помечаем как «выяснен», чтобы
+        // интерфейс не ждал его бесконечно. Права остаются закрытыми —
+        // `user == null` → действия владельца не показываются.
+        markUserResolved()
+      })
+    return () => { cancelled = true }
+  }, [isAuthenticated, setUser, markUserResolved, logout])
 
   return (
     <TooltipProvider>

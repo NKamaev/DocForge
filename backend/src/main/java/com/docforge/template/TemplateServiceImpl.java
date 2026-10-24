@@ -32,11 +32,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,8 +108,44 @@ public class TemplateServiceImpl implements TemplateService {
 
     @Override
     @Transactional(readOnly = true)
+    public TemplateResponse getReadable(UUID id, UUID userId, boolean admin) {
+        TemplateRegistry registry = findRegistryOrThrow(id);
+        if (!registry.isPublished() && !admin && !isOwner(registry, userId)) {
+            log.warn("Попытка чтения чужого черновика шаблона id={} (userId={})", id, userId);
+            throw new AccessDeniedException("Нет доступа к шаблону");
+        }
+        Template template = findTemplateOrThrow(id);
+        return toResponse(registry, template);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Page<TemplateListItemResponse> list(int page, int size, String category, Boolean isPublished,
                                                OffsetDateTime createdAfter) {
+        Specification<TemplateRegistry> spec = buildSpec(category, isPublished, createdAfter, null, true);
+        PageRequest pageRequest = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        return registryRepository.findAll(spec, pageRequest).map(this::toListItem);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<TemplateListItemResponse> listVisible(int page, int size, String category, Boolean isPublished,
+                                                       OffsetDateTime createdAfter, UUID userId, boolean admin) {
+        Specification<TemplateRegistry> spec =
+                buildSpec(category, isPublished, createdAfter, userId, admin);
+        PageRequest pageRequest = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        return registryRepository.findAll(spec, pageRequest).map(this::toListItem);
+    }
+
+    /**
+     * Спецификация выборки шаблонов.
+     *
+     * <p>Для не-администратора добавляется ограничение видимости (BUG-059):
+     * опубликованные шаблоны + собственные черновики. Чужие черновики
+     * отфильтровываются на уровне запроса, поэтому в пагинацию не попадают.
+     */
+    private Specification<TemplateRegistry> buildSpec(String category, Boolean isPublished,
+                                                      OffsetDateTime createdAfter, UUID userId, boolean admin) {
         Specification<TemplateRegistry> spec = Specification.where(null);
 
         if (category != null) {
@@ -119,9 +157,17 @@ public class TemplateServiceImpl implements TemplateService {
         if (createdAfter != null) {
             spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("createdAt"), createdAfter));
         }
+        if (!admin) {
+            if (userId == null) {
+                spec = spec.and((root, query, cb) -> cb.isTrue(root.get("published")));
+            } else {
+                spec = spec.and((root, query, cb) -> cb.or(
+                        cb.isTrue(root.get("published")),
+                        cb.equal(root.get("ownerId"), userId)));
+            }
+        }
 
-        PageRequest pageRequest = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        return registryRepository.findAll(spec, pageRequest).map(this::toListItem);
+        return spec;
     }
 
     @Override
@@ -255,6 +301,13 @@ public class TemplateServiceImpl implements TemplateService {
         Template template = findTemplateOrThrow(templateId);
         TemplateSnapshot snapshot = getSnapshot(templateId, versionNumber);
 
+        // Откат опубликованного шаблона на черновик сделал бы живой шаблон
+        // (который виден всем, пока published=true) черновым содержимым.
+        if (registry.isPublished() && !isPublishedVersion(templateId, versionNumber)) {
+            throw new BusinessException(
+                    "Нельзя откатить опубликованный шаблон к черновой версии: version=" + versionNumber);
+        }
+
         // Restore template content from snapshot
         template.setParameters(snapshot.getParameters());
         template.setQuestionnaire(snapshot.getQuestionnaire());
@@ -332,6 +385,111 @@ public class TemplateServiceImpl implements TemplateService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<TemplateVersionDTO> listVersionsVisible(UUID templateId, UUID userId, boolean admin) {
+        TemplateRegistry registry = findRegistryOrThrow(templateId);
+        List<TemplateVersion> versions = versionRepository.findByTemplateIdOrderByVersionNumberDesc(templateId);
+        if (admin || isOwner(registry, userId)) {
+            return versions.stream().map(this::toVersionDTO).toList();
+        }
+        // Не-владелец видит только опубликованные версии: черновики
+        // saveVersion в список не попадают вообще (BUG-059).
+        // Происхождение откатов считается по уже загруженной истории версий,
+        // без дополнительных запросов на каждый ROLLBACK.
+        Map<Integer, TemplateVersion> byNumber = new HashMap<>();
+        for (TemplateVersion version : versions) {
+            byNumber.putIfAbsent(version.getVersionNumber(), version);
+        }
+        Map<Integer, Boolean> publishedMemo = new HashMap<>();
+        return versions.stream()
+                .filter(version -> isPublished(version, templateId, 0, byNumber, publishedMemo))
+                .map(this::toVersionDTO)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TemplateSnapshot getSnapshotVisible(UUID templateId, int versionNumber, UUID userId, boolean admin) {
+        TemplateRegistry registry = findRegistryOrThrow(templateId);
+        if (admin || isOwner(registry, userId)) {
+            return getSnapshot(templateId, versionNumber);
+        }
+
+        if (!versionExists(templateId, versionNumber)) {
+            throw new ResourceNotFoundException(
+                    "Снимок шаблона не найден: templateId=" + templateId + " version=" + versionNumber);
+        }
+
+        requireVersionVisible(templateId, versionNumber, userId);
+        return getSnapshot(templateId, versionNumber);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public DiffResult getDiffVisible(UUID templateId, int fromVersion, int toVersion,
+                                     UUID userId, boolean admin) {
+        TemplateRegistry registry = findRegistryOrThrow(templateId);
+        if (admin || isOwner(registry, userId)) {
+            return getDiff(templateId, fromVersion, toVersion);
+        }
+        // Diff раскрывает содержимое снимков — обе версии должны быть
+        // читаемы вызывающим (BUG-059).
+        if (!versionExists(templateId, fromVersion) || !versionExists(templateId, toVersion)) {
+            throw new ResourceNotFoundException("Снимок шаблона не найден: templateId=" + templateId);
+        }
+        requireVersionVisible(templateId, fromVersion, userId);
+        requireVersionVisible(templateId, toVersion, userId);
+        return getDiff(templateId, fromVersion, toVersion);
+    }
+
+    /**
+     * Существует ли версия шаблона (запись в {@code template_version} или
+     * легаси-снимок в MongoDB).
+     */
+    private boolean versionExists(UUID templateId, int versionNumber) {
+        if (versionRepository.findByTemplateIdAndVersionNumber(templateId, versionNumber).isPresent()) {
+            return true;
+        }
+        return snapshotRepository
+                .findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, versionNumber)
+                .isPresent();
+    }
+
+    /**
+     * Опубликована ли версия для не-владельца.
+     *
+     * <p>Легаси-снимок без записи в {@code template_version} создан публикацией
+     * (см. V008) — считаем его опубликованным.
+     */
+    private boolean isPublishedVersion(UUID templateId, int versionNumber) {
+        Optional<TemplateVersion> version =
+                versionRepository.findByTemplateIdAndVersionNumber(templateId, versionNumber);
+        if (version.isPresent()) {
+            return isPublished(version.get(), templateId, 0);
+        }
+        return snapshotRepository
+                .findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, versionNumber)
+                .isPresent();
+    }
+
+    /**
+     * Проверка доступа к версии для не-владельца: опубликованная версия
+     * доступна всем, черновик — только соавтору документа, привязанного к этой
+     * версии (BUG-059). Иначе — 403.
+     */
+    private void requireVersionVisible(UUID templateId, int versionNumber, UUID userId) {
+        if (isPublishedVersion(templateId, versionNumber)) {
+            return;
+        }
+        if (documentService.hasAccessibleDocumentForTemplateVersion(templateId, versionNumber, userId)) {
+            return;
+        }
+        log.warn("Попытка чтения черновой версии {} шаблона {} (userId={})",
+                versionNumber, templateId, userId);
+        throw new AccessDeniedException("Нет доступа к версии шаблона");
+    }
+
+    @Override
     public TemplateSnapshot getSnapshot(UUID templateId, int versionNumber) {
         findRegistryOrThrow(templateId);
         // Резолвим так же, как при инстанцировании документа (по id версии с
@@ -394,7 +552,14 @@ public class TemplateServiceImpl implements TemplateService {
         Optional<TemplateVersion> version =
                 versionRepository.findByTemplateIdAndVersionNumber(templateId, versionNumber);
         if (version.isEmpty()) {
-            return new VersionAccess(false, false, null);
+            // Легаси-снимок без записи в template_version создан публикацией
+            // (см. V008) — он существует и опубликован. Семантика совпадает
+            // с isPublishedVersion(...), чтобы правила не расходились.
+            Optional<TemplateSnapshot> legacy = snapshotRepository
+                    .findFirstByTemplateIdAndVersionNumberOrderByCreatedAtDesc(templateId, versionNumber);
+            return legacy
+                    .map(snapshot -> new VersionAccess(true, true, snapshot))
+                    .orElseGet(() -> new VersionAccess(false, false, null));
         }
         TemplateVersion v = version.get();
         boolean published = isPublished(v, templateId, 0);
@@ -442,6 +607,17 @@ public class TemplateServiceImpl implements TemplateService {
      * </ul>
      */
     private boolean isPublished(TemplateVersion version, UUID templateId, int depth) {
+        return isPublished(version, templateId, depth, Map.of(), new HashMap<>());
+    }
+
+    /**
+     * @param byNumber   все версии шаблона по номеру (чтобы не ходить в БД за
+     *                   каждым источником отката)
+     * @param publishedMemo кэш вычисленных публикаций по номеру версии
+     */
+    private boolean isPublished(TemplateVersion version, UUID templateId, int depth,
+                                Map<Integer, TemplateVersion> byNumber,
+                                Map<Integer, Boolean> publishedMemo) {
         String bumpType = version.getBumpType();
         if (bumpType == null || "PUBLISH".equals(bumpType)) {
             return true;
@@ -451,9 +627,18 @@ public class TemplateServiceImpl implements TemplateService {
             if (source == null || depth >= ROLLBACK_PROVENANCE_DEPTH) {
                 return false;
             }
-            return versionRepository.findByTemplateIdAndVersionNumber(templateId, source)
-                    .map(src -> isPublished(src, templateId, depth + 1))
-                    .orElse(false);
+            Boolean cached = publishedMemo.get(source);
+            if (cached != null) {
+                return cached;
+            }
+            TemplateVersion src = byNumber.get(source);
+            if (src == null) {
+                src = versionRepository.findByTemplateIdAndVersionNumber(templateId, source)
+                        .orElse(null);
+            }
+            boolean result = src != null && isPublished(src, templateId, depth + 1, byNumber, publishedMemo);
+            publishedMemo.put(source, result);
+            return result;
         }
         return false;
     }
@@ -587,6 +772,11 @@ public class TemplateServiceImpl implements TemplateService {
     private TemplateRegistry findRegistryOrThrow(UUID id) {
         return registryRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Шаблон не найден: " + id));
+    }
+
+    /** Владелец шаблона (владельцем может быть и сам пользователь). */
+    private boolean isOwner(TemplateRegistry registry, UUID userId) {
+        return userId != null && userId.equals(registry.getOwnerId());
     }
 
     private Template findTemplateOrThrow(UUID id) {

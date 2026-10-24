@@ -466,6 +466,7 @@ export default function ParameterPanel({ parameters, onChange, usedCodes, readOn
 
   // ── Drag end ──
   const handleDragEnd = (event: DragEndEvent) => {
+    if (readOnly) return
     const { active, over } = event
     if (!over || active.id === over.id) return
     const oldIdx = parameters.findIndex((p) => p.code === active.id)

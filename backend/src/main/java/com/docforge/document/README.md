@@ -85,3 +85,12 @@ DELETE /api/documents/{id}/participants/{uid} — убрать участник�
 - `com.docforge.user.UserService` — получение текущего пользователя
 
 Никогда не импортируй `TemplateRepository` или `UserRepository` напрямую.
+
+## Межмодульный доступ к шаблонам
+
+`DocumentService.hasAccessibleDocumentForTemplateVersion(templateId, versionNumber, userId)`
+— есть ли у пользователя доступ к документу, созданному из указанной версии шаблона.
+Используется модулем `template` (только через этот интерфейс), чтобы участник
+совместной работы мог прочитать снимок черновой версии, к которой привязан документ
+(BUG-059). Реализация — `DocumentRegistryRepository.findByTemplateIdAndTemplateVersionNumber`
++ `DocumentPermissionService.getEffectiveRole(...)`.

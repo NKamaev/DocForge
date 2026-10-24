@@ -97,3 +97,20 @@ Template                          — корневой документ (@Docume
 - MongoDB-поля в snake_case задаются через `@Field("field_name")` (Spring Data MongoDB).
 - Версионирование шаблонов: `TemplateVersion` (MongoDB) + `TemplateSnapshot` (PostgreSQL), миграции V008, V015, V016.
 - Тип `DIRECTORY` ссылается на справочник через `directoryId`; поля справочника автоматически создают составные параметры (`paramCode__fieldKey`).
+
+## Права чтения (BUG-059)
+
+Чтение проверяется в сервисном слое — контроллер лишь передаёт вызывающего
+(`UUID` + флаг `ROLE_ADMIN`):
+
+| Метод `TemplateService` | Правило |
+|---|---|
+| `getReadable(id, userId, admin)` | опубликованный шаблон — всем; черновик — владельцу/админу, иначе 403 «Нет доступа к шаблону» |
+| `listVisible(page, size, category, published, createdAfter, userId, admin)` | не-админ видит опубликованные + свои черновики; админ — всё |
+| `listVersionsVisible(templateId, userId, admin)` | владелец/админ — все версии; остальным — только опубликованные |
+| `getSnapshotVisible(templateId, versionNumber, userId, admin)` | владелец/админ — любая версия; остальным — только опубликованная, либо версия, к которой привязан доступный им документ (`DocumentService.hasAccessibleDocumentForTemplateVersion`); иначе 403 «Нет доступа к версии шаблона» |
+
+Признак «версия опубликована» — единый приватный хелпер `isPublished(version, templateId, depth)`
+(BUG-058): `PUBLISH`/легаси-`NULL` → опубликована, `ROLLBACK` → если источник опубликован,
+`MAJOR`/`MINOR` → черновик. Внутренние `getById`/`listVersions`/`getSnapshot` не фильтруют
+и используются модулем `document` и внутренними потоками.
