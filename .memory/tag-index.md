@@ -79,8 +79,8 @@
 | `BUG-058` | `tickets/BUG-058.md` | Инстанцирование черновых версий опубликованного шаблона — закрыт (`8a1516b`) |
 | `BUG-059` | `tickets/BUG-059.md` | Чтение чужих черновиков шаблона — закрыт (`9f5d54a`) |
 | `BUG-061` | `tickets/BUG-061.md` | `currentUserId()` глотает исключение в транзакции — закрыт (`83aa862`) |
+| `BUG-021` | `tickets/BUG-021.md` | NPE в applyAnswers (switch на null type) — закрыт (`9619f81`) |
 | `BUG-060` | — (только tracker) | OWNER-роль неизменяема: нет снятия/передачи владения — TODO |
-| `BUG-061` | — (только tracker) | `currentUserId()` глотает исключение внутри транзакции → `UnexpectedRollbackException` — TODO |
 | `BUG-062` | — (только tracker) | Черновик шаблона: version=1 при major/minor=1.0 — TODO |
 | `BUG-063` | — (только tracker) | `current_body` без валидации: CCE/500 на attrs/body-кастах — TODO |
 | `BUG-064` | — (только tracker) | Единая семантика условий: генератор не обрабатывает `conditionalInline` — TODO |
@@ -88,9 +88,13 @@
 | `BUG-066` | — (только tracker) | Экспорт теряет текст видимого `numberedClause` — TODO |
 | `BUG-067` | — (только tracker) | `HttpMessageNotReadableException` → 500 вместо 400 — TODO |
 | `TASK-066` | — (только tracker) | Вынести пайплайн экспорта из `DocumentController` в сервис — TODO |
-| `BUG-068` | — (только tracker) | Авторизация на изменение шаблона: rollback/versions/PUT — TODO |
+| `TASK-067` | — (только tracker) | Нарушения границ модулей: permission-сервисы импортируют `user.UserRepository` — TODO |
+| `TASK-068` | — (только tracker) | `catch (Exception)` внутри `@Transactional`: buildAutoDescription и удаление из Mongo — TODO |
+| `BUG-068` | `tickets/BUG-068.md` | Авторизация на изменение шаблона (write-scope) — закрыт (`2d5487c`) |
 | `BUG-069` | — (только tracker) | Фронт читает `message` вместо `ProblemDetail.detail` (ShareDialog) — TODO |
-| `BUG-070` | — (только tracker) | Дубль BUG-068 (снятие с публикации чужого шаблона) — TODO |
+| `BUG-070` | — (только tracker) | Дубль BUG-068 (снятие с публикации чужого шаблона) — CANCELLED |
+| `BUG-071` | — (только tracker) | Аудит: записи теряются (catch внутри транзакции + details не JSON в JSONB) — TODO |
+| `BUG-072` | — (только tracker) | JwtAuthFilter: неизвестный логин -> 500 вместо 401/403 — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
 | `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
@@ -109,4 +113,3 @@
 Источники Git: ветка `main` (текущий проект DocForge; legacy-версия переименована в DocForgeOld и заархивирована).
 
 <!-- Добавляй новые категории/секции по мере роста памяти. -->
-| `BUG-021` | `tickets/BUG-021.md` | NPE в applyAnswers (switch на null type) — закрыт (`9619f81`) |
