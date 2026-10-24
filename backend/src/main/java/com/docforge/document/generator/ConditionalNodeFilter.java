@@ -123,12 +123,10 @@ public class ConditionalNodeFilter {
         if ("python".equalsIgnoreCase(type)) {
             try {
                 return pythonConditionEvaluator.evaluate(expression, answers);
-            } catch (ScriptExecutionException e) {
-                // ошибка/таймаут скрипта — fail-closed, как в DocumentGenerator
-                log.warn("Ошибка Python-условия '{}' (считаем ложным): {}", expression, e.getMessage());
-                return false;
-            } catch (IllegalArgumentException e) {
-                // GraalPython недоступен на текущем рантайме (buildContext)
+            } catch (RuntimeException e) {
+                // Fail-closed для ЛЮБОЙ ошибки Python-движка (ошибка/таймаут
+                // скрипта, недоступный GraalPython и т.п.): условие считается
+                // ложным, генерация и экспорт не падают с 500.
                 log.warn("Python-условие '{}' не может быть вычислено (считаем ложным): {}",
                         expression, e.getMessage());
                 return false;

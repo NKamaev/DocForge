@@ -35,16 +35,19 @@ public class DocumentGenerator {
     private final PythonConditionEvaluator pythonEvaluator;
     private final TipTapTreeWalker treeWalker;
     private final ParameterSubstitutor substitutor;
+    private final ConditionalNodeFilter conditionalNodeFilter;
 
     public DocumentGenerator(
             ConditionEvaluator conditionEvaluator,
             PythonConditionEvaluator pythonEvaluator,
             TipTapTreeWalker treeWalker,
-            ParameterSubstitutor substitutor) {
+            ParameterSubstitutor substitutor,
+            ConditionalNodeFilter conditionalNodeFilter) {
         this.conditionEvaluator = conditionEvaluator;
         this.pythonEvaluator    = pythonEvaluator;
         this.treeWalker         = treeWalker;
         this.substitutor        = substitutor;
+        this.conditionalNodeFilter = conditionalNodeFilter;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -66,44 +69,13 @@ public class DocumentGenerator {
         // ── Step 1: Validate answers ──────────────────────────────────────────
         validateAnswers(params, answers);
 
-        // ── Steps 2 + 3: Evaluate conditions, filter conditional blocks,
-        //                  numbered clauses, and expand phrasingsRef ──────────
+        // ── Step 2: Expand phrasingsRef ───────────────────────────────────────
         final List<Phrasing> phrasings = template.getPhrasings() != null
                 ? template.getPhrasings() : List.of();
 
-        Map<String, Object> filtered = treeWalker.transform(body, node -> {
-            String nodeType = (String) node.get("type");
-
-            // ── conditionalBlock ─────────────────────────────────────────────
-            if ("conditionalBlock".equals(nodeType)) {
-                Map<String, Object> attrs   = getAttrs(node);
-                Map<String, Object> condMap = (Map<String, Object>) attrs.get("condition");
-                if (condMap == null) return List.of(node);
-
-                boolean condResult = evalCondition(condMap, answers);
-                if (!condResult) {
-                    log.debug("Removing conditionalBlock '{}' (condition false)", attrs.get("label"));
-                    return List.of();
-                }
-                return getContentAsMaps(node);
-            }
-
-            // ── numberedClause с condition ────────────────────────────────────
-            if ("numberedClause".equals(nodeType)) {
-                Map<String, Object> attrs   = getAttrs(node);
-                Map<String, Object> condMap = (Map<String, Object>) attrs.get("condition");
-                if (condMap == null) return List.of(node);
-
-                boolean show = evalCondition(condMap, answers);
-                if (!show) {
-                    log.debug("Removing numberedClause (condition false)");
-                    return List.of();
-                }
-                return List.of(node);
-            }
-
+        Map<String, Object> expanded = treeWalker.transform(body, node -> {
             // ── phrasingsRef → раскрыть в контент подходящих вариантов ──────
-            if ("phrasingsRef".equals(nodeType)) {
+            if ("phrasingsRef".equals(String.valueOf(node.get("type")))) {
                 Map<String, Object> attrs = getAttrs(node);
                 List<String> ids = getPhrasingsIdsList(attrs);
                 if (ids.isEmpty()) return List.of();
@@ -140,6 +112,13 @@ public class DocumentGenerator {
 
             return List.of(node);
         });
+
+        // ── Step 3: Filter conditional nodes ─────────────────────────────────
+        // Единая семантика условий с экспортом (BUG-064): ConditionalNodeFilter
+        // обрабатывает conditionalBlock/conditionalInline/numberedClause, включая
+        // узлы внутри развёрнутых вариантов фразеологизмов, и трактует отсутствие
+        // условия как «показывать всегда».
+        Map<String, Object> filtered = conditionalNodeFilter.filter(expanded, answers);
 
         // ── Step 4: Substitute parameter fields ───────────────────────────────
         Map<String, Parameter> paramIndex = params.stream()
@@ -268,40 +247,12 @@ public class DocumentGenerator {
         return conditionEvaluator.evaluate(expression, answers);
     }
 
-    @SuppressWarnings("unchecked")
-    private boolean evalCondition(Map<String, Object> condMap, Map<String, Object> answers) {
-        String type       = (String) condMap.get("type");
-        String expression = (String) condMap.get("expression");
-
-        if (expression == null || expression.isBlank()) return true;
-
-        if ("python".equalsIgnoreCase(type)) {
-            try {
-                return pythonEvaluator.evaluate(expression, answers);
-            } catch (Exception e) {
-                log.warn("Python condition evaluation failed (treating as false): {}", e.getMessage());
-                return false;
-            }
-        }
-        return conditionEvaluator.evaluate(expression, answers);
-    }
-
     // ── Node helpers ──────────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> getAttrs(Map<String, Object> node) {
         Object attrs = node.get("attrs");
         return attrs instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> getContentAsMaps(Map<String, Object> node) {
-        Object content = node.get("content");
-        if (!(content instanceof List<?> list)) return List.of();
-        return list.stream()
-                .filter(item -> item instanceof Map<?, ?>)
-                .map(item -> (Map<String, Object>) item)
-                .collect(Collectors.toList());
     }
 
     private Map<String, Object> textNode(String text) {
