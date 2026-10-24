@@ -254,14 +254,15 @@ class DocumentPermissionServiceTest {
     // ── Role.implies matrix ────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("DocumentRole MANAGER implies everything except SHARE and ADMIN")
-    void documentRole_managerPermissions() {
+    @DisplayName("DocumentRole MANAGER implies everything except ADMIN")
+    void documentRole_managerImpliesEverythingExceptAdmin() {
         assertThat(DocumentRole.MANAGER.implies(DocumentPermission.VIEW)).isTrue();
         assertThat(DocumentRole.MANAGER.implies(DocumentPermission.READ)).isTrue();
         assertThat(DocumentRole.MANAGER.implies(DocumentPermission.WRITE)).isTrue();
         assertThat(DocumentRole.MANAGER.implies(DocumentPermission.MANAGE)).isTrue();
         assertThat(DocumentRole.MANAGER.implies(DocumentPermission.DELETE)).isTrue();
-        assertThat(DocumentRole.MANAGER.implies(DocumentPermission.SHARE)).isFalse();
+        // MANAGER may share the document (add/remove participants) — only ADMIN is reserved for the owner.
+        assertThat(DocumentRole.MANAGER.implies(DocumentPermission.SHARE)).isTrue();
         assertThat(DocumentRole.MANAGER.implies(DocumentPermission.ADMIN)).isFalse();
     }
 
