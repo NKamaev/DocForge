@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -82,6 +83,24 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findByLogin(login)
                 .orElseThrow(() -> new ResourceNotFoundException("Пользователь не найден: " + login));
         return toDTO(user);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<UserDTO> findUser(String login) {
+        if (login == null) {
+            return Optional.empty();
+        }
+        return userRepository.findByLogin(login).map(this::toDTO);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<UserDTO> findUserById(UUID id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return userRepository.findById(id).map(this::toDTO);
     }
 
     private LoginResponse toLoginResponse(String token, User user) {

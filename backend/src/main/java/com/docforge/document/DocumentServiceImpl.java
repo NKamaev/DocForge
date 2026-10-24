@@ -17,9 +17,8 @@ import com.docforge.document.model.FolderPermission;
 import com.docforge.template.TemplateService;
 import com.docforge.template.dto.TemplateResponse;
 import com.docforge.template.model.*;
-import com.docforge.user.User;
-import com.docforge.user.UserRepository;
 import com.docforge.user.UserService;
+import com.docforge.user.dto.UserDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -46,7 +45,6 @@ public class DocumentServiceImpl implements DocumentService {
     private final FolderPermissionService folderPermissionService;
     private final DocumentRevisionRepository revisionRepository;
     private final DocumentRevisionBodyRepository revisionBodyRepository;
-    private final UserRepository userRepository;
     private final UserService userService;
     private final TemplateService templateService;
     private final DocumentGenerator documentGenerator;
@@ -498,11 +496,11 @@ public class DocumentServiceImpl implements DocumentService {
         findRegistryOrThrow(documentId);
         return documentMemberRepository.findByDocumentId(documentId).stream()
                 .map(m -> {
-                    User user = userRepository.findById(m.getUserId()).orElse(null);
+                    UserDTO user = userService.findUserById(m.getUserId()).orElse(null);
                     return new DocumentParticipantDTO(
                             m.getUserId(),
-                            user != null ? user.getLogin() : null,
-                            user != null ? user.getDisplayName() : null,
+                            user != null ? user.login() : null,
+                            user != null ? user.displayName() : null,
                             m.getRole(),
                             m.getGrantedAt() != null ? m.getGrantedAt().atOffset(java.time.ZoneOffset.UTC) : null
                     );
@@ -514,7 +512,7 @@ public class DocumentServiceImpl implements DocumentService {
     @Transactional
     public DocumentParticipantDTO addParticipant(UUID documentId, UUID userId, String role, UUID grantedBy) {
         findRegistryOrThrow(documentId);
-        User user = userRepository.findById(userId)
+        UserDTO user = userService.findUserById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Пользователь не найден: " + userId));
 
         DocumentRole documentRole = DocumentRole.valueOf(role != null ? role.toUpperCase() : "EDITOR");
@@ -522,11 +520,11 @@ public class DocumentServiceImpl implements DocumentService {
 
         return documentMemberRepository.findByDocumentIdAndUserId(documentId, userId)
                 .map(m -> new DocumentParticipantDTO(
-                        userId, user.getLogin(), user.getDisplayName(),
+                        userId, user.login(), user.displayName(),
                         m.getRole(),
                         m.getGrantedAt() != null ? m.getGrantedAt().atOffset(java.time.ZoneOffset.UTC) : null
                 ))
-                .orElse(new DocumentParticipantDTO(userId, user.getLogin(), user.getDisplayName(), documentRole.name(), null));
+                .orElse(new DocumentParticipantDTO(userId, user.login(), user.displayName(), documentRole.name(), null));
     }
 
     @Override
@@ -611,10 +609,13 @@ public class DocumentServiceImpl implements DocumentService {
     private DocumentRevisionDTO toRevisionDTO(DocumentRevision r) {
         String authorName = null;
         if (r.getSavedBy() != null) {
-            try {
-                authorName = userService.getById(r.getSavedBy()).displayName();
-            } catch (Exception e) {
-                log.warn("Не удалось загрузить автора редакции savedBy={}: {}", r.getSavedBy(), e.getMessage());
+            // findUserById() не бросает исключений — иначе исключение внутри
+            // общей транзакции пометило бы её rollback-only (BUG-061).
+            Optional<UserDTO> author = userService.findUserById(r.getSavedBy());
+            if (author.isPresent()) {
+                authorName = author.get().displayName();
+            } else {
+                log.debug("Автор редакции не найден (удалён): savedBy={}", r.getSavedBy());
             }
         }
         return new DocumentRevisionDTO(
@@ -624,14 +625,12 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     private UUID currentUserId() {
-        // Best-effort: try to get user ID from security context via login
+        // Best-effort: try to get user ID from security context via login.
+        // findUser() не бросает исключений — иначе исключение внутри общей
+        // транзакции пометило бы её rollback-only (BUG-061).
         String login = currentLogin();
         if (login == null) return null;
-        try {
-            return userRepository.findByLogin(login).map(User::getId).orElse(null);
-        } catch (Exception e) {
-            return null;
-        }
+        return userService.findUser(login).map(UserDTO::id).orElse(null);
     }
 
     private String currentLogin() {

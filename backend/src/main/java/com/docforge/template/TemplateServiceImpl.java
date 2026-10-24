@@ -8,6 +8,7 @@ import com.docforge.document.DocumentService;
 import com.docforge.document.generator.PythonConditionEvaluator;
 import com.docforge.document.generator.ScriptExecutionException;
 import com.docforge.user.UserService;
+import com.docforge.user.dto.UserDTO;
 import com.docforge.template.dto.CreateTemplateRequest;
 import com.docforge.template.dto.DiffResult;
 import com.docforge.template.dto.RollbackResponse;
@@ -863,11 +864,10 @@ public class TemplateServiceImpl implements TemplateService {
     private UUID currentUserId() {
         String login = currentLogin();
         if (login == null) return null;
-        try {
-            return userService.getCurrentUser(login).id();
-        } catch (Exception e) {
-            return null;
-        }
+        // findUser() не бросает исключений: бросок внутри общей транзакции
+        // помечил бы её rollback-only и вызвал UnexpectedRollbackException при
+        // коммите (BUG-061).
+        return userService.findUser(login).map(UserDTO::id).orElse(null);
     }
 
     /**

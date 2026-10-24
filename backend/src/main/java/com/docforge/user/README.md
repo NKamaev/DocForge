@@ -23,5 +23,9 @@
 
 ## Правила
 - Другие модули НЕ импортируют `UserRepository` — только `UserService`.
+- Внутри транзакции используй `findUser(login)` / `findUserById(id)` — они
+  возвращают `Optional` и НЕ бросают исключений. Бросок исключения из
+  вложенного `@Transactional`-метода помечает общую (вызывающую) транзакцию
+  как rollback-only → `UnexpectedRollbackException` при коммите (BUG-061).
 - Пароли хранятся как BCrypt-хэш в поле `password_hash`.
 - JWT выдаётся при регистрации и входе, срок жизни — 24ч.
