@@ -84,7 +84,7 @@
 | `BUG-062` | — (только tracker) | Черновик шаблона: version=1 при major/minor=1.0 — TODO |
 | `BUG-063` | `tickets/BUG-063.md` | `current_body` без валидации: CCE/500 при экспорте — закрыт (`75748cd`) |
 | `BUG-064` | `tickets/BUG-064.md` | Единая семантика условий: генерация и экспорт — закрыт (`15718cf`) |
-| `BUG-065` | — (только tracker) | `NodeResolver` читает `clauseId` вместо `id`/`refId` — TODO |
+| `BUG-065` | `tickets/BUG-065.md` | `NodeResolver` читал `clauseId` вместо `id`/`refId` — закрыт (`6840dd9`) |
 | `BUG-066` | — (только tracker) | Экспорт теряет текст видимого `numberedClause` — TODO |
 | `BUG-067` | — (только tracker) | `HttpMessageNotReadableException` → 500 вместо 400 — TODO |
 | `TASK-066` | — (только tracker) | Вынести пайплайн экспорта из `DocumentController` в сервис — TODO |
