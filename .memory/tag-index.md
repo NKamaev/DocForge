@@ -75,7 +75,7 @@
 | `BUG-050` | `tickets/BUG-050.md` | Документные эндпоинты без permission-check: export docx/pdf, participants — закрыт (`805820f`) |
 | `BUG-051` | `tickets/BUG-051.md` | Legacy participants API: MANAGER может выдать OWNER — закрыт (`86b2038`) |
 | `BUG-052` | `tickets/BUG-052.md` | `POST /api/documents` без проверки доступа к шаблону/папке — закрыт (`07bef1d`) |
-| `BUG-058` | — (только tracker) | Инстанцирование черновых версий опубликованного шаблона — TODO |
+| `BUG-058` | `tickets/BUG-058.md` | Инстанцирование черновых версий опубликованного шаблона — закрыт (`8a1516b`) |
 | `BUG-059` | — (только tracker) | Read-эндпоинты шаблонов без проверки прав — TODO |
 | `BUG-060` | — (только tracker) | OWNER-роль неизменяема: нет снятия/передачи владения — TODO |
 | `BUG-061` | — (только tracker) | `currentUserId()` глотает исключение внутри транзакции → `UnexpectedRollbackException` — TODO |
@@ -86,6 +86,8 @@
 | `BUG-066` | — (только tracker) | Экспорт теряет текст видимого `numberedClause` — TODO |
 | `BUG-067` | — (только tracker) | `HttpMessageNotReadableException` → 500 вместо 400 — TODO |
 | `TASK-066` | — (только tracker) | Вынести пайплайн экспорта из `DocumentController` в сервис — TODO |
+| `BUG-068` | — (только tracker) | Авторизация на изменение шаблона: rollback/versions/PUT — TODO |
+| `BUG-069` | — (только tracker) | Фронт читает `message` вместо `ProblemDetail.detail` (ShareDialog) — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
 | `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
