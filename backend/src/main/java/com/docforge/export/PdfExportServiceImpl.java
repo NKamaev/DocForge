@@ -137,10 +137,10 @@ public class PdfExportServiceImpl implements PdfExportService {
 
     @SuppressWarnings("unchecked")
     private void renderNode(StringBuilder sb, Map<String, Object> node) {
-        String type = (String) node.get("type");
+        String type = String.valueOf(node.get("type")); // BUG-063: не-строковый type не должен ронять экспорт
         List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("content");
 
-        switch (String.valueOf(type)) {
+        switch (type) {
             case "doc" -> {
                 if (children != null) children.forEach(c -> renderNode(sb, c));
             }
@@ -151,7 +151,7 @@ public class PdfExportServiceImpl implements PdfExportService {
                 sb.append("</p>");
             }
             case "heading" -> {
-                Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
+                Map<String, Object> attrs = asMap(node.get("attrs"));
                 int level = attrs != null ? toInt(attrs.get("level"), 1) : 1;
                 sb.append("<h").append(level).append(paragraphStyle(node)).append(">");
                 if (children != null) children.forEach(c -> renderInline(sb, c));
@@ -208,7 +208,7 @@ public class PdfExportServiceImpl implements PdfExportService {
                 for (Map<String, Object> cell : cells) {
                     boolean isHeader = "tableHeader".equals(cell.get("type"));
                     String tag = isHeader ? "th" : "td";
-                    Map<String, Object> attrs = (Map<String, Object>) cell.get("attrs");
+                    Map<String, Object> attrs = asMap(cell.get("attrs"));
                     String cellStyle = buildCellStyle(attrs);
                     sb.append("<").append(tag);
                     if (!cellStyle.isEmpty()) sb.append(" style=\"").append(cellStyle).append("\"");
@@ -233,19 +233,19 @@ public class PdfExportServiceImpl implements PdfExportService {
         if (attrs == null) return "";
         StringBuilder s = new StringBuilder();
 
-        String va = (String) attrs.get("verticalAlign");
+        String va = str(attrs.get("verticalAlign"));
         if (va != null) s.append("vertical-align:").append(va).append(";");
 
-        String bg = (String) attrs.get("backgroundColor");
+        String bg = str(attrs.get("backgroundColor"));
         if (bg != null) s.append("background-color:").append(bg).append(";");
 
-        String orient = (String) attrs.get("textOrientation");
+        String orient = str(attrs.get("textOrientation"));
         if ("rotate-90".equals(orient)) s.append("writing-mode:vertical-rl;");
         else if ("rotate-270".equals(orient)) s.append("writing-mode:vertical-lr;");
         else if ("rotate-180".equals(orient)) s.append("transform:rotate(180deg);");
 
         for (String side : new String[]{"borderTop", "borderRight", "borderBottom", "borderLeft"}) {
-            String val = (String) attrs.get(side);
+            String val = str(attrs.get(side));
             if (val != null) {
                 String cssProp = side.replaceAll("([A-Z])", "-$1").toLowerCase();
                 s.append(cssProp).append(":").append(val).append(";");
@@ -262,10 +262,10 @@ public class PdfExportServiceImpl implements PdfExportService {
 
     @SuppressWarnings("unchecked")
     private void renderInline(StringBuilder sb, Map<String, Object> node) {
-        String type = (String) node.get("type");
-        switch (String.valueOf(type)) {
+        String type = String.valueOf(node.get("type")); // BUG-063: не-строковый type не должен ронять экспорт
+        switch (type) {
             case "text" -> {
-                String text = escape((String) node.get("text"));
+                String text = escape(str(node.get("text")));
                 List<Map<String, Object>> marks = (List<Map<String, Object>>) node.get("marks");
                 if (marks != null && !marks.isEmpty()) {
                     sb.append(openMarks(marks)).append(text).append(closeMarks(marks));
@@ -275,20 +275,20 @@ public class PdfExportServiceImpl implements PdfExportService {
             }
             case "hardBreak" -> sb.append("<br/>");
             case "parameterField" -> {
-                Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
-                String display = attrs != null ? (String) attrs.get("display") : null;
-                String code = attrs != null ? (String) attrs.get("parameterCode") : "?";
+                Map<String, Object> attrs = asMap(node.get("attrs"));
+                String display = attrs != null ? str(attrs.get("display")) : null;
+                String code = attrs != null ? str(attrs.get("parameterCode")) : "?";
                 sb.append("<span class=\"param\">{{").append(escape(display != null ? display : code)).append("}}</span>");
             }
             case "templateParam" -> {
-                Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
-                String display = attrs != null ? (String) attrs.get("display") : null;
-                String fieldId = attrs != null ? (String) attrs.get("fieldId") : "?";
+                Map<String, Object> attrs = asMap(node.get("attrs"));
+                String display = attrs != null ? str(attrs.get("display")) : null;
+                String fieldId = attrs != null ? str(attrs.get("fieldId")) : "?";
                 sb.append("<span class=\"param\">{{").append(escape(display != null ? display : fieldId)).append("}}</span>");
             }
             case "clauseRef" -> {
-                Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
-                String label = attrs != null ? (String) attrs.get("label") : null;
+                Map<String, Object> attrs = asMap(node.get("attrs"));
+                String label = attrs != null ? str(attrs.get("label")) : null;
                 sb.append(escape(label != null ? label : "п. ?"));
             }
             case "conditionalInline" -> {
@@ -302,9 +302,9 @@ public class PdfExportServiceImpl implements PdfExportService {
     private String openMarks(List<Map<String, Object>> marks) {
         StringBuilder sb = new StringBuilder();
         for (Map<String, Object> mark : marks) {
-            String t = (String) mark.get("type");
-            Map<String, Object> attrs = (Map<String, Object>) mark.get("attrs");
-            switch (String.valueOf(t)) {
+            String t = str(mark.get("type"));
+            Map<String, Object> attrs = asMap(mark.get("attrs"));
+            switch (String.valueOf(t)) { // null-безопасно: метка без type
                 case "bold" -> sb.append("<strong>");
                 case "italic" -> sb.append("<em>");
                 case "underline" -> sb.append("<u>");
@@ -312,7 +312,7 @@ public class PdfExportServiceImpl implements PdfExportService {
                 case "subscript" -> sb.append("<sub>");
                 case "superscript" -> sb.append("<sup>");
                 case "link" -> {
-                    String href = attrs != null ? (String) attrs.get("href") : "#";
+                    String href = attrs != null ? str(attrs.get("href")) : "#";
                     sb.append("<a href=\"").append(escape(href)).append("\">");
                 }
                 case "textStyle" -> {
@@ -325,7 +325,7 @@ public class PdfExportServiceImpl implements PdfExportService {
                     sb.append("\">");
                 }
                 case "highlight" -> {
-                    String color = attrs != null ? (String) attrs.get("color") : "yellow";
+                    String color = attrs != null ? str(attrs.get("color")) : "yellow";
                     sb.append("<span style=\"background:").append(color).append(";\">");
                 }
             }
@@ -337,8 +337,8 @@ public class PdfExportServiceImpl implements PdfExportService {
     private String closeMarks(List<Map<String, Object>> marks) {
         StringBuilder sb = new StringBuilder();
         for (int i = marks.size() - 1; i >= 0; i--) {
-            String t = (String) marks.get(i).get("type");
-            switch (String.valueOf(t)) {
+            String t = String.valueOf(marks.get(i).get("type"));
+            switch (String.valueOf(t)) { // null-безопасно: метка без type
                 case "bold" -> sb.append("</strong>");
                 case "italic" -> sb.append("</em>");
                 case "underline" -> sb.append("</u>");
@@ -356,10 +356,10 @@ public class PdfExportServiceImpl implements PdfExportService {
 
     @SuppressWarnings("unchecked")
     private String paragraphStyle(Map<String, Object> node) {
-        Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
+        Map<String, Object> attrs = asMap(node.get("attrs"));
         if (attrs == null) return "";
         StringBuilder style = new StringBuilder(" style=\"");
-        String align = (String) attrs.get("textAlign");
+        String align = str(attrs.get("textAlign"));
         if (align != null) style.append("text-align:").append(align).append(";");
         Object indent = attrs.get("indent");
         if (indent != null) style.append("margin-left:").append(toInt(indent, 0) * 2).append("em;");
@@ -376,5 +376,16 @@ public class PdfExportServiceImpl implements PdfExportService {
         if (val instanceof Number n) return n.intValue();
         if (val instanceof String s) { try { return Integer.parseInt(s); } catch (NumberFormatException ignored) {} }
         return def;
+    }
+
+    /** attrs/метка как Map; мусор (не-объект) трактуется как отсутствие attrs (BUG-063). */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : null;
+    }
+
+    /** Строковое значение атрибута; не-строки не роняют экспорт (BUG-063). */
+    private static String str(Object value) {
+        return value instanceof String s ? s : null;
     }
 }

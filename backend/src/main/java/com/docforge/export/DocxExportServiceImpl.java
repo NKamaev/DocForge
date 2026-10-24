@@ -82,10 +82,10 @@ public class DocxExportServiceImpl implements DocxExportService {
 
     @SuppressWarnings("unchecked")
     private void renderNode(XWPFDocument doc, Map<String, Object> node, RenderContext ctx) {
-        String type = (String) node.get("type");
+        String type = String.valueOf(node.get("type")); // BUG-063: не-строковый type не должен ронять экспорт
         List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("content");
 
-        switch (String.valueOf(type)) {
+        switch (type) {
             case "doc" -> {
                 if (children != null) children.forEach(c -> renderNode(doc, c, ctx));
             }
@@ -117,7 +117,7 @@ public class DocxExportServiceImpl implements DocxExportService {
 
     @SuppressWarnings("unchecked")
     private void renderHeading(XWPFDocument doc, Map<String, Object> node, RenderContext ctx) {
-        Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
+        Map<String, Object> attrs = asMap(node.get("attrs"));
         int level = attrs != null ? toInt(attrs.get("level"), 1) : 1;
 
         XWPFParagraph para = doc.createParagraph();
@@ -142,7 +142,7 @@ public class DocxExportServiceImpl implements DocxExportService {
 
             if (children != null) {
                 for (Map<String, Object> child : children) {
-                    String childType = (String) child.get("type");
+                    String childType = str(child.get("type"));
                     if ("paragraph".equals(childType)) {
                         List<Map<String, Object>> inlines = (List<Map<String, Object>>) child.get("content");
                         // Add bullet/number prefix in first run
@@ -206,7 +206,7 @@ public class DocxExportServiceImpl implements DocxExportService {
 
             for (Map<String, Object> cellNode : cells) {
                 XWPFTableCell cell = row.createCell();
-                Map<String, Object> cellAttrs = (Map<String, Object>) cellNode.get("attrs");
+                Map<String, Object> cellAttrs = asMap(cellNode.get("attrs"));
                 applyCellFormatting(cell, cellAttrs);
 
                 if (cellAttrs != null) {
@@ -240,7 +240,7 @@ public class DocxExportServiceImpl implements DocxExportService {
         CTTcPr tcPr = cell.getCTTc().isSetTcPr() ? cell.getCTTc().getTcPr() : cell.getCTTc().addNewTcPr();
 
         // Vertical alignment
-        String va = (String) attrs.get("verticalAlign");
+        String va = str(attrs.get("verticalAlign"));
         if (va != null) {
             CTVerticalJc vAlign = tcPr.isSetVAlign() ? tcPr.getVAlign() : tcPr.addNewVAlign();
             vAlign.setVal(switch (va) {
@@ -251,7 +251,7 @@ public class DocxExportServiceImpl implements DocxExportService {
         }
 
         // Background color — always set shading to avoid TableGrid default fill
-        String bg = (String) attrs.get("backgroundColor");
+        String bg = str(attrs.get("backgroundColor"));
         CTShd shd = tcPr.isSetShd() ? tcPr.getShd() : tcPr.addNewShd();
         if (bg != null && bg.startsWith("#")) {
             shd.setVal(STShd.CLEAR);
@@ -264,7 +264,7 @@ public class DocxExportServiceImpl implements DocxExportService {
         }
 
         // Text orientation
-        String orient = (String) attrs.get("textOrientation");
+        String orient = str(attrs.get("textOrientation"));
         if (orient != null && !"horizontal".equals(orient)) {
             CTTextDirection td = tcPr.isSetTextDirection() ? tcPr.getTextDirection() : tcPr.addNewTextDirection();
             td.setVal(switch (orient) {
@@ -279,10 +279,10 @@ public class DocxExportServiceImpl implements DocxExportService {
                 || attrs.get("borderBottom") != null || attrs.get("borderLeft") != null;
         if (hasBorder) {
             CTTcBorders borders = tcPr.isSetTcBorders() ? tcPr.getTcBorders() : tcPr.addNewTcBorders();
-            applyCellBorder(borders.isSetTop() ? borders.getTop() : borders.addNewTop(), (String) attrs.get("borderTop"));
-            applyCellBorder(borders.isSetRight() ? borders.getRight() : borders.addNewRight(), (String) attrs.get("borderRight"));
-            applyCellBorder(borders.isSetBottom() ? borders.getBottom() : borders.addNewBottom(), (String) attrs.get("borderBottom"));
-            applyCellBorder(borders.isSetLeft() ? borders.getLeft() : borders.addNewLeft(), (String) attrs.get("borderLeft"));
+            applyCellBorder(borders.isSetTop() ? borders.getTop() : borders.addNewTop(), str(attrs.get("borderTop")));
+            applyCellBorder(borders.isSetRight() ? borders.getRight() : borders.addNewRight(), str(attrs.get("borderRight")));
+            applyCellBorder(borders.isSetBottom() ? borders.getBottom() : borders.addNewBottom(), str(attrs.get("borderBottom")));
+            applyCellBorder(borders.isSetLeft() ? borders.getLeft() : borders.addNewLeft(), str(attrs.get("borderLeft")));
         }
     }
 
@@ -344,10 +344,10 @@ public class DocxExportServiceImpl implements DocxExportService {
 
     @SuppressWarnings("unchecked")
     private void renderInline(XWPFParagraph para, Map<String, Object> node, RenderContext ctx) {
-        String type = (String) node.get("type");
-        switch (String.valueOf(type)) {
+        String type = String.valueOf(node.get("type")); // BUG-063: не-строковый type не должен ронять экспорт
+        switch (type) {
             case "text" -> {
-                String text = (String) node.get("text");
+                String text = str(node.get("text"));
                 if (text == null) text = "";
                 List<Map<String, Object>> marks = (List<Map<String, Object>>) node.get("marks");
                 XWPFRun run = para.createRun();
@@ -364,24 +364,24 @@ public class DocxExportServiceImpl implements DocxExportService {
                 run.addCarriageReturn();
             }
             case "parameterField" -> {
-                Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
-                String code = attrs != null ? (String) attrs.get("parameterCode") : "?";
-                String display = attrs != null ? (String) attrs.get("display") : code;
+                Map<String, Object> attrs = asMap(node.get("attrs"));
+                String code = attrs != null ? str(attrs.get("parameterCode")) : "?";
+                String display = attrs != null ? str(attrs.get("display")) : code;
                 XWPFRun run = para.createRun();
                 run.setText("{{" + (display != null ? display : code) + "}}");
                 run.setColor("808080");
             }
             case "templateParam" -> {
-                Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
-                String display = attrs != null ? (String) attrs.get("display") : null;
-                String fieldId = attrs != null ? (String) attrs.get("fieldId") : "?";
+                Map<String, Object> attrs = asMap(node.get("attrs"));
+                String display = attrs != null ? str(attrs.get("display")) : null;
+                String fieldId = attrs != null ? str(attrs.get("fieldId")) : "?";
                 XWPFRun run = para.createRun();
                 run.setText("{{" + (display != null ? display : fieldId) + "}}");
                 run.setColor("808080");
             }
             case "clauseRef" -> {
-                Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
-                String label = attrs != null ? (String) attrs.get("label") : null;
+                Map<String, Object> attrs = asMap(node.get("attrs"));
+                String label = attrs != null ? str(attrs.get("label")) : null;
                 XWPFRun run = para.createRun();
                 run.setText(label != null ? label : "п. ?");
                 run.setColor("0563C1");
@@ -393,7 +393,7 @@ public class DocxExportServiceImpl implements DocxExportService {
             case "phrasingsRef" -> {
                 // Для предварительного просмотра шаблона (без ответов) показываем имена формулировок
                 @SuppressWarnings("unchecked")
-                Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
+                Map<String, Object> attrs = asMap(node.get("attrs"));
                 String label = resolvePhrasingsDisplayLabel(attrs);
                 XWPFRun run = para.createRun();
                 run.setText("[" + label + "]");
@@ -409,10 +409,17 @@ public class DocxExportServiceImpl implements DocxExportService {
         // New format
         Object displayNamesObj = attrs.get("displayNames");
         if (displayNamesObj instanceof List<?> list && !list.isEmpty()) {
-            return list.stream().map(Object::toString).collect(java.util.stream.Collectors.joining(", "));
+            // null-элементы отбрасываем: иначе NPE на Object::toString (BUG-063).
+            String joined = list.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(String::valueOf)
+                    .collect(java.util.stream.Collectors.joining(", "));
+            if (!joined.isBlank()) {
+                return joined;
+            }
         }
         // Legacy fallback
-        String displayName = (String) attrs.get("displayName");
+        String displayName = str(attrs.get("displayName"));
         return displayName != null ? displayName : "?";
     }
 
@@ -432,10 +439,10 @@ public class DocxExportServiceImpl implements DocxExportService {
         }
 
         for (Map<String, Object> mark : marks) {
-            String markType = (String) mark.get("type");
-            Map<String, Object> attrs = (Map<String, Object>) mark.get("attrs");
+            String markType = str(mark.get("type"));
+            Map<String, Object> attrs = asMap(mark.get("attrs"));
 
-            switch (String.valueOf(markType)) {
+            switch (String.valueOf(markType)) { // null-безопасно: метка без type
                 case "bold" -> run.setBold(true);
                 case "italic" -> run.setItalic(true);
                 case "underline" -> run.setUnderline(UnderlinePatterns.SINGLE);
@@ -444,14 +451,14 @@ public class DocxExportServiceImpl implements DocxExportService {
                 case "superscript" -> run.setSubscript(VerticalAlign.SUPERSCRIPT);
                 case "textStyle" -> {
                     if (attrs != null) {
-                        String color = (String) attrs.get("color");
+                        String color = str(attrs.get("color"));
                         if (color != null && color.startsWith("#")) run.setColor(color.substring(1));
                         Object fontSize = attrs.get("fontSize");
                         if (fontSize != null) {
                             String sizeStr = fontSize.toString().replace("pt", "").trim();
                             try { run.setFontSize(Double.parseDouble(sizeStr)); } catch (NumberFormatException ignored) {}
                         }
-                        String fontFamily = (String) attrs.get("fontFamily");
+                        String fontFamily = str(attrs.get("fontFamily"));
                         if (fontFamily != null && !fontFamily.isBlank()) {
                             run.setFontFamily(fontFamily.split(",")[0].trim());
                         }
@@ -468,10 +475,10 @@ public class DocxExportServiceImpl implements DocxExportService {
 
     @SuppressWarnings("unchecked")
     private void applyParagraphAttrs(XWPFParagraph para, Map<String, Object> node, RenderContext ctx) {
-        Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
+        Map<String, Object> attrs = asMap(node.get("attrs"));
         if (attrs == null) return;
 
-        String textAlign = (String) attrs.get("textAlign");
+        String textAlign = str(attrs.get("textAlign"));
         if (textAlign != null) {
             para.setAlignment(switch (textAlign) {
                 case "center" -> ParagraphAlignment.CENTER;
@@ -501,4 +508,15 @@ public class DocxExportServiceImpl implements DocxExportService {
     }
 
     private record RenderContext(DocumentFormatting formatting) {}
+
+    /** attrs/метка как Map; мусор (не-объект) трактуется как отсутствие attrs (BUG-063). */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : null;
+    }
+
+    /** Строковое значение атрибута; не-строки не роняют экспорт (BUG-063). */
+    private static String str(Object value) {
+        return value instanceof String s ? s : null;
+    }
 }

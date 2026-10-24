@@ -76,9 +76,14 @@ public class NodeResolver {
         Map<String, String> result = new LinkedHashMap<>();
         if (docBody == null) return result;
 
-        List<Object> content = (List<Object>) docBody.get("content");
-        collectClauseNumbers(content, result, new ArrayList<>());
+        collectClauseNumbers(asNodeList(docBody.get("content")), result, new ArrayList<>());
         return result;
+    }
+
+    /** content узла как список узлов; мусор (не-массив) трактуем как пустоту. */
+    @SuppressWarnings("unchecked")
+    private List<Object> asNodeList(Object content) {
+        return content instanceof List<?> list ? (List<Object>) list : null;
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
@@ -101,7 +106,7 @@ public class NodeResolver {
             if (clauseId != null) result.put(clauseId, joinNumbers(current));
 
             // Recurse into this clause's content for nested sub-clauses
-            collectClauseNumbers((List<Object>) node.get("content"), result, current);
+            collectClauseNumbers(asNodeList(node.get("content")), result, current);
         }
     }
 

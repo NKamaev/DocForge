@@ -1,5 +1,6 @@
 package com.docforge.document;
 
+import com.docforge.common.exception.ValidationException;
 import com.docforge.document.dto.*;
 import com.docforge.document.dto.MoveFolderRequest;
 import com.docforge.document.generator.ConditionalNodeFilter;
@@ -197,8 +198,7 @@ public class DocumentController {
         }
         try {
             DocumentFormatting formatting = resolveFormatting(doc);
-            @SuppressWarnings("unchecked")
-            Map<String, Object> bodyMap = (Map<String, Object>) body;
+            Map<String, Object> bodyMap = requireBodyMap(body);
             Map<String, Object> resolved = applyAnswers(bodyMap, doc.answers(), resolveParamIndex(doc));
             byte[] bytes = docxExportService.export(resolved, formatting);
             String filename = sanitizeFilename(doc.name()) + ".docx";
@@ -230,8 +230,7 @@ public class DocumentController {
         }
         try {
             DocumentFormatting formatting = resolveFormatting(doc);
-            @SuppressWarnings("unchecked")
-            Map<String, Object> bodyMap = (Map<String, Object>) body;
+            Map<String, Object> bodyMap = requireBodyMap(body);
             Map<String, Object> resolved = applyAnswers(bodyMap, doc.answers(), resolveParamIndex(doc));
             byte[] bytes = pdfExportService.export(resolved, formatting);
             String filename = sanitizeFilename(doc.name()) + ".pdf";
@@ -417,8 +416,12 @@ public class DocumentController {
             // попадать в default, а не ронять экспорт NPE
             return switch (String.valueOf(node.get("type"))) {
                 case "parameterField" -> {
-                    Map<String, Object> attrs = (Map<String, Object>) node.get("attrs");
-                    String code = attrs != null ? (String) attrs.get("parameterCode") : null;
+                    // attrs может быть не-объектом (мусор в current_body) —
+                    // тогда параметр просто не резолвится, а экспорт не падает.
+                    Map<String, Object> attrs = node.get("attrs") instanceof Map<?, ?> m
+                            ? (Map<String, Object>) m
+                            : null;
+                    String code = attrs != null && attrs.get("parameterCode") instanceof String s ? s : null;
                     Parameter param = code != null ? paramIndex.get(code) : null;
                     Object value = code != null ? safeAnswers.get(code) : null;
                     String text = substitutor.format(value, param);
@@ -434,6 +437,23 @@ public class DocumentController {
                 default -> List.of(node);
             };
         });
+    }
+
+    /**
+     * Тело документа как объект TipTap-дерева.
+     *
+     * <p>{@code current_body} хранится как произвольный JSON: если там оказался
+     * не объект (массив, строка), экспорт отвечает 422, а не падает с
+     * {@code ClassCastException} (BUG-063).
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> requireBodyMap(Object body) {
+        if (!(body instanceof Map<?, ?> map)) {
+            throw new ValidationException(
+                    "Тело документа должно быть объектом TipTap-дерева",
+                    Map.of("currentBody", "ожидается JSON-объект"));
+        }
+        return (Map<String, Object>) map;
     }
 
     /** Loads template parameters from snapshot (preferred) or live template. */

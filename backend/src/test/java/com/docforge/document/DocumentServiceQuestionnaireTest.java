@@ -67,6 +67,8 @@ class DocumentServiceQuestionnaireTest {
     @Mock private AuditService auditService;
     @Mock private ConditionEvaluator conditionEvaluator;
     @Mock private PythonConditionEvaluator pythonEvaluator;
+    /** Новый конструктор-аргумент DocumentServiceImpl (BUG-063): без @Mock инжектится null. */
+    @Mock private TipTapBodyValidator tipTapBodyValidator;
 
     @InjectMocks
     private DocumentServiceImpl service;

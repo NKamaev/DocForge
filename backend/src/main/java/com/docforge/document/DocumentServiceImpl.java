@@ -51,6 +51,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final ConditionEvaluator conditionEvaluator;
     private final PythonConditionEvaluator pythonEvaluator;
     private final AuditService auditService;
+    private final TipTapBodyValidator tipTapBodyValidator;
 
     // ── create ────────────────────────────────────────────────────────────────
 
@@ -286,6 +287,9 @@ public class DocumentServiceImpl implements DocumentService {
     @Transactional
     public void updateBody(UUID documentId, Object currentBody) {
         com.docforge.document.model.Document doc = findDocOrThrow(documentId);
+        // Валидируем структуру на границе записи: некорректное тело должно
+        // давать 422 здесь, а не 500 при экспорте (BUG-063).
+        tipTapBodyValidator.validate(currentBody);
         doc.setCurrentBody(currentBody);
         doc.setUpdatedAt(Instant.now());
         documentRepository.save(doc);
@@ -594,6 +598,9 @@ public class DocumentServiceImpl implements DocumentService {
         DocumentRevisionBody revBody = getRevisionBody(documentId, revisionNumber);
         com.docforge.document.model.Document doc = findDocOrThrow(documentId);
 
+        // Восстановленное тело должно быть валидным деревом: иначе старый мусор
+        // снова попал бы в current_body и уронил бы экспорт (BUG-063).
+        tipTapBodyValidator.validate(revBody.getBody());
         doc.setCurrentBody(revBody.getBody());
         if (revBody.getAnswers() != null) {
             doc.setAnswers(revBody.getAnswers());

@@ -41,6 +41,8 @@ class DocumentServiceDiffTest {
     @Mock private DocumentRegistryRepository registryRepository;
     @Mock private DocumentRevisionRepository revisionRepository;
     @Mock private DocumentRevisionBodyRepository revisionBodyRepository;
+    /** Новый конструктор-аргумент DocumentServiceImpl (BUG-063): без @Mock инжектится null. */
+    @Mock private TipTapBodyValidator tipTapBodyValidator;
 
     @InjectMocks
     private DocumentServiceImpl service;
