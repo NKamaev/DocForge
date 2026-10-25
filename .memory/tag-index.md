@@ -86,7 +86,7 @@
 | `BUG-064` | `tickets/BUG-064.md` | Единая семантика условий: генерация и экспорт — закрыт (`15718cf`) |
 | `BUG-065` | `tickets/BUG-065.md` | `NodeResolver` читал `clauseId` вместо `id`/`refId` — закрыт (`6840dd9`) |
 | `BUG-066` | `tickets/BUG-066.md` | Экспорт терял текст видимого `numberedClause` — закрыт (`a063827`) |
-| `BUG-067` | — (только tracker) | `HttpMessageNotReadableException` → 500 вместо 400 — TODO |
+| `BUG-067` | `tickets/BUG-067.md` | Нечитаемое тело запроса → 400 вместо 500 — закрыт (`5a96633`) |
 | `TASK-066` | — (только tracker) | Вынести пайплайн экспорта из `DocumentController` в сервис — TODO |
 | `TASK-067` | — (только tracker) | Нарушения границ модулей: permission-сервисы импортируют `user.UserRepository` — TODO |
 | `TASK-068` | — (только tracker) | `catch (Exception)` внутри `@Transactional`: buildAutoDescription и удаление из Mongo — TODO |
@@ -101,6 +101,7 @@
 | `BUG-076` | — (только tracker) | previewRenderer: семантика условий отличается от backend — TODO |
 | `BUG-077` | — (только tracker) | PDF: кириллица рендерится как `#` (base-14 Times-Roman вместо NotoSerif) — TODO |
 | `BUG-078` | — (только tracker) | `numberedClause` теряет текст в ячейках/списках; clauseRef в шаблон-экспорте — TODO |
+| `BUG-079` | — (только tracker) | Spring MVC client errors (405/415/406/404/413) падают в 500 — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
 | `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
