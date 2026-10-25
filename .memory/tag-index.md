@@ -100,7 +100,7 @@
 | `BUG-075` | — (только tracker) | TipTapTreeWalker не переприменяет трансформер к заменённым узлам — TODO |
 | `BUG-076` | — (только tracker) | previewRenderer: семантика условий отличается от backend — TODO |
 | `BUG-077` | `tickets/BUG-077.md` | PDF: кириллица рендерится как `#` (base-14 вместо NotoSerif) — закрыт (`d0134c2`) |
-| `BUG-078` | — (только tracker) | `numberedClause` теряет текст в ячейках/списках; clauseRef в шаблон-экспорте — TODO |
+| `BUG-078` | `tickets/BUG-078.md` | `numberedClause` в ячейках/списках; clauseRef в шаблон-экспорте — закрыт (`6e9ccb1`) |
 | `BUG-079` | — (только tracker) | Spring MVC client errors (405/415/406/404/413) падают в 500 — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
