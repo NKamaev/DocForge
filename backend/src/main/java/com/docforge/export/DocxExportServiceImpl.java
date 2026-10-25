@@ -84,7 +84,7 @@ public class DocxExportServiceImpl implements DocxExportService {
     // ── Node rendering ────────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
-    private void renderNode(XWPFDocument doc, Map<String, Object> node, RenderContext ctx) {
+    private void renderNode(IBody doc, Map<String, Object> node, RenderContext ctx) {
         String type = String.valueOf(node.get("type")); // BUG-063: не-строковый type не должен ронять экспорт
         List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("content");
 
@@ -96,7 +96,7 @@ public class DocxExportServiceImpl implements DocxExportService {
             case "heading" -> renderHeading(doc, node, ctx);
             case "bulletList" -> renderList(doc, children, ctx, false);
             case "orderedList" -> renderList(doc, children, ctx, true);
-            case "numberedClause" -> renderNumberedClause(doc, node, ctx);
+            case "numberedClause" -> renderNumberedClause(doc, node, ctx, null, false);
             case "table" -> renderTable(doc, node, ctx);
             case "horizontalRule" -> renderHorizontalRule(doc, ctx);
             case "pageBreak" -> renderPageBreak(doc, ctx);
@@ -110,19 +110,25 @@ public class DocxExportServiceImpl implements DocxExportService {
         }
     }
 
-    private void renderParagraph(XWPFDocument doc, Map<String, Object> node, RenderContext ctx) {
-        renderParagraph(doc, node, ctx, null);
+    private void renderParagraph(IBody doc, Map<String, Object> node, RenderContext ctx) {
+        renderParagraph(doc, node, ctx, null, null, false);
     }
 
     /**
-     * Рендер абзаца; {@code boldPrefix} (если задан) — жирный run в начале абзаца
-     * (используется для печатной метки пункта — BUG-066).
+     * Рендер абзаца. {@code marker} (если задан) — нежирный run в начале абзаца
+     * (маркер списка, BUG-078); {@code boldPrefix} (если задан) — жирный run
+     * (печатная метка пункта, BUG-066); {@code listIndent} — отступ пункта списка
+     * (выставляется после атрибутов абзаца: пункт списка всегда сохраняет отступ).
      */
     @SuppressWarnings("unchecked")
-    private void renderParagraph(
-            XWPFDocument doc, Map<String, Object> node, RenderContext ctx, String boldPrefix) {
-        XWPFParagraph para = doc.createParagraph();
+    private void renderParagraph(IBody doc, Map<String, Object> node, RenderContext ctx,
+                                 String marker, String boldPrefix, boolean listIndent) {
+        XWPFParagraph para = newParagraph(doc);
         applyParagraphAttrs(para, node, ctx);
+        if (listIndent) applyListIndent(para);
+        if (marker != null) {
+            para.createRun().setText(marker);
+        }
         if (boldPrefix != null) {
             XWPFRun labelRun = para.createRun();
             labelRun.setBold(true);
@@ -133,11 +139,11 @@ public class DocxExportServiceImpl implements DocxExportService {
     }
 
     @SuppressWarnings("unchecked")
-    private void renderHeading(XWPFDocument doc, Map<String, Object> node, RenderContext ctx) {
+    private void renderHeading(IBody doc, Map<String, Object> node, RenderContext ctx) {
         Map<String, Object> attrs = asMap(node.get("attrs"));
         int level = attrs != null ? toInt(attrs.get("level"), 1) : 1;
 
-        XWPFParagraph para = doc.createParagraph();
+        XWPFParagraph para = newParagraph(doc);
         para.setStyle("Heading" + level);
         applyParagraphAttrs(para, node, ctx);
 
@@ -145,31 +151,91 @@ public class DocxExportServiceImpl implements DocxExportService {
         if (children != null) children.forEach(c -> renderInline(para, c, ctx));
     }
 
+    /**
+     * Список. Каждый пункт списка — block-узлы ({@code content: block+}), поэтому
+     * блочные дети (в т.ч. {@code numberedClause}, вложенные списки и таблицы)
+     * рендерятся через {@code renderNode} (BUG-078): раньше рендерился только
+     * {@code paragraph}-ребёнок, и текст прочих блоков терялся.
+     *
+     * <p>Маркер списка (буллит/номер) печатается по <b>первому дочернему узлу</b>
+     * пункта (а не по первому {@code paragraph}-ребёнку: иначе маркер уезжал на
+     * поздний абзац или в конец пункта):
+     * <ul>
+     *   <li>первый ребёнок — {@code paragraph}: маркер + отступ идут в этот абзац;</li>
+     *   <li>первый ребёнок — {@code numberedClause}: маркер печатается перед
+     *       печатной меткой пункта ({@code "• 2. "}) — одной строкой с текстом;</li>
+     *   <li>иначе (вложенный список, таблица, пустой пункт): маркер — отдельным
+     *       абзацем <b>перед</b> содержимым пункта.</li>
+     * </ul>
+     * Все абзацы пункта (в т.ч. внутри вложенных пунктов) сохраняют отступ списка.
+     */
     @SuppressWarnings("unchecked")
-    private void renderList(XWPFDocument doc, List<Map<String, Object>> items, RenderContext ctx, boolean ordered) {
+    private void renderList(IBody doc, List<Map<String, Object>> items, RenderContext ctx, boolean ordered) {
         if (items == null) return;
         int seq = 1;
         for (Map<String, Object> item : items) {
             List<Map<String, Object>> children = (List<Map<String, Object>>) item.get("content");
-            XWPFParagraph para = doc.createParagraph();
+            if (children == null) children = List.of();
             // Простой список без нумерации через абстрактный список — используем отступ + префикс
-            CTPPr pPr = para.getCTP().isSetPPr() ? para.getCTP().getPPr() : para.getCTP().addNewPPr();
-            CTInd ind = pPr.isSetInd() ? pPr.getInd() : pPr.addNewInd();
-            ind.setLeft(BigInteger.valueOf(720)); // 0.5 inch
+            String prefix = ordered ? (seq++ + ". ") : "• ";
 
-            if (children != null) {
-                for (Map<String, Object> child : children) {
-                    String childType = str(child.get("type"));
-                    if ("paragraph".equals(childType)) {
-                        List<Map<String, Object>> inlines = (List<Map<String, Object>>) child.get("content");
-                        // Add bullet/number prefix in first run
-                        XWPFRun prefixRun = para.createRun();
-                        prefixRun.setText(ordered ? (seq++ + ". ") : "• ");
-                        if (inlines != null) inlines.forEach(inline -> renderInline(para, inline, ctx));
-                    }
+            int restFrom = 0;
+            if (children.isEmpty()) {
+                // пустой пункт — только маркер
+                renderListMarker(doc, prefix);
+            } else {
+                Map<String, Object> first = children.get(0);
+                String firstType = String.valueOf(first.get("type")); // BUG-063: не-строковый type не должен ронять экспорт
+                if ("paragraph".equals(firstType)) {
+                    // маркер — в первый абзац пункта
+                    renderParagraph(doc, first, ctx, prefix, null, true);
+                    restFrom = 1;
+                } else if ("numberedClause".equals(firstType)) {
+                    // маркер — перед печатной меткой пункта ("• 2. ") одной строкой
+                    renderNumberedClause(doc, first, ctx, prefix, true);
+                    restFrom = 1;
+                } else {
+                    renderListMarker(doc, prefix);
                 }
             }
+
+            for (int i = restFrom; i < children.size(); i++) {
+                renderItemBlock(doc, children.get(i), ctx, true);
+            }
         }
+    }
+
+    /** Маркер списка отдельным абзацем с отступом пункта (пункт без абзацев). */
+    private void renderListMarker(IBody doc, String prefix) {
+        XWPFParagraph para = newParagraph(doc);
+        applyListIndent(para);
+        para.createRun().setText(prefix);
+    }
+
+    /**
+     * Блок внутри пункта списка (или внутри пункта с печатной меткой, BUG-078):
+     * абзацы и вложенные пункты сохраняют отступ пункта списка.
+     */
+    private void renderItemBlock(IBody doc, Map<String, Object> child, RenderContext ctx, boolean listItem) {
+        if (listItem) {
+            String type = String.valueOf(child.get("type")); // BUG-063: не-строковый type не должен ронять экспорт
+            if ("paragraph".equals(type)) {
+                renderParagraph(doc, child, ctx, null, null, true);
+                return;
+            }
+            if ("numberedClause".equals(type)) {
+                renderNumberedClause(doc, child, ctx, null, true);
+                return;
+            }
+        }
+        renderNode(doc, child, ctx);
+    }
+
+    /** Отступ пункта списка (0.5 inch) — как в прежнем inline-рендере списка. */
+    private void applyListIndent(XWPFParagraph para) {
+        CTPPr pPr = para.getCTP().isSetPPr() ? para.getCTP().getPPr() : para.getCTP().addNewPPr();
+        CTInd ind = pPr.isSetInd() ? pPr.getInd() : pPr.addNewInd();
+        ind.setLeft(BigInteger.valueOf(720)); // 0.5 inch
     }
 
     /**
@@ -179,9 +245,15 @@ public class DocxExportServiceImpl implements DocxExportService {
      * в начале первого абзаца пункта (или отдельным абзацем, если первый дочерний
      * узел — не абзац). Метка берётся из {@link ClauseNumbering} — той же, что
      * показывает {@code AutoNumberingPlugin} в редакторе.
+     *
+     * @param listMarker маркер списка ({@code "• "}, {@code "2. "}), если пункт —
+     *                   первый блок пункта списка (BUG-078): печатается перед
+     *                   меткой пункта одной строкой ({@code "• 2. "})
+     * @param listItem   пункт внутри списка — абзацы сохраняют отступ списка
      */
     @SuppressWarnings("unchecked")
-    private void renderNumberedClause(XWPFDocument doc, Map<String, Object> node, RenderContext ctx) {
+    private void renderNumberedClause(IBody doc, Map<String, Object> node, RenderContext ctx,
+                                      String listMarker, boolean listItem) {
         List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("content");
         if (children == null) children = List.of();
 
@@ -189,27 +261,35 @@ public class DocxExportServiceImpl implements DocxExportService {
         String labelRun = label != null ? label + " " : null;
 
         if (!children.isEmpty() && "paragraph".equals(str(children.get(0).get("type")))) {
-            // метка — в начало первого абзаца пункта
-            renderParagraph(doc, children.get(0), ctx, labelRun);
-            for (int i = 1; i < children.size(); i++) renderNode(doc, children.get(i), ctx);
-        } else {
-            if (labelRun != null) {
-                XWPFParagraph para = doc.createParagraph();
-                applyParagraphAttrs(para, node, ctx);
-                XWPFRun run = para.createRun();
-                run.setBold(true);
-                run.setText(labelRun);
+            // маркер списка + метка — в начало первого абзаца пункта
+            renderParagraph(doc, children.get(0), ctx, listMarker, labelRun, listItem);
+            for (int i = 1; i < children.size(); i++) {
+                renderItemBlock(doc, children.get(i), ctx, listItem);
             }
-            children.forEach(c -> renderNode(doc, c, ctx));
+        } else {
+            if (listMarker != null || labelRun != null) {
+                XWPFParagraph para = newParagraph(doc);
+                applyParagraphAttrs(para, node, ctx);
+                if (listItem) applyListIndent(para);
+                if (listMarker != null) para.createRun().setText(listMarker);
+                if (labelRun != null) {
+                    XWPFRun run = para.createRun();
+                    run.setBold(true);
+                    run.setText(labelRun);
+                }
+            }
+            for (Map<String, Object> child : children) {
+                renderItemBlock(doc, child, ctx, listItem);
+            }
         }
     }
 
     @SuppressWarnings("unchecked")
-    private void renderTable(XWPFDocument doc, Map<String, Object> node, RenderContext ctx) {
+    private void renderTable(IBody doc, Map<String, Object> node, RenderContext ctx) {
         List<Map<String, Object>> rows = (List<Map<String, Object>>) node.get("content");
         if (rows == null || rows.isEmpty()) return;
 
-        XWPFTable table = doc.createTable();
+        XWPFTable table = newTable(doc);
         table.removeRow(0); // remove default empty row
 
         // Set transparent (no) borders by default — visible borders are applied per-cell via attrs
@@ -258,10 +338,22 @@ public class DocxExportServiceImpl implements DocxExportService {
                 List<Map<String, Object>> cellContent = (List<Map<String, Object>>) cellNode.get("content");
                 if (cellContent != null) {
                     for (Map<String, Object> blockNode : cellContent) {
-                        XWPFParagraph para = cell.getParagraphs().isEmpty()
-                                ? cell.getParagraphArray(0)
-                                : cell.addParagraph();
-                        renderInlineChildren(para, blockNode, ctx);
+                        // BUG-078: ячейка таблицы — block-контент. Блочные дети идут
+                        // через renderNode (иначе numberedClause и любой другой блок
+                        // молча терял текст), inline-дети — прежним inline-путём.
+                        String blockType = str(blockNode.get("type"));
+                        if (TipTapNodeTypes.isBlockType(blockType)) {
+                            renderNode(cell, blockNode, ctx);
+                        } else {
+                            XWPFParagraph para = cell.getParagraphs().isEmpty()
+                                    ? cell.getParagraphArray(0)
+                                    : cell.addParagraph();
+                            if (TipTapNodeTypes.isInlineType(blockType)) {
+                                renderInline(para, blockNode, ctx);
+                            } else {
+                                renderInlineChildren(para, blockNode, ctx);
+                            }
+                        }
                     }
                 }
             }
@@ -358,8 +450,8 @@ public class DocxExportServiceImpl implements DocxExportService {
         }
     }
 
-    private void renderHorizontalRule(XWPFDocument doc, RenderContext ctx) {
-        XWPFParagraph para = doc.createParagraph();
+    private void renderHorizontalRule(IBody doc, RenderContext ctx) {
+        XWPFParagraph para = newParagraph(doc);
         CTPPr pPr = para.getCTP().isSetPPr() ? para.getCTP().getPPr() : para.getCTP().addNewPPr();
         CTPBdr bdr = pPr.isSetPBdr() ? pPr.getPBdr() : pPr.addNewPBdr();
         CTBorder bottom = bdr.addNewBottom();
@@ -369,8 +461,8 @@ public class DocxExportServiceImpl implements DocxExportService {
         bottom.setColor("auto");
     }
 
-    private void renderPageBreak(XWPFDocument doc, RenderContext ctx) {
-        XWPFParagraph para = doc.createParagraph();
+    private void renderPageBreak(IBody doc, RenderContext ctx) {
+        XWPFParagraph para = newParagraph(doc);
         XWPFRun run = para.createRun();
         run.addBreak(BreakType.PAGE);
     }
@@ -422,9 +514,10 @@ public class DocxExportServiceImpl implements DocxExportService {
             }
             case "clauseRef" -> {
                 Map<String, Object> attrs = asMap(node.get("attrs"));
-                String label = attrs != null ? str(attrs.get("label")) : null;
+                // BUG-078: в экспорте шаблона (без ответов) ссылка резолвится по
+                // нумерации экспортируемого дерева: «п. <метка>» → attrs.label → «п. ?»
                 XWPFRun run = para.createRun();
-                run.setText(label != null ? label : "п. ?");
+                run.setText(ctx.clauseRefText(node, attrs));
                 run.setColor("0563C1");
             }
             case "conditionalInline" -> {
@@ -542,6 +635,26 @@ public class DocxExportServiceImpl implements DocxExportService {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /**
+     * Новый абзац в контейнере блоков — документ или ячейка таблицы (BUG-078):
+     * POI 5.3 {@code IBody} не имеет {@code createParagraph}, у {@code XWPFTableCell}
+     * абзац добавляется через {@code addParagraph}.
+     */
+    private XWPFParagraph newParagraph(IBody doc) {
+        if (doc instanceof XWPFTableCell cell) return cell.addParagraph();
+        return ((XWPFDocument) doc).createParagraph();
+    }
+
+    /** Новая таблица в контейнере блоков — документ или ячейка таблицы (BUG-078). */
+    private XWPFTable newTable(IBody doc) {
+        if (doc instanceof XWPFTableCell cell) {
+            XWPFTable table = new XWPFTable(cell.getCTTc().addNewTbl(), cell);
+            cell.insertTable(cell.getBodyElements().size(), table);
+            return table;
+        }
+        return ((XWPFDocument) doc).createTable();
+    }
+
     private int toInt(Object val, int def) {
         if (val instanceof Number n) return n.intValue();
         if (val instanceof String s) { try { return Integer.parseInt(s); } catch (NumberFormatException ignored) {} }
@@ -558,6 +671,17 @@ public class DocxExportServiceImpl implements DocxExportService {
         /** Печатная метка узла пункта ("1.", "2.1.") или {@code null}. */
         String clauseLabel(Map<String, Object> clauseNode) {
             return numbering != null ? numbering.labelFor(clauseNode) : null;
+        }
+
+        /**
+         * Текст {@code clauseRef} для экспорта шаблона (BUG-078):
+         * «п. <метка>» по {@link ClauseNumbering} (refId → метка с завершающей точкой),
+         * затем {@code attrs.label} (только непустая строка), затем «п. ?» — в DOCX и PDF одинаково.
+         */
+        String clauseRefText(Map<String, Object> refNode, Map<String, Object> attrs) {
+            if (numbering != null) return numbering.refText(refNode, attrs);
+            String fallback = ClauseNumbering.refLabelFallback(attrs);
+            return fallback != null ? fallback : "п. ?";
         }
     }
 

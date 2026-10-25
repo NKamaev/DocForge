@@ -74,6 +74,47 @@ class ClauseNumberingTest {
         assertThat(result.labelFor(nested)).isEqualTo("1.а.");
     }
 
+    // ── BUG-078: резолвинг clauseRef по нумерации (экспорт шаблона) ────────────
+
+    @Test
+    void labelForRef_resolvesRefIdAndLegacyClauseId() {
+        ClauseNumbering.Result result =
+                ClauseNumbering.build(doc(clause("c1", 1, paragraph(text("A")))));
+
+        assertThat(result.labelForRef(ref("refId", "c1"))).isEqualTo("1.");
+        // легаси: ссылка хранит id в attrs.clauseId (BUG-065)
+        assertThat(result.labelForRef(ref("clauseId", "c1"))).isEqualTo("1.");
+        assertThat(result.labelForRef(ref("refId", "missing"))).isNull();
+        assertThat(result.labelForRef(null)).isNull();
+    }
+
+    @Test
+    void refText_byIdWins_thenLabelFallback_thenPlaceholder() {
+        ClauseNumbering.Result result =
+                ClauseNumbering.build(doc(clause("c1", 1, paragraph(text("A")))));
+
+        // резолвинг по нумерации побеждает attrs.label
+        assertThat(result.refText(ref("refId", "c1"), Map.of("label", "ЯРЛЫК"))).isEqualTo("п. 1.");
+        // неизвестная ссылка → attrs.label → «п. ?»
+        assertThat(result.refText(ref("refId", "missing"), Map.of("label", "ЯРЛЫК"))).isEqualTo("ЯРЛЫК");
+        assertThat(result.refText(ref("refId", "missing"), Map.of())).isEqualTo("п. ?");
+        assertThat(result.refText(ref("refId", "missing"), null)).isEqualTo("п. ?");
+    }
+
+    @Test
+    void refText_blankAndNonStringLabel_fallsBackToPlaceholder() {
+        // attrs.label учитывается только как непустая строка — та же обработка
+        // не-строк и пустых значений, что в firstAttr: "", "   " и 42 (не-строка)
+        // отбрасываются и печатается «п. ?», а не пустой текст или ClassCastException
+        ClauseNumbering.Result result =
+                ClauseNumbering.build(doc(clause("c1", 1, paragraph(text("A")))));
+
+        assertThat(result.refText(ref("refId", "missing"), Map.of("label", ""))).isEqualTo("п. ?");
+        assertThat(result.refText(ref("refId", "missing"), Map.of("label", "   "))).isEqualTo("п. ?");
+        assertThat(result.refText(ref("refId", "missing"), Map.<String, Object>of("label", 42)))
+                .isEqualTo("п. ?");
+    }
+
     // ── Builders ──────────────────────────────────────────────────────────────
 
     @SafeVarargs
@@ -118,6 +159,13 @@ class ClauseNumberingTest {
         Map<String, Object> node = new LinkedHashMap<>();
         node.put("type", "text");
         node.put("text", value);
+        return node;
+    }
+
+    private Map<String, Object> ref(String attrKey, String attrValue) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("type", "clauseRef");
+        node.put("attrs", new LinkedHashMap<>(Map.of(attrKey, attrValue)));
         return node;
     }
 

@@ -1,6 +1,8 @@
 package com.docforge.export;
 
 import com.docforge.template.model.DocumentFormatting;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -26,6 +28,45 @@ class PdfExportServiceImplTest {
 
     private static Map<String, Object> text(String value) {
         return Map.of("type", "text", "text", value);
+    }
+
+    private static Map<String, Object> table(List<Map<String, Object>> rows) {
+        return Map.of("type", "table", "content", rows);
+    }
+
+    private static Map<String, Object> row(List<Map<String, Object>> cells) {
+        return Map.of("type", "tableRow", "content", cells);
+    }
+
+    private static Map<String, Object> cell(List<Map<String, Object>> blocks) {
+        return Map.of("type", "tableCell", "content", blocks);
+    }
+
+    private static Map<String, Object> bulletList(List<Map<String, Object>> items) {
+        return Map.of("type", "bulletList", "content", items);
+    }
+
+    private static Map<String, Object> listItem(List<Map<String, Object>> blocks) {
+        return Map.of("type", "listItem", "content", blocks);
+    }
+
+    private static Map<String, Object> clauseRef(String refId) {
+        return Map.of("type", "clauseRef", "attrs", Map.of("refId", refId));
+    }
+
+    private static Map<String, Object> clauseRefWithLabel(String refId, Object label) {
+        return Map.of("type", "clauseRef", "attrs", Map.of("refId", refId, "label", label));
+    }
+
+    /** PDF валиден и содержит ожидаемые фрагменты текста (пробелы нормализуются). */
+    private static void assertPdfText(byte[] pdf, String... expected) throws IOException {
+        assertThat(new String(pdf, 0, 4)).isEqualTo("%PDF");
+        try (PDDocument doc = PDDocument.load(pdf)) {
+            String text = new PDFTextStripper().getText(doc).replaceAll("\\s+", " ");
+            for (String fragment : expected) {
+                assertThat(text).contains(fragment);
+            }
+        }
     }
 
     @Test
@@ -159,6 +200,151 @@ class PdfExportServiceImplTest {
         assertThat(html)
                 .contains("<strong>а. </strong>FIRST_ALPHA_TEXT")
                 .contains("<strong>б. </strong>SECOND_ALPHA_TEXT");
+    }
+
+    // ── BUG-078: numberedClause в ячейке таблицы и в пункте списка ────────────
+
+    @Test
+    void numberedClause_insideTableCell_textAndLabelAppearInPdf() throws IOException {
+        // Регрессия BUG-078: ячейка таблицы рендерилась inline-only, поэтому
+        // numberedClause в ячейке молча терял текст.
+        Map<String, Object> body = doc(List.of(
+                table(List.of(row(List.of(cell(List.of(
+                        numberedClause("c1", 1, paragraph(List.of(text("CELL_CLAUSE_TEXT"))))))))))
+        ));
+
+        String html = service.buildHtml(body, null);
+        assertThat(html).contains("<td>").contains("<strong>1. </strong>CELL_CLAUSE_TEXT");
+
+        assertPdfText(service.export(body, null), "1. CELL_CLAUSE_TEXT");
+    }
+
+    @Test
+    void numberedClause_insideListItem_textLabelAndPrefixAppearInPdf() throws IOException {
+        // Регрессия BUG-078: listItem рендерился inline-only, поэтому numberedClause
+        // в пункте списка терял текст. Маркировку списка (<li>) рисует движок —
+        // префикс пункта сохранён.
+        Map<String, Object> body = doc(List.of(
+                bulletList(List.of(listItem(List.of(
+                        paragraph(List.of(text("ITEM_TEXT"))),
+                        numberedClause("c1", 1, paragraph(List.of(text("LIST_CLAUSE_TEXT"))))))))
+        ));
+
+        String html = service.buildHtml(body, null);
+        assertThat(html)
+                .contains("<ul><li>ITEM_TEXT")
+                .contains("<strong>1. </strong>LIST_CLAUSE_TEXT");
+
+        assertPdfText(service.export(body, null), "ITEM_TEXT", "1. LIST_CLAUSE_TEXT");
+    }
+
+    // ── BUG-078 (fix): инлайн-трюк <li> — только для первого-ребёнка-абзаца ───
+
+    @Test
+    void listItem_numberedClauseOnly_markerBeforeClauseAndNoTrailingMarker() throws IOException {
+        // Пункт = [numberedClause] (без абзацев): весь пункт рендерится блочным
+        // <p> с меткой пункта (маркер <li> рисует движок на строке пункта — перед
+        // текстом), хвостового контента/маркера после текста нет. DOCX печатает ту же
+        // строку "• 1. LIST_CLAUSE_TEXT".
+        Map<String, Object> body = doc(List.of(
+                bulletList(List.of(listItem(List.of(
+                        numberedClause("c1", 1, paragraph(List.of(text("LIST_CLAUSE_TEXT"))))))))
+        ));
+
+        String html = service.buildHtml(body, null);
+        assertThat(html).contains("<li><p><strong>1. </strong>LIST_CLAUSE_TEXT</p></li>");
+
+        assertPdfText(service.export(body, null), "1. LIST_CLAUSE_TEXT");
+    }
+
+    @Test
+    void listItem_numberedClauseThenParagraph_markerOnClauseBothTextsPresent() throws IOException {
+        // Пункт = [numberedClause, paragraph]: оба блока рендерятся блочно
+        // (инлайн-трюк раньше применялся к позднему paragraph и терял у него
+        // <p>/paragraphStyle); оба текста на месте и в том же порядке, что в DOCX.
+        Map<String, Object> body = doc(List.of(
+                bulletList(List.of(listItem(List.of(
+                        numberedClause("c1", 1, paragraph(List.of(text("LIST_CLAUSE_TEXT")))),
+                        paragraph(List.of(text("TAIL_PARAGRAPH")))))))
+        ));
+
+        String html = service.buildHtml(body, null);
+        assertThat(html).contains(
+                "<li><p><strong>1. </strong>LIST_CLAUSE_TEXT</p><p>TAIL_PARAGRAPH</p></li>");
+
+        assertPdfText(service.export(body, null), "1. LIST_CLAUSE_TEXT", "TAIL_PARAGRAPH");
+    }
+
+    @Test
+    void listItem_twoParagraphs_bothRenderInsideLi() throws IOException {
+        // Пункт = [para1, para2]: оба текста внутри <li>; первый абзац — inline
+        // (маркер движка остаётся на строке пункта), второй — блочный <p>.
+        Map<String, Object> body = doc(List.of(
+                bulletList(List.of(listItem(List.of(
+                        paragraph(List.of(text("PARA1_TEXT"))),
+                        paragraph(List.of(text("PARA2_TEXT")))))))
+        ));
+
+        String html = service.buildHtml(body, null);
+        assertThat(html).contains("<li>PARA1_TEXT<p>PARA2_TEXT</p></li>");
+
+        assertPdfText(service.export(body, null), "PARA1_TEXT", "PARA2_TEXT");
+    }
+
+    // ── BUG-078: clauseRef в экспорте шаблона резолвится по нумерации ─────────
+
+    @Test
+    void clauseRef_templateExport_resolvedToClauseLabels() throws IOException {
+        // Экспорт шаблона идёт по «сырому» телу (без ответов/applyAnswers):
+        // ссылка должна резолвиться по нумерации дерева («п. <метка>»),
+        // а не печатать «п. ?».
+        Map<String, Object> body = doc(List.of(
+                numberedClause("c1", 1, paragraph(List.of(text("FIRST")))),
+                numberedClause("c2", 1, paragraph(List.of(text("SECOND")))),
+                paragraph(List.of(text("см. "), clauseRef("c2"), text(" и "), clauseRef("c1")))
+        ));
+
+        String html = service.buildHtml(body, null);
+        assertThat(html).contains("см. п. 2. и п. 1.");
+
+        assertPdfText(service.export(body, null), "см. п. 2. и п. 1.");
+    }
+
+    @Test
+    void clauseRef_unknownRef_placeholderAndLabelFallback() throws IOException {
+        // Неизвестная ссылка → «п. ?»; если задан attrs.label — печатается он;
+        // известная ссылка резолвится в «п. <метка>»
+        Map<String, Object> body = doc(List.of(
+                numberedClause("c1", 1, paragraph(List.of(text("FIRST")))),
+                paragraph(List.of(
+                        clauseRef("missing"), text(" | "),
+                        clauseRefWithLabel("missing", "ЯРЛЫК"), text(" | "),
+                        clauseRef("c1")))
+        ));
+
+        String html = service.buildHtml(body, null);
+        assertThat(html).contains("п. ? | ЯРЛЫК | п. 1.");
+
+        assertPdfText(service.export(body, null), "п. ?", "ЯРЛЫК", "п. 1.");
+    }
+
+    @Test
+    void clauseRef_blankAndNonStringLabel_placeholderFallback() throws IOException {
+        // attrs.label учитывается только как непустая строка: "", "   " и 42
+        // (не-строка) отбрасываются и печатается «п. ?» — как в DOCX.
+        Map<String, Object> body = doc(List.of(
+                numberedClause("c1", 1, paragraph(List.of(text("FIRST")))),
+                paragraph(List.of(
+                        clauseRefWithLabel("missing", ""), text(" | "),
+                        clauseRefWithLabel("missing", "   "), text(" | "),
+                        clauseRefWithLabel("missing", 42)))
+        ));
+
+        String html = service.buildHtml(body, null);
+        assertThat(html).contains("п. ? | п. ? | п. ?");
+        assertThat(html).doesNotContain("42");
+
+        assertPdfText(service.export(body, null), "п. ?");
     }
 
     // ── Регрессия: CSS line-height не зависит от локали JVM ─────────────────

@@ -63,6 +63,41 @@ public final class ClauseNumbering {
         public String labelFor(Map<String, Object> clauseNode) {
             return clauseNode != null ? byNode.get(clauseNode) : null;
         }
+
+        /**
+         * Метка пункта, на который указывает {@code clauseRef} ({@code attrs.refId},
+         * легаси {@code attrs.clauseId}), или {@code null}, если пункт не найден
+         * (BUG-078: резолвинг ссылок в экспорте шаблона — без ответов/applyAnswers).
+         */
+        public String labelForRef(Map<String, Object> refNode) {
+            if (refNode == null) return null;
+            String refId = firstAttr(refNode, "refId", "clauseId");
+            return refId != null ? byId.get(refId) : null;
+        }
+
+        /**
+         * Печатный текст {@code clauseRef} для экспорта (BUG-078): «п. &lt;метка&gt;»
+         * по нумерации экспортируемого дерева, затем {@code attrs.label} (только
+         * непустая строка — см. {@link #refLabelFallback}), затем «п. ?».
+         * Общий код DOCX/PDF — оба экспорта обязаны резолвить ссылки одинаково.
+         */
+        public String refText(Map<String, Object> refNode, Map<String, Object> attrs) {
+            String label = labelForRef(refNode);
+            if (label != null) return "п. " + label;
+            String fallback = refLabelFallback(attrs);
+            return fallback != null ? fallback : "п. ?";
+        }
+    }
+
+    /**
+     * Фоллбэк {@code attrs.label} для {@code clauseRef} (BUG-078): принимается
+     * только непустая строка. Мусор ({@code ""}, {@code "   "}, {@code 42},
+     * {@code null}) отбрасывается так же, как не-строки и пустые значения в
+     * {@link #firstAttr} — вместо него печатается «п. ?». Общий код DOCX/PDF.
+     */
+    static String refLabelFallback(Map<String, Object> attrs) {
+        String value = str(attrs != null ? attrs.get("label") : null);
+        return value != null && !value.isBlank() ? value : null;
     }
 
     /**

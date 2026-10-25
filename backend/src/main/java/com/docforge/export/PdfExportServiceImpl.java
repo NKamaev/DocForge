@@ -207,26 +207,26 @@ public class PdfExportServiceImpl implements PdfExportService {
             case "doc" -> {
                 if (children != null) children.forEach(c -> renderNode(sb, c, numbering));
             }
-            case "paragraph" -> renderParagraph(sb, node, null);
+            case "paragraph" -> renderParagraph(sb, node, null, numbering);
             case "heading" -> {
                 Map<String, Object> attrs = asMap(node.get("attrs"));
                 int level = attrs != null ? toInt(attrs.get("level"), 1) : 1;
                 sb.append("<h").append(level).append(paragraphStyle(node)).append(">");
-                if (children != null) children.forEach(c -> renderInline(sb, c));
+                if (children != null) children.forEach(c -> renderInline(sb, c, numbering));
                 sb.append("</h").append(level).append(">");
             }
             case "bulletList" -> {
                 sb.append("<ul>");
-                if (children != null) children.forEach(c -> renderListItem(sb, c));
+                if (children != null) children.forEach(c -> renderListItem(sb, c, numbering));
                 sb.append("</ul>");
             }
             case "orderedList" -> {
                 sb.append("<ol>");
-                if (children != null) children.forEach(c -> renderListItem(sb, c));
+                if (children != null) children.forEach(c -> renderListItem(sb, c, numbering));
                 sb.append("</ol>");
             }
             case "numberedClause" -> renderNumberedClause(sb, node, children, numbering);
-            case "table" -> renderTable(sb, children);
+            case "table" -> renderTable(sb, children, numbering);
             case "horizontalRule" -> sb.append("<hr/>");
             case "pageBreak" -> sb.append("<div class=\"page-break\"></div>");
             case "conditionalBlock" -> {
@@ -240,11 +240,12 @@ public class PdfExportServiceImpl implements PdfExportService {
 
     /** Абзац; {@code boldPrefix} — жирный префикс в начале (метка пункта, BUG-066). */
     @SuppressWarnings("unchecked")
-    private void renderParagraph(StringBuilder sb, Map<String, Object> node, String boldPrefix) {
+    private void renderParagraph(
+            StringBuilder sb, Map<String, Object> node, String boldPrefix, ClauseNumbering.Result numbering) {
         sb.append("<p").append(paragraphStyle(node)).append(">");
         if (boldPrefix != null) sb.append("<strong>").append(escape(boldPrefix)).append("</strong>");
         List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("content");
-        if (children != null) children.forEach(c -> renderInline(sb, c));
+        if (children != null) children.forEach(c -> renderInline(sb, c, numbering));
         else if (boldPrefix == null) sb.append("&#160;");
         sb.append("</p>");
     }
@@ -268,7 +269,7 @@ public class PdfExportServiceImpl implements PdfExportService {
 
         if (!kids.isEmpty() && "paragraph".equals(str(kids.get(0).get("type")))) {
             // метка — в начало первого абзаца пункта
-            renderParagraph(sb, kids.get(0), labelRun);
+            renderParagraph(sb, kids.get(0), labelRun, numbering);
             for (int i = 1; i < kids.size(); i++) renderNode(sb, kids.get(i), numbering);
         } else {
             if (labelRun != null) {
@@ -279,21 +280,35 @@ public class PdfExportServiceImpl implements PdfExportService {
         }
     }
 
+    /**
+     * Пункт списка (BUG-078): {@code listItem} — block-узлы ({@code content: block+}),
+     * поэтому блочные дети (в т.ч. {@code numberedClause}, вложенные списки, таблицы)
+     * рендерятся через {@code renderNode} — раньше рендерился только inline-контент
+     * и текст блоков молча терялся. Маркировку списка ({@code <li>}) рисует движок;
+     * инлайн-трюк (первый абзац без {@code <p>}, чтобы маркер остался на строке
+     * пункта) применяется только если <b>первый дочерний узел</b> — абзац. Если
+     * первый ребёнок не абзац (например, сразу {@code numberedClause}) — все дети
+     * рендерятся блочно (в DOCX такой пункт печатается с маркером перед меткой
+     * пункта, выводы согласованы).
+     */
     @SuppressWarnings("unchecked")
-    private void renderListItem(StringBuilder sb, Map<String, Object> item) {
+    private void renderListItem(StringBuilder sb, Map<String, Object> item, ClauseNumbering.Result numbering) {
         sb.append("<li>");
         List<Map<String, Object>> children = (List<Map<String, Object>>) item.get("content");
-        if (children != null) {
-            for (Map<String, Object> child : children) {
-                List<Map<String, Object>> inlines = (List<Map<String, Object>>) child.get("content");
-                if (inlines != null) inlines.forEach(i -> renderInline(sb, i));
-            }
+        if (children != null && !children.isEmpty()
+                && "paragraph".equals(str(children.get(0).get("type")))) {
+            List<Map<String, Object>> inlines = (List<Map<String, Object>>) children.get(0).get("content");
+            if (inlines != null) inlines.forEach(i -> renderInline(sb, i, numbering));
+            for (int i = 1; i < children.size(); i++) renderNode(sb, children.get(i), numbering);
+        } else if (children != null) {
+            // прочие блочные дети — блочный рендер (BUG-078)
+            children.forEach(c -> renderNode(sb, c, numbering));
         }
         sb.append("</li>");
     }
 
     @SuppressWarnings("unchecked")
-    private void renderTable(StringBuilder sb, List<Map<String, Object>> rows) {
+    private void renderTable(StringBuilder sb, List<Map<String, Object>> rows, ClauseNumbering.Result numbering) {
         if (rows == null) return;
         sb.append("<table>");
         for (Map<String, Object> row : rows) {
@@ -311,8 +326,21 @@ public class PdfExportServiceImpl implements PdfExportService {
                     List<Map<String, Object>> cellContent = (List<Map<String, Object>>) cell.get("content");
                     if (cellContent != null) {
                         for (Map<String, Object> block : cellContent) {
-                            List<Map<String, Object>> inlines = (List<Map<String, Object>>) block.get("content");
-                            if (inlines != null) inlines.forEach(i -> renderInline(sb, i));
+                            // BUG-078: ячейка таблицы — block-контент. Блочные дети идут
+                            // через renderNode (иначе numberedClause и любой другой блок
+                            // молча терял текст), inline-дети — прежним inline-путём.
+                            String blockType = str(block.get("type"));
+                            if (TipTapNodeTypes.isBlockType(blockType)) {
+                                renderNode(sb, block, numbering);
+                            } else {
+                                List<Map<String, Object>> inlines =
+                                        (List<Map<String, Object>>) block.get("content");
+                                if (TipTapNodeTypes.isInlineType(blockType)) {
+                                    renderInline(sb, block, numbering);
+                                } else if (inlines != null) {
+                                    inlines.forEach(i -> renderInline(sb, i, numbering));
+                                }
+                            }
                         }
                     }
                     sb.append("</").append(tag).append(">");
@@ -356,7 +384,7 @@ public class PdfExportServiceImpl implements PdfExportService {
     // ── Inline rendering ──────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
-    private void renderInline(StringBuilder sb, Map<String, Object> node) {
+    private void renderInline(StringBuilder sb, Map<String, Object> node, ClauseNumbering.Result numbering) {
         String type = String.valueOf(node.get("type")); // BUG-063: не-строковый type не должен ронять экспорт
         switch (type) {
             case "text" -> {
@@ -383,12 +411,13 @@ public class PdfExportServiceImpl implements PdfExportService {
             }
             case "clauseRef" -> {
                 Map<String, Object> attrs = asMap(node.get("attrs"));
-                String label = attrs != null ? str(attrs.get("label")) : null;
-                sb.append(escape(label != null ? label : "п. ?"));
+                // BUG-078: в экспорте шаблона (без ответов) ссылка резолвится по
+                // нумерации экспортируемого дерева: «п. <метка>» → attrs.label → «п. ?»
+                sb.append(escape(refText(node, attrs, numbering)));
             }
             case "conditionalInline" -> {
                 List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("content");
-                if (children != null) children.forEach(c -> renderInline(sb, c));
+                if (children != null) children.forEach(c -> renderInline(sb, c, numbering));
             }
         }
     }
@@ -448,6 +477,17 @@ public class PdfExportServiceImpl implements PdfExportService {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Текст {@code clauseRef} для экспорта шаблона (BUG-078): делегирует
+     * {@link ClauseNumbering.Result#refText} — тот же порядок, что в DOCX
+     * (метка → {@code attrs.label} как непустая строка → «п. ?»).
+     */
+    private String refText(Map<String, Object> refNode, Map<String, Object> attrs, ClauseNumbering.Result numbering) {
+        if (numbering != null) return numbering.refText(refNode, attrs);
+        String fallback = ClauseNumbering.refLabelFallback(attrs);
+        return fallback != null ? fallback : "п. ?";
+    }
 
     @SuppressWarnings("unchecked")
     private String paragraphStyle(Map<String, Object> node) {

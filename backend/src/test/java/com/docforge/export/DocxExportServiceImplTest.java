@@ -3,6 +3,7 @@ package com.docforge.export;
 import com.docforge.template.model.DocumentFormatting;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -28,6 +29,38 @@ class DocxExportServiceImplTest {
 
     private static Map<String, Object> text(String value) {
         return Map.of("type", "text", "text", value);
+    }
+
+    private static Map<String, Object> table(List<Map<String, Object>> rows) {
+        return Map.of("type", "table", "content", rows);
+    }
+
+    private static Map<String, Object> row(List<Map<String, Object>> cells) {
+        return Map.of("type", "tableRow", "content", cells);
+    }
+
+    private static Map<String, Object> cell(List<Map<String, Object>> blocks) {
+        return Map.of("type", "tableCell", "content", blocks);
+    }
+
+    private static Map<String, Object> bulletList(List<Map<String, Object>> items) {
+        return Map.of("type", "bulletList", "content", items);
+    }
+
+    private static Map<String, Object> orderedList(List<Map<String, Object>> items) {
+        return Map.of("type", "orderedList", "content", items);
+    }
+
+    private static Map<String, Object> listItem(List<Map<String, Object>> blocks) {
+        return Map.of("type", "listItem", "content", blocks);
+    }
+
+    private static Map<String, Object> clauseRef(String refId) {
+        return Map.of("type", "clauseRef", "attrs", Map.of("refId", refId));
+    }
+
+    private static Map<String, Object> clauseRefWithLabel(String refId, Object label) {
+        return Map.of("type", "clauseRef", "attrs", Map.of("refId", refId, "label", label));
     }
 
     @Test
@@ -184,6 +217,190 @@ class DocxExportServiceImplTest {
         }
     }
 
+    // ── BUG-078: numberedClause в ячейке таблицы и в пункте списка ────────────
+
+    @Test
+    void numberedClause_insideTableCell_textAndLabelAppearInDocx() throws IOException {
+        // Регрессия BUG-078: ячейка таблицы рендерилась inline-only, поэтому
+        // numberedClause в ячейке молча терял текст.
+        Map<String, Object> body = doc(List.of(
+                table(List.of(row(List.of(cell(List.of(
+                        numberedClause("c1", 1, paragraph(List.of(text("CELL_CLAUSE_TEXT"))))))))))
+        ));
+
+        byte[] bytes = service.export(body, null);
+
+        // word/document.xml: текст пункта и его печатная метка реально в файле
+        assertThat(stripTags(wordDocumentXml(bytes))).contains("1. CELL_CLAUSE_TEXT");
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            assertThat(new XWPFWordExtractor(doc).getText()).contains("1. CELL_CLAUSE_TEXT");
+        }
+    }
+
+    @Test
+    void numberedClause_insideListItem_textLabelAndBulletAppearInDocx() throws IOException {
+        // Регрессия BUG-078: listItem рендерил только paragraph-детей, поэтому
+        // numberedClause в пункте списка терял текст. Маркер списка сохраняется.
+        Map<String, Object> body = doc(List.of(
+                bulletList(List.of(listItem(List.of(
+                        paragraph(List.of(text("ITEM_TEXT"))),
+                        numberedClause("c1", 1, paragraph(List.of(text("LIST_CLAUSE_TEXT"))))))))
+        ));
+
+        byte[] bytes = service.export(body, null);
+
+        assertThat(wordDocumentXml(bytes)).contains("ITEM_TEXT").contains("LIST_CLAUSE_TEXT");
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            String extracted = new XWPFWordExtractor(doc).getText();
+            // буллит по-прежнему печатается перед первым абзацем пункта списка
+            assertThat(extracted).contains("• ITEM_TEXT");
+            assertThat(extracted).contains("1. LIST_CLAUSE_TEXT");
+        }
+    }
+
+    @Test
+    void orderedListItem_numberPrefixRendersBeforeFirstParagraph() throws IOException {
+        Map<String, Object> body = doc(List.of(
+                orderedList(List.of(
+                        listItem(List.of(paragraph(List.of(text("ITEM_TEXT"))))),
+                        listItem(List.of(paragraph(List.of(text("SECOND_ITEM")))))))
+        ));
+
+        byte[] bytes = service.export(body, null);
+
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            String extracted = new XWPFWordExtractor(doc).getText();
+            assertThat(nonEmptyLines(extracted)).containsExactly("1. ITEM_TEXT", "2. SECOND_ITEM");
+        }
+    }
+
+    // ── BUG-078 (fix): маркер списка ставится по первому дочернему узлу ───────
+
+    @Test
+    void listItem_numberedClauseOnly_markerBeforeClauseAndNoTrailingMarker() throws IOException {
+        // Пункт = [numberedClause] (без абзацев): маркер списка печатается ПЕРЕД
+        // текстом пункта ("• 1. " одной строкой с меткой пункта), а не отдельной
+        // строкой-маркером после содержимого.
+        Map<String, Object> body = doc(List.of(
+                bulletList(List.of(listItem(List.of(
+                        numberedClause("c1", 1, paragraph(List.of(text("LIST_CLAUSE_TEXT"))))))))
+        ));
+
+        byte[] bytes = service.export(body, null);
+
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            String extracted = new XWPFWordExtractor(doc).getText();
+            // точная последовательность строк: ровно одна строка, маркер перед
+            // текстом пункта, хвостовой строки-маркера нет
+            assertThat(nonEmptyLines(extracted)).containsExactly("• 1. LIST_CLAUSE_TEXT");
+        }
+    }
+
+    @Test
+    void listItem_numberedClauseThenParagraph_markerOnClauseBothTextsPresent() throws IOException {
+        // Пункт = [numberedClause, paragraph]: маркер + отступ идут в первый блок
+        // пункта (метка numberedClause), а не в поздний paragraph; оба текста
+        // на месте и в том же порядке, что в PDF.
+        Map<String, Object> body = doc(List.of(
+                bulletList(List.of(listItem(List.of(
+                        numberedClause("c1", 1, paragraph(List.of(text("LIST_CLAUSE_TEXT")))),
+                        paragraph(List.of(text("TAIL_PARAGRAPH")))))))
+        ));
+
+        byte[] bytes = service.export(body, null);
+
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            String extracted = new XWPFWordExtractor(doc).getText();
+            assertThat(nonEmptyLines(extracted))
+                    .containsExactly("• 1. LIST_CLAUSE_TEXT", "TAIL_PARAGRAPH");
+        }
+    }
+
+    @Test
+    void listItem_twoParagraphs_bothKeepListIndent() throws IOException {
+        // Пункт = [para1, para2]: ОБА абзаца сохраняют отступ списка (0.5"),
+        // второй абзац больше не теряет отступ, проходя через renderNode.
+        Map<String, Object> body = doc(List.of(
+                bulletList(List.of(listItem(List.of(
+                        paragraph(List.of(text("PARA1_TEXT"))),
+                        paragraph(List.of(text("PARA2_TEXT")))))))
+        ));
+
+        byte[] bytes = service.export(body, null);
+
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            String extracted = new XWPFWordExtractor(doc).getText();
+            assertThat(nonEmptyLines(extracted)).containsExactly("• PARA1_TEXT", "PARA2_TEXT");
+            assertThat(doc.getParagraphs()).hasSize(2);
+            for (XWPFParagraph para : doc.getParagraphs()) {
+                assertThat(para.getCTP().getPPr().getInd().getLeft().toString())
+                        .as("отступ пункта списка (720 twips) у абзаца: %s", para.getText())
+                        .isEqualTo("720");
+            }
+        }
+    }
+
+    // ── BUG-078: clauseRef в экспорте шаблона резолвится по нумерации ─────────
+
+    @Test
+    void clauseRef_templateExport_resolvedToClauseLabels() throws IOException {
+        // Экспорт шаблона идёт по «сырому» телу (без ответов/applyAnswers):
+        // ссылка должна резолвиться по нумерации дерева («п. <метка>»),
+        // а не печатать «п. ?».
+        Map<String, Object> body = doc(List.of(
+                numberedClause("c1", 1, paragraph(List.of(text("FIRST")))),
+                numberedClause("c2", 1, paragraph(List.of(text("SECOND")))),
+                paragraph(List.of(text("см. "), clauseRef("c2"), text(" и "), clauseRef("c1")))
+        ));
+
+        byte[] bytes = service.export(body, null);
+
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            assertThat(new XWPFWordExtractor(doc).getText()).contains("см. п. 2. и п. 1.");
+        }
+    }
+
+    @Test
+    void clauseRef_unknownRef_placeholderAndLabelFallback() throws IOException {
+        // Неизвестная ссылка → «п. ?»; если задан attrs.label — печатается он;
+        // известная ссылка резолвится в «п. <метка>»
+        Map<String, Object> body = doc(List.of(
+                numberedClause("c1", 1, paragraph(List.of(text("FIRST")))),
+                paragraph(List.of(
+                        clauseRef("missing"), text(" | "),
+                        clauseRefWithLabel("missing", "ЯРЛЫК"), text(" | "),
+                        clauseRef("c1")))
+        ));
+
+        byte[] bytes = service.export(body, null);
+
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            assertThat(new XWPFWordExtractor(doc).getText())
+                    .contains("п. ? | ЯРЛЫК | п. 1.");
+        }
+    }
+
+    @Test
+    void clauseRef_blankAndNonStringLabel_placeholderFallback() throws IOException {
+        // attrs.label учитывается только как непустая строка: "", "   " и 42
+        // (не-строка) отбрасываются и печатается «п. ?» — как в PDF.
+        Map<String, Object> body = doc(List.of(
+                numberedClause("c1", 1, paragraph(List.of(text("FIRST")))),
+                paragraph(List.of(
+                        clauseRefWithLabel("missing", ""), text(" | "),
+                        clauseRefWithLabel("missing", "   "), text(" | "),
+                        clauseRefWithLabel("missing", 42)))
+        ));
+
+        byte[] bytes = service.export(body, null);
+
+        try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes))) {
+            String extracted = new XWPFWordExtractor(doc).getText();
+            assertThat(extracted).contains("п. ? | п. ? | п. ?");
+            assertThat(extracted).doesNotContain("42");
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     @SafeVarargs
@@ -227,5 +444,10 @@ class DocxExportServiceImplTest {
             }
         }
         throw new IOException("word/document.xml not found in DOCX archive");
+    }
+
+    /** Текст word/document.xml без тегов — фактическое содержимое файла. */
+    private static String stripTags(String xml) {
+        return xml.replaceAll("<[^>]*>", "");
     }
 }
