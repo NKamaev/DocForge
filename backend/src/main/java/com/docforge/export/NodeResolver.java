@@ -2,9 +2,7 @@ package com.docforge.export;
 
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -12,8 +10,9 @@ import java.util.Map;
  * <ul>
  *   <li>{@code templateParam} — substitutes {@code attrs.fieldId} with the value from the
  *       document answers map.</li>
- *   <li>{@code clauseRef} — substitutes {@code attrs.refId} (legacy: {@code attrs.clauseId}) with "п. X.Y" computed by
- *       walking the document tree and counting {@code numberedClause} nodes in order.</li>
+ *   <li>{@code clauseRef} — substitutes {@code attrs.refId} (legacy: {@code attrs.clauseId}) with
+ *       "п. X.Y." computed by {@link ClauseNumbering} (same algorithm as the editor's
+ *       {@code AutoNumberingPlugin}).</li>
  * </ul>
  *
  * <p>Typical usage: call {@link #buildClauseNumberingMap} once per document body, then pass
@@ -46,83 +45,47 @@ public class NodeResolver {
     }
 
     /**
-     * Resolves a {@code clauseRef} node to a plain-text TipTap text node ("п. X.Y").
+     * Resolves a {@code clauseRef} node to a plain-text TipTap text node ("п. X.Y.").
      *
      * <p>TipTap-схема пишет ссылку в {@code attrs.refId} (см.
      * {@code ClauseRefNode}); {@code attrs.clauseId} поддерживается как
      * легаси-имя. Map {@code clauseNumbering} строится по {@code attrs.id}
      * пункта (BUG-065).
      *
+     * <p>Метка — с завершающей точкой (формат редактора: {@code "1."}, {@code "2.1."}),
+     * поэтому текст ссылки — {@code "п. 1."}, как в {@code ClauseRefNode}
+     * ({@code п. {label}}) — BUG-066.
+     *
      * @param node            the {@code clauseRef} node
-     * @param clauseNumbering pre-built map of clauseId → hierarchical number string
-     * @return a TipTap {@code text} node with "п. X.Y", or "п. ?" if the clause is not found
+     * @param clauseNumbering pre-built map of clauseId → label (editor format, with trailing dot)
+     * @return a TipTap {@code text} node with "п. X.Y.", or "п. ?" if the clause is not found
      */
     public Map<String, Object> resolveClauseRef(
             Map<String, Object> node, Map<String, String> clauseNumbering) {
         String clauseId = firstAttr(node, "refId", "clauseId");
         if (clauseId == null) return textNode("п. ?");
 
-        String number = clauseNumbering.get(clauseId);
-        return textNode(number != null ? "п. " + number : "п. ?");
+        String label = clauseNumbering.get(clauseId);
+        return textNode(label != null ? "п. " + label : "п. ?");
     }
 
     /**
-     * Traverses the document body and assigns hierarchical numbers to all
-     * {@code numberedClause} nodes (e.g., "1", "2", "2.1", "2.1.3").
+     * Traverses the document body and assigns printed labels to all
+     * {@code numberedClause} nodes (editor format: "1.", "2.1.", "а." — BUG-066).
      *
-     * <p>Only direct {@code numberedClause} children of a clause (or of the doc root)
-     * contribute to sequential counting. Other block nodes are not traversed.
+     * <p>Делегирует {@link ClauseNumbering#build} — точному порту алгоритма
+     * {@code buildLabels} из редактора ({@code AutoNumberingPlugin}): обходятся
+     * все узлы в порядке следования (семантика {@code doc.descendants}), уровни
+     * берутся из {@code attrs.level}, стили — из {@code attrs.numberingStyle},
+     * {@code attrs.listStart} начинает новый список. Скрытые пункты исключаются,
+     * потому что вызывающие стороны передают уже отфильтрованное дерево (BUG-019).
      *
      * @param docBody the TipTap root node (type "doc")
      * @return map of clause id ({@code attrs.id}, legacy {@code attrs.clauseId})
-     *         → number string; insertion-ordered
+     *         → label (with trailing dot); insertion-ordered
      */
-    @SuppressWarnings("unchecked")
     public Map<String, String> buildClauseNumberingMap(Map<String, Object> docBody) {
-        Map<String, String> result = new LinkedHashMap<>();
-        if (docBody == null) return result;
-
-        collectClauseNumbers(asNodeList(docBody.get("content")), result, new ArrayList<>());
-        return result;
-    }
-
-    /** content узла как список узлов; мусор (не-массив) трактуем как пустоту. */
-    @SuppressWarnings("unchecked")
-    private List<Object> asNodeList(Object content) {
-        return content instanceof List<?> list ? (List<Object>) list : null;
-    }
-
-    // ── Internals ─────────────────────────────────────────────────────────────
-
-    @SuppressWarnings("unchecked")
-    private void collectClauseNumbers(
-            List<Object> nodes, Map<String, String> result, List<Integer> prefix) {
-        if (nodes == null) return;
-        int seq = 0;
-        for (Object item : nodes) {
-            if (!(item instanceof Map<?, ?> rawNode)) continue;
-            Map<String, Object> node = (Map<String, Object>) rawNode;
-            if (!"numberedClause".equals(node.get("type"))) continue;
-
-            seq++;
-            List<Integer> current = new ArrayList<>(prefix);
-            current.add(seq);
-
-            String clauseId = firstAttr(node, "id", "clauseId");
-            if (clauseId != null) result.put(clauseId, joinNumbers(current));
-
-            // Recurse into this clause's content for nested sub-clauses
-            collectClauseNumbers(asNodeList(node.get("content")), result, current);
-        }
-    }
-
-    private String joinNumbers(List<Integer> nums) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < nums.size(); i++) {
-            if (i > 0) sb.append('.');
-            sb.append(nums.get(i));
-        }
-        return sb.toString();
+        return ClauseNumbering.build(docBody).byId();
     }
 
     private String getAttr(Map<String, Object> node, String key) {

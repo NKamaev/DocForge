@@ -437,11 +437,12 @@ class DocumentControllerApplyAnswersTest {
                 .perform(get("/api/documents/{id}/export/docx", DOC_ID))
                 .andExpect(status().isOk());
 
-        // then — ref1=п. 1, ref2=п. 2, ref4=п. 3: скрытый c3 не занимает номер
+        // then — ref1=п. 1., ref2=п. 2., ref4=п. 3.: скрытый c3 не занимает номер;
+        // метка — в формате редактора с завершающей точкой (BUG-066)
         Map<String, Object> resolved = capturedDocxBody();
         assertThat(collectTexts(resolved)).containsExactly(
                 "CLAUSE_1", "CLAUSE_2",
-                "ref1=", "п. 1", " ref2=", "п. 2", " ref4=", "п. 3");
+                "ref1=", "п. 1.", " ref2=", "п. 2.", " ref4=", "п. 3.");
     }
 
     // ── BUG-019 residual: nested conditionals must be re-evaluated after unwrapping ─

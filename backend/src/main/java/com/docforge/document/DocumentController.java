@@ -394,7 +394,7 @@ public class DocumentController {
      * <ul>
      *   <li>{@code parameterField} — replaced with formatted answer text.</li>
      *   <li>{@code templateParam} — replaced with the raw answer value for {@code fieldId}.</li>
-     *   <li>{@code clauseRef} — replaced with "п. X.Y" computed from the document tree.</li>
+     *   <li>{@code clauseRef} — replaced with "п. X.Y." (метка редактора, с точкой) computed from the document tree.</li>
      * </ul>
      */
     @SuppressWarnings("unchecked")

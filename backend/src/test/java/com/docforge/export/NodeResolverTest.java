@@ -81,6 +81,9 @@ class NodeResolverTest {
     }
 
     // ── buildClauseNumberingMap ───────────────────────────────────────────────
+    //
+    // Метки — в формате редактора (AutoNumberingPlugin): счётчики уровней 1..level,
+    // склеенные через '.' с завершающей точкой ("1.", "2.1.", "а.") — BUG-066.
 
     @Test
     void buildClauseNumberingMap_topLevelClauses_sequential() {
@@ -92,40 +95,42 @@ class NodeResolverTest {
 
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
-        assertThat(nums).containsEntry("c1", "1")
-                        .containsEntry("c2", "2")
-                        .containsEntry("c3", "3");
+        assertThat(nums).containsEntry("c1", "1.")
+                        .containsEntry("c2", "2.")
+                        .containsEntry("c3", "3.");
     }
 
     @Test
     void buildClauseNumberingMap_nestedClauses_hierarchical() {
+        // Вложенность иерархии задаёт attrs.level (семантика редактора):
+        // level=2 → вторая ступень счётчиков → "2.1."
         Map<String, Object> c2 = clauseWithChildren("c2", List.of(
-                clause("c2_1"),
-                clause("c2_2")
+                clauseAtLevel("c2_1", 2),
+                clauseAtLevel("c2_2", 2)
         ));
         Map<String, Object> body = doc(List.of(clause("c1"), c2, clause("c3")));
 
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
-        assertThat(nums).containsEntry("c1",   "1")
-                        .containsEntry("c2",   "2")
-                        .containsEntry("c2_1", "2.1")
-                        .containsEntry("c2_2", "2.2")
-                        .containsEntry("c3",   "3");
+        assertThat(nums).containsEntry("c1",   "1.")
+                        .containsEntry("c2",   "2.")
+                        .containsEntry("c2_1", "2.1.")
+                        .containsEntry("c2_2", "2.2.")
+                        .containsEntry("c3",   "3.");
     }
 
     @Test
     void buildClauseNumberingMap_deepNesting() {
-        Map<String, Object> c1_1_1 = clause("c1_1_1");
-        Map<String, Object> c1_1 = clauseWithChildren("c1_1", List.of(c1_1_1));
+        Map<String, Object> c1_1_1 = clauseAtLevel("c1_1_1", 3);
+        Map<String, Object> c1_1 = clauseWithChildrenAtLevel("c1_1", 2, List.of(c1_1_1));
         Map<String, Object> c1 = clauseWithChildren("c1", List.of(c1_1));
         Map<String, Object> body = doc(List.of(c1));
 
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
-        assertThat(nums).containsEntry("c1",     "1")
-                        .containsEntry("c1_1",   "1.1")
-                        .containsEntry("c1_1_1", "1.1.1");
+        assertThat(nums).containsEntry("c1",     "1.")
+                        .containsEntry("c1_1",   "1.1.")
+                        .containsEntry("c1_1_1", "1.1.1.");
     }
 
     @Test
@@ -134,11 +139,119 @@ class NodeResolverTest {
         assertThat(resolver.buildClauseNumberingMap(doc(List.of()))).isEmpty();
     }
 
+    // ── Parity with the editor's AutoNumberingPlugin (BUG-065/BUG-066 review) ─
+
+    @Test
+    void buildClauseNumberingMap_listStart_resetsNumbering() {
+        // Второй список (listStart) начинает нумерацию заново — как в редакторе
+        Map<String, Object> body = doc(List.of(
+                clause("c1"),
+                clause("c2"),
+                clauseWithListStart("c3", true)
+        ));
+
+        Map<String, String> nums = resolver.buildClauseNumberingMap(body);
+
+        assertThat(nums).containsEntry("c1", "1.")
+                        .containsEntry("c2", "2.")
+                        .containsEntry("c3", "1.");
+    }
+
+    @Test
+    void buildClauseNumberingMap_listStartOnNestedClause_matchesEditorCounters() {
+        // listStart сбрасывает ВСЕ счётчики (counters.fill(0) в редакторе), поэтому
+        // вложенный level=2 пункт получает "0.1." — печатаем ровно то, что показывает
+        // AutoNumberingPlugin (parity, даже если метка выглядит неожиданно)
+        Map<String, Object> body = doc(List.of(
+                clauseWithChildren("c1", List.of(clauseWithListStart("c1_1", true, 2)))
+        ));
+
+        Map<String, String> nums = resolver.buildClauseNumberingMap(body);
+
+        assertThat(nums).containsEntry("c1",   "1.")
+                        .containsEntry("c1_1", "0.1.");
+    }
+
+    @Test
+    void buildClauseNumberingMap_numberingStyleAlphaRu_cyrillicLetters() {
+        Map<String, Object> body = doc(List.of(
+                clauseWithStyle("c1", "alpha-ru"),
+                clauseWithStyle("c2", "alpha-ru")
+        ));
+
+        Map<String, String> nums = resolver.buildClauseNumberingMap(body);
+
+        assertThat(nums).containsEntry("c1", "а.")
+                        .containsEntry("c2", "б.");
+    }
+
+    @Test
+    void buildClauseNumberingMap_numberingStyleAlphaEn_latinLetters() {
+        Map<String, Object> body = doc(List.of(
+                clauseWithStyle("c1", "alpha-en"),
+                clauseWithStyle("c2", "alpha-en")
+        ));
+
+        Map<String, String> nums = resolver.buildClauseNumberingMap(body);
+
+        assertThat(nums).containsEntry("c1", "a.")
+                        .containsEntry("c2", "b.");
+    }
+
+    @Test
+    void buildClauseNumberingMap_nestedLevel2_hierarchicalLabels() {
+        // "level: 2 nesting → 2.1.-style labels"
+        Map<String, Object> body = doc(List.of(
+                clauseWithChildren("c1", List.of(clauseAtLevel("c1_1", 2))),
+                clause("c2")));
+
+        Map<String, String> nums = resolver.buildClauseNumberingMap(body);
+
+        assertThat(nums).containsEntry("c1",   "1.")
+                        .containsEntry("c1_1", "1.1.")
+                        .containsEntry("c2",   "2.");
+    }
+
+    @Test
+    void buildClauseNumberingMap_unknownStyle_fallsBackToDecimal() {
+        Map<String, Object> body = doc(List.of(clauseWithStyle("c1", "roman")));
+
+        Map<String, String> nums = resolver.buildClauseNumberingMap(body);
+
+        assertThat(nums).containsEntry("c1", "1.");
+    }
+
+    @Test
+    void buildClauseNumberingMap_levelZero_defaultsToOne() {
+        // Редактор: (attrs.level as number) || 1 → 0 считается как level 1
+        Map<String, Object> body = doc(List.of(
+                clauseAtLevel("zero", 0),
+                clauseAtLevel("neg", -3)));
+
+        Map<String, String> nums = resolver.buildClauseNumberingMap(body);
+
+        assertThat(nums).containsEntry("zero", "1.")
+                        .containsEntry("neg", "2.");
+    }
+
+    @Test
+    void buildClauseNumberingMap_levelAbove5_clampedTo5() {
+        // Редактор: clamp(attrs.level, 1..5) → level 9 печатается как 5-сегментная
+        // метка с пустыми ступенями (parity с AutoNumberingPlugin)
+        Map<String, Object> body = doc(List.of(clauseAtLevel("high", 9)));
+
+        Map<String, String> nums = resolver.buildClauseNumberingMap(body);
+
+        assertThat(nums).containsEntry("high", "0.0.0.0.1.");
+    }
+
     // ── resolveClauseRef ──────────────────────────────────────────────────────
 
     @Test
     void resolveClauseRef_knownId_returnsFormattedLabel() {
-        Map<String, Object> body = doc(List.of(clause("c1"), clauseWithChildren("c2", List.of(clause("c2_1")))));
+        Map<String, Object> body = doc(List.of(
+                clause("c1"),
+                clauseWithChildren("c2", List.of(clauseAtLevel("c2_1", 2)))));
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
         Map<String, Object> refNode = Map.of(
@@ -149,7 +262,8 @@ class NodeResolverTest {
         Map<String, Object> result = resolver.resolveClauseRef(refNode, nums);
 
         assertThat(result.get("type")).isEqualTo("text");
-        assertThat(result.get("text")).isEqualTo("п. 2.1");
+        // Метка редактора — с завершающей точкой: "п. 2.1." (BUG-066)
+        assertThat(result.get("text")).isEqualTo("п. 2.1.");
     }
 
     @Test
@@ -190,25 +304,25 @@ class NodeResolverTest {
 
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
-        assertThat(nums).containsEntry("c1", "1")
-                        .containsEntry("c2", "2")
-                        .containsEntry("c3", "3");
+        assertThat(nums).containsEntry("c1", "1.")
+                        .containsEntry("c2", "2.")
+                        .containsEntry("c3", "3.");
     }
 
     @Test
     void buildClauseNumberingMap_realSchemaAttrs_nestedClausesHierarchical() {
         Map<String, Object> c2 = clauseWithIdChildren("c2", List.of(
-                clauseWithId("c2_1"),
-                clauseWithId("c2_2")));
+                clauseWithIdAtLevel("c2_1", 2),
+                clauseWithIdAtLevel("c2_2", 2)));
         Map<String, Object> body = doc(List.of(clauseWithId("c1"), c2, clauseWithId("c3")));
 
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
-        assertThat(nums).containsEntry("c1",   "1")
-                        .containsEntry("c2",   "2")
-                        .containsEntry("c2_1", "2.1")
-                        .containsEntry("c2_2", "2.2")
-                        .containsEntry("c3",   "3");
+        assertThat(nums).containsEntry("c1",   "1.")
+                        .containsEntry("c2",   "2.")
+                        .containsEntry("c2_1", "2.1.")
+                        .containsEntry("c2_2", "2.2.")
+                        .containsEntry("c3",   "3.");
     }
 
     @Test
@@ -218,7 +332,7 @@ class NodeResolverTest {
 
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
-        assertThat(nums).containsOnlyKeys("new-id").containsEntry("new-id", "1");
+        assertThat(nums).containsOnlyKeys("new-id").containsEntry("new-id", "1.");
     }
 
     @Test
@@ -230,23 +344,25 @@ class NodeResolverTest {
 
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
-        assertThat(nums).containsOnlyKeys("c1").containsEntry("c1", "1");
+        assertThat(nums).containsOnlyKeys("c1").containsEntry("c1", "1.");
 
         Map<String, Object> legacyRef = Map.of("type", "clauseRef", "attrs", Map.of("clauseId", "c1"));
-        assertThat(resolver.resolveClauseRef(legacyRef, nums).get("text")).isEqualTo("п. 1");
+        assertThat(resolver.resolveClauseRef(legacyRef, nums).get("text")).isEqualTo("п. 1.");
     }
 
     @Test
-    void buildClauseNumberingMap_clauseInsideNonClauseBlock_isNotTraversed() {
-        // Документировано в javadoc: счёт ведут только прямые numberedClause-дети
-        // корня doc и пунктов; прочие block-узлы не обходятся.
+    void buildClauseNumberingMap_clauseInsideNonClauseBlock_isTraversed() {
+        // BUG-066: порт buildLabels из редактора — обходятся ВСЕ узлы (семантика
+        // doc.descendants), поэтому пункт, вложенный в другой block-узел, тоже
+        // занимает номер (как его показывает AutoNumberingPlugin).
         Map<String, Object> body = doc(List.of(
                 blockNode(List.of(clauseWithId("buried"))),
                 clauseWithId("c1")));
 
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
-        assertThat(nums).containsOnlyKeys("c1").containsEntry("c1", "1");
+        assertThat(nums).containsEntry("buried", "1.")
+                        .containsEntry("c1", "2.");
     }
 
     @Test
@@ -259,33 +375,33 @@ class NodeResolverTest {
 
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
-        assertThat(nums).containsOnlyKeys("c2").containsEntry("c2", "2");
+        assertThat(nums).containsOnlyKeys("c2").containsEntry("c2", "2.");
     }
 
     @Test
     void resolveClauseRef_realSchemaRefId_knownId_returnsFormattedLabel() {
         Map<String, Object> body = doc(List.of(
                 clauseWithId("c1"),
-                clauseWithIdChildren("c2", List.of(clauseWithId("c2_1")))));
+                clauseWithIdChildren("c2", List.of(clauseWithIdAtLevel("c2_1", 2)))));
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
         Map<String, Object> result = resolver.resolveClauseRef(clauseRef("c2_1"), nums);
 
         assertThat(result.get("type")).isEqualTo("text");
-        assertThat(result.get("text")).isEqualTo("п. 2.1");
+        assertThat(result.get("text")).isEqualTo("п. 2.1.");
     }
 
     @Test
     void clauseRef_realSchema_idClauseReferencedByRefId_endToEnd() {
         Map<String, Object> body = doc(List.of(
                 clauseWithId("c1"),
-                clauseWithIdChildren("c2", List.of(clauseWithId("c2_1"))),
+                clauseWithIdChildren("c2", List.of(clauseWithIdAtLevel("c2_1", 2))),
                 clauseWithId("c3")));
         Map<String, String> nums = resolver.buildClauseNumberingMap(body);
 
-        assertThat(resolver.resolveClauseRef(clauseRef("c1"), nums).get("text")).isEqualTo("п. 1");
-        assertThat(resolver.resolveClauseRef(clauseRef("c2_1"), nums).get("text")).isEqualTo("п. 2.1");
-        assertThat(resolver.resolveClauseRef(clauseRef("c3"), nums).get("text")).isEqualTo("п. 3");
+        assertThat(resolver.resolveClauseRef(clauseRef("c1"), nums).get("text")).isEqualTo("п. 1.");
+        assertThat(resolver.resolveClauseRef(clauseRef("c2_1"), nums).get("text")).isEqualTo("п. 2.1.");
+        assertThat(resolver.resolveClauseRef(clauseRef("c3"), nums).get("text")).isEqualTo("п. 3.");
     }
 
     @Test
@@ -294,14 +410,14 @@ class NodeResolverTest {
 
         Map<String, Object> legacyRef = Map.of("type", "clauseRef", "attrs", Map.of("clauseId", "c1"));
 
-        assertThat(resolver.resolveClauseRef(legacyRef, nums).get("text")).isEqualTo("п. 1");
+        assertThat(resolver.resolveClauseRef(legacyRef, nums).get("text")).isEqualTo("п. 1.");
     }
 
     @Test
     void clauseRef_mixedShapes_realSchemaRefToLegacyClause_resolves() {
         Map<String, String> nums = resolver.buildClauseNumberingMap(doc(List.of(clause("c1"))));
 
-        assertThat(resolver.resolveClauseRef(clauseRef("c1"), nums).get("text")).isEqualTo("п. 1");
+        assertThat(resolver.resolveClauseRef(clauseRef("c1"), nums).get("text")).isEqualTo("п. 1.");
     }
 
     @Test
@@ -326,9 +442,9 @@ class NodeResolverTest {
                 "type", "clauseRef",
                 "attrs", Map.of("refId", "   ", "clauseId", "c1"));
 
-        Map<String, Object> result = resolver.resolveClauseRef(refNode, Map.of("c1", "1"));
+        Map<String, Object> result = resolver.resolveClauseRef(refNode, Map.of("c1", "1."));
 
-        assertThat(result.get("text")).isEqualTo("п. 1");
+        assertThat(result.get("text")).isEqualTo("п. 1.");
     }
 
     @Test
@@ -337,9 +453,9 @@ class NodeResolverTest {
                 "type", "clauseRef",
                 "attrs", Map.of("refId", "c2", "clauseId", "c1"));
 
-        Map<String, Object> result = resolver.resolveClauseRef(refNode, Map.of("c1", "1", "c2", "2"));
+        Map<String, Object> result = resolver.resolveClauseRef(refNode, Map.of("c1", "1.", "c2", "2."));
 
-        assertThat(result.get("text")).isEqualTo("п. 2");
+        assertThat(result.get("text")).isEqualTo("п. 2.");
     }
 
     // ── Node builders ─────────────────────────────────────────────────────────
@@ -353,11 +469,28 @@ class NodeResolverTest {
     }
 
     private Map<String, Object> clauseWithChildren(String id, List<Map<String, Object>> children) {
-        Map<String, Object> node = new LinkedHashMap<>();
-        node.put("type", "numberedClause");
-        node.put("attrs", Map.of("clauseId", id));
-        node.put("content", new ArrayList<>(children));
-        return node;
+        return clauseNode(Map.of("clauseId", id, "level", 1), children);
+    }
+
+    private Map<String, Object> clauseWithChildrenAtLevel(
+            String id, int level, List<Map<String, Object>> children) {
+        return clauseNode(Map.of("clauseId", id, "level", level), children);
+    }
+
+    private Map<String, Object> clauseAtLevel(String id, int level) {
+        return clauseNode(Map.of("clauseId", id, "level", level), List.of());
+    }
+
+    private Map<String, Object> clauseWithStyle(String id, String numberingStyle) {
+        return clauseNode(Map.of("clauseId", id, "level", 1, "numberingStyle", numberingStyle), List.of());
+    }
+
+    private Map<String, Object> clauseWithListStart(String id, boolean listStart) {
+        return clauseNode(Map.of("clauseId", id, "level", 1, "listStart", listStart), List.of());
+    }
+
+    private Map<String, Object> clauseWithListStart(String id, boolean listStart, int level) {
+        return clauseNode(Map.of("clauseId", id, "level", level, "listStart", listStart), List.of());
     }
 
     /** Пункт в реальной TipTap-схеме — идентификатор в {@code attrs.id} (BUG-065). */
@@ -366,7 +499,11 @@ class NodeResolverTest {
     }
 
     private Map<String, Object> clauseWithIdChildren(String id, List<Map<String, Object>> children) {
-        return clauseNode(Map.of("id", id), children);
+        return clauseNode(Map.of("id", id, "level", 1), children);
+    }
+
+    private Map<String, Object> clauseWithIdAtLevel(String id, int level) {
+        return clauseNode(Map.of("id", id, "level", level), List.of());
     }
 
     private Map<String, Object> clauseNode(
@@ -383,7 +520,7 @@ class NodeResolverTest {
         return Map.of("type", "clauseRef", "attrs", Map.of("refId", refId));
     }
 
-    /** Прочий block-узел (не пункт) — его содержимое нумерация не обходит. */
+    /** Прочий block-узел (не пункт) — его содержимое обходится обходом doc.descendants. */
     private Map<String, Object> blockNode(List<Map<String, Object>> children) {
         Map<String, Object> node = new LinkedHashMap<>();
         node.put("type", "blockquote");

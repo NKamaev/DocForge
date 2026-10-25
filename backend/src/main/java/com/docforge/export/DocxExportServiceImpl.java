@@ -26,7 +26,10 @@ public class DocxExportServiceImpl implements DocxExportService {
     public byte[] export(Map<String, Object> body, DocumentFormatting formatting) throws IOException {
         try (XWPFDocument doc = new XWPFDocument()) {
             applyPageSetup(doc, formatting);
-            renderNode(doc, body, new RenderContext(formatting));
+            // Нумерация пунктов строится один раз на экспорт по экспортируемому дереву
+            // (BUG-066) — состояние не хранится в полях сервиса (thread safety).
+            RenderContext ctx = new RenderContext(formatting, ClauseNumbering.build(body));
+            renderNode(doc, body, ctx);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             doc.write(out);
             return out.toByteArray();
@@ -107,10 +110,24 @@ public class DocxExportServiceImpl implements DocxExportService {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private void renderParagraph(XWPFDocument doc, Map<String, Object> node, RenderContext ctx) {
+        renderParagraph(doc, node, ctx, null);
+    }
+
+    /**
+     * Рендер абзаца; {@code boldPrefix} (если задан) — жирный run в начале абзаца
+     * (используется для печатной метки пункта — BUG-066).
+     */
+    @SuppressWarnings("unchecked")
+    private void renderParagraph(
+            XWPFDocument doc, Map<String, Object> node, RenderContext ctx, String boldPrefix) {
         XWPFParagraph para = doc.createParagraph();
         applyParagraphAttrs(para, node, ctx);
+        if (boldPrefix != null) {
+            XWPFRun labelRun = para.createRun();
+            labelRun.setBold(true);
+            labelRun.setText(boldPrefix);
+        }
         List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("content");
         if (children != null) children.forEach(c -> renderInline(para, c, ctx));
     }
@@ -155,12 +172,36 @@ public class DocxExportServiceImpl implements DocxExportService {
         }
     }
 
+    /**
+     * Пункт с автонумерацией (BUG-066): контент пункта — block-узлы
+     * ({@code content: block+}), поэтому рендерится блочно через {@code renderNode},
+     * а не как inline. Печатная метка ("1. ", "2.1. ") выводится жирным run-ом
+     * в начале первого абзаца пункта (или отдельным абзацем, если первый дочерний
+     * узел — не абзац). Метка берётся из {@link ClauseNumbering} — той же, что
+     * показывает {@code AutoNumberingPlugin} в редакторе.
+     */
     @SuppressWarnings("unchecked")
     private void renderNumberedClause(XWPFDocument doc, Map<String, Object> node, RenderContext ctx) {
-        XWPFParagraph para = doc.createParagraph();
-        applyParagraphAttrs(para, node, ctx);
         List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("content");
-        if (children != null) children.forEach(c -> renderInline(para, c, ctx));
+        if (children == null) children = List.of();
+
+        String label = ctx.clauseLabel(node);
+        String labelRun = label != null ? label + " " : null;
+
+        if (!children.isEmpty() && "paragraph".equals(str(children.get(0).get("type")))) {
+            // метка — в начало первого абзаца пункта
+            renderParagraph(doc, children.get(0), ctx, labelRun);
+            for (int i = 1; i < children.size(); i++) renderNode(doc, children.get(i), ctx);
+        } else {
+            if (labelRun != null) {
+                XWPFParagraph para = doc.createParagraph();
+                applyParagraphAttrs(para, node, ctx);
+                XWPFRun run = para.createRun();
+                run.setBold(true);
+                run.setText(labelRun);
+            }
+            children.forEach(c -> renderNode(doc, c, ctx));
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -507,7 +548,18 @@ public class DocxExportServiceImpl implements DocxExportService {
         return def;
     }
 
-    private record RenderContext(DocumentFormatting formatting) {}
+    /**
+     * Контекст рендера одного экспорта: форматирование страницы + нумерация пунктов
+     * (BUG-066). Нумерация строится на каждый вызов {@code export} — состояние
+     * не разделяется между потоками.
+     */
+    private record RenderContext(DocumentFormatting formatting, ClauseNumbering.Result numbering) {
+
+        /** Печатная метка узла пункта ("1.", "2.1.") или {@code null}. */
+        String clauseLabel(Map<String, Object> clauseNode) {
+            return numbering != null ? numbering.labelFor(clauseNode) : null;
+        }
+    }
 
     /** attrs/метка как Map; мусор (не-объект) трактуется как отсутствие attrs (BUG-063). */
     @SuppressWarnings("unchecked")

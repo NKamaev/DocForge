@@ -66,12 +66,18 @@ public class PdfExportServiceImpl implements PdfExportService {
 
     // ── HTML builder ─────────────────────────────────────────────────────────
 
-    private String buildHtml(Map<String, Object> body, DocumentFormatting f) {
+    /**
+     * Собирает HTML-представление тела документа. Package-private — используется
+     * тестами для проверки рендера (BUG-066).
+     */
+    String buildHtml(Map<String, Object> body, DocumentFormatting f) {
         StringBuilder sb = new StringBuilder();
         sb.append("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"/><style>");
         sb.append(buildCss(f));
         sb.append("</style></head><body><div class=\"page\">");
-        renderNode(sb, body);
+        // Нумерация пунктов строится один раз на экспорт по экспортируемому дереву
+        // (BUG-066) — состояние не хранится в полях сервиса (thread safety).
+        renderNode(sb, body, ClauseNumbering.build(body));
         sb.append("</div></body></html>");
         return sb.toString();
     }
@@ -136,20 +142,15 @@ public class PdfExportServiceImpl implements PdfExportService {
     // ── Node rendering ────────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
-    private void renderNode(StringBuilder sb, Map<String, Object> node) {
+    private void renderNode(StringBuilder sb, Map<String, Object> node, ClauseNumbering.Result numbering) {
         String type = String.valueOf(node.get("type")); // BUG-063: не-строковый type не должен ронять экспорт
         List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("content");
 
         switch (type) {
             case "doc" -> {
-                if (children != null) children.forEach(c -> renderNode(sb, c));
+                if (children != null) children.forEach(c -> renderNode(sb, c, numbering));
             }
-            case "paragraph" -> {
-                sb.append("<p").append(paragraphStyle(node)).append(">");
-                if (children != null) children.forEach(c -> renderInline(sb, c));
-                else sb.append("&#160;");
-                sb.append("</p>");
-            }
+            case "paragraph" -> renderParagraph(sb, node, null);
             case "heading" -> {
                 Map<String, Object> attrs = asMap(node.get("attrs"));
                 int level = attrs != null ? toInt(attrs.get("level"), 1) : 1;
@@ -167,20 +168,57 @@ public class PdfExportServiceImpl implements PdfExportService {
                 if (children != null) children.forEach(c -> renderListItem(sb, c));
                 sb.append("</ol>");
             }
-            case "numberedClause" -> {
-                sb.append("<p").append(paragraphStyle(node)).append(">");
-                if (children != null) children.forEach(c -> renderInline(sb, c));
-                sb.append("</p>");
-            }
+            case "numberedClause" -> renderNumberedClause(sb, node, children, numbering);
             case "table" -> renderTable(sb, children);
             case "horizontalRule" -> sb.append("<hr/>");
             case "pageBreak" -> sb.append("<div class=\"page-break\"></div>");
             case "conditionalBlock" -> {
-                if (children != null) children.forEach(c -> renderNode(sb, c));
+                if (children != null) children.forEach(c -> renderNode(sb, c, numbering));
             }
             default -> {
-                if (children != null) children.forEach(c -> renderNode(sb, c));
+                if (children != null) children.forEach(c -> renderNode(sb, c, numbering));
             }
+        }
+    }
+
+    /** Абзац; {@code boldPrefix} — жирный префикс в начале (метка пункта, BUG-066). */
+    @SuppressWarnings("unchecked")
+    private void renderParagraph(StringBuilder sb, Map<String, Object> node, String boldPrefix) {
+        sb.append("<p").append(paragraphStyle(node)).append(">");
+        if (boldPrefix != null) sb.append("<strong>").append(escape(boldPrefix)).append("</strong>");
+        List<Map<String, Object>> children = (List<Map<String, Object>>) node.get("content");
+        if (children != null) children.forEach(c -> renderInline(sb, c));
+        else if (boldPrefix == null) sb.append("&#160;");
+        sb.append("</p>");
+    }
+
+    /**
+     * Пункт с автонумерацией (BUG-066): контент пункта — block-узлы
+     * ({@code content: block+}), поэтому рендерится блочно через {@code renderNode},
+     * а не как inline. Печатная метка ("1. ", "2.1. ") выводится в начале первого
+     * абзаца пункта (или отдельным абзацем, если первый дочерний узел — не абзац);
+     * метка берётся из {@link ClauseNumbering} — той же, что показывает
+     * {@code AutoNumberingPlugin} в редакторе.
+     */
+    private void renderNumberedClause(
+            StringBuilder sb,
+            Map<String, Object> node,
+            List<Map<String, Object>> children,
+            ClauseNumbering.Result numbering) {
+        List<Map<String, Object>> kids = children != null ? children : List.of();
+        String label = numbering.labelFor(node);
+        String labelRun = label != null ? label + " " : null;
+
+        if (!kids.isEmpty() && "paragraph".equals(str(kids.get(0).get("type")))) {
+            // метка — в начало первого абзаца пункта
+            renderParagraph(sb, kids.get(0), labelRun);
+            for (int i = 1; i < kids.size(); i++) renderNode(sb, kids.get(i), numbering);
+        } else {
+            if (labelRun != null) {
+                sb.append("<p").append(paragraphStyle(node)).append("><strong>")
+                        .append(escape(labelRun)).append("</strong></p>");
+            }
+            kids.forEach(c -> renderNode(sb, c, numbering));
         }
     }
 
