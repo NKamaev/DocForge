@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -158,6 +159,31 @@ class PdfExportServiceImplTest {
         assertThat(html)
                 .contains("<strong>а. </strong>FIRST_ALPHA_TEXT")
                 .contains("<strong>б. </strong>SECOND_ALPHA_TEXT");
+    }
+
+    // ── Регрессия: CSS line-height не зависит от локали JVM ─────────────────
+
+    @Test
+    void buildCss_russianDefaultLocale_lineHeightUsesDotDecimalSeparator() {
+        // Регрессия: String.format без явной локали на ru_RU печатал "%.2f" как
+        // "1,50", openhtmltopdf молча выбрасывал line-height и lineSpacing
+        // игнорировался в каждом PDF. Ожидаем "line-height: 1.50" (точка).
+        Locale previous = Locale.getDefault();
+        Locale.setDefault(Locale.forLanguageTag("ru-RU"));
+        try {
+            DocumentFormatting fmt = new DocumentFormatting();
+            fmt.setPageSize("A4");
+            fmt.setDefaultFontSize(14);
+            fmt.setLineSpacing(1.5);
+
+            String html = service.buildHtml(
+                    doc(List.of(paragraph(List.of(text("ТЕКСТ ПАГРАФА"))))), fmt);
+
+            assertThat(html).contains("line-height: 1.50");
+            assertThat(html).doesNotContain("line-height: 1,50");
+        } finally {
+            Locale.setDefault(previous);
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

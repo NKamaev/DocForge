@@ -2,6 +2,7 @@ package com.docforge.export;
 
 import com.docforge.template.model.DocumentFormatting;
 import com.docforge.template.model.PageMargins;
+import com.openhtmltopdf.outputdevice.helper.BaseRendererBuilder.FSFontUseCase;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -9,8 +10,12 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -18,9 +23,31 @@ public class PdfExportServiceImpl implements PdfExportService {
 
     private static final String FONT_FAMILY = "Noto Serif";
 
-    /** Font aliases: CSS names that should map to bundled NotoSerif. */
+    /**
+     * Имена семейств (в нижнем регистре), которые обязаны резолвиться в приложенное
+     * NotoSerif (BUG-077). Generic-имена CSS ({@code serif}, {@code sans-serif},
+     * {@code monospace}) и base-14 имена openhtmltopdf ({@code serif} → Times-Roman,
+     * {@code sans-serif} → Helvetica, {@code monospace} → Courier) не содержат
+     * кириллицы: openhtmltopdf рисует недостающие глифы символом {@code #}.
+     */
+    private static final Set<String> BUNDLED_ALIASES = Set.of(
+            "noto serif",
+            "serif", "sans-serif", "sansserif", "monospace", "monospaced",
+            "cursive", "fantasy", "dialog", "dialoginput",
+            "times", "times roman", "timesroman", "timesnewroman", "times new roman", "times-roman",
+            "helvetica", "courier", "symbol", "zapfdingbats");
+
+    /**
+     * Семейства, под которыми NotoSerif дополнительно регистрируется в MAIN-сторе
+     * openhtmltopdf. Ключи должны совпадать с {@code FontUtil.normalizeFontFamily}:
+     * lookup регистрозависим, поэтому generic-имена даются в нормализованном виде
+     * ({@code serif} → {@code Serif}). Для прочих случаев (другой регистр, экзотические
+     * имена из textStyle-меток) есть FALLBACK_PRE-регистрация — она срабатывает раньше
+     * base-14 шрифтов.
+     */
     private static final String[] FONT_ALIASES = {
-        "Times New Roman", "Times", "serif"
+            "Times New Roman", "Times", "TimesRoman", "Serif", "SansSerif", "Monospaced",
+            "Helvetica", "Courier"
     };
 
     @Override
@@ -40,20 +67,25 @@ public class PdfExportServiceImpl implements PdfExportService {
     }
 
     private void registerFonts(PdfRendererBuilder builder) {
-        registerFont(builder, "/fonts/NotoSerif-Regular.ttf",    FONT_FAMILY, 400, PdfRendererBuilder.FontStyle.NORMAL);
-        registerFont(builder, "/fonts/NotoSerif-Bold.ttf",       FONT_FAMILY, 700, PdfRendererBuilder.FontStyle.NORMAL);
-        registerFont(builder, "/fonts/NotoSerif-Italic.ttf",     FONT_FAMILY, 400, PdfRendererBuilder.FontStyle.ITALIC);
-        registerFont(builder, "/fonts/NotoSerif-BoldItalic.ttf", FONT_FAMILY, 700, PdfRendererBuilder.FontStyle.ITALIC);
-
+        registerFontFamily(builder, FONT_FAMILY, EnumSet.of(FSFontUseCase.DOCUMENT));
         for (String alias : FONT_ALIASES) {
-            registerFont(builder, "/fonts/NotoSerif-Regular.ttf",    alias, 400, PdfRendererBuilder.FontStyle.NORMAL);
-            registerFont(builder, "/fonts/NotoSerif-Bold.ttf",       alias, 700, PdfRendererBuilder.FontStyle.NORMAL);
-            registerFont(builder, "/fonts/NotoSerif-Italic.ttf",     alias, 400, PdfRendererBuilder.FontStyle.ITALIC);
-            registerFont(builder, "/fonts/NotoSerif-BoldItalic.ttf", alias, 700, PdfRendererBuilder.FontStyle.ITALIC);
+            registerFontFamily(builder, alias, EnumSet.of(FSFontUseCase.DOCUMENT));
         }
+        // NotoSerif как fallback ДО base-14 (BUG-077): любое неразрешимое семейство
+        // (в т.ч. font-family из textStyle-меток) получает шрифт с кириллицей,
+        // а не Times-Roman/Helvetica/Courier без кириллических глифов.
+        registerFontFamily(builder, FONT_FAMILY, EnumSet.of(FSFontUseCase.FALLBACK_PRE));
     }
 
-    private void registerFont(PdfRendererBuilder builder, String classpathPath, String family, int weight, PdfRendererBuilder.FontStyle style) {
+    private void registerFontFamily(PdfRendererBuilder builder, String family, Set<FSFontUseCase> usedFor) {
+        registerFont(builder, "/fonts/NotoSerif-Regular.ttf",    family, 400, PdfRendererBuilder.FontStyle.NORMAL, usedFor);
+        registerFont(builder, "/fonts/NotoSerif-Bold.ttf",       family, 700, PdfRendererBuilder.FontStyle.NORMAL, usedFor);
+        registerFont(builder, "/fonts/NotoSerif-Italic.ttf",     family, 400, PdfRendererBuilder.FontStyle.ITALIC, usedFor);
+        registerFont(builder, "/fonts/NotoSerif-BoldItalic.ttf", family, 700, PdfRendererBuilder.FontStyle.ITALIC, usedFor);
+    }
+
+    private void registerFont(PdfRendererBuilder builder, String classpathPath, String family,
+                              int weight, PdfRendererBuilder.FontStyle style, Set<FSFontUseCase> usedFor) {
         builder.useFont(() -> {
             InputStream is = getClass().getResourceAsStream(classpathPath);
             if (is == null) {
@@ -61,7 +93,7 @@ public class PdfExportServiceImpl implements PdfExportService {
                 return null;
             }
             return is;
-        }, family, weight, style, true);
+        }, family, weight, style, true, usedFor);
     }
 
     // ── HTML builder ─────────────────────────────────────────────────────────
@@ -83,7 +115,7 @@ public class PdfExportServiceImpl implements PdfExportService {
     }
 
     private String buildCss(DocumentFormatting f) {
-        if (f == null) return "body{font-family:serif;font-size:14pt;}";
+        if (f == null) return "body{font-family:\"" + FONT_FAMILY + "\";font-size:14pt;}";
 
         boolean landscape = "landscape".equals(f.getOrientation());
         int[] dims = pageDimensions(f.getPageSize(), landscape);
@@ -93,14 +125,14 @@ public class PdfExportServiceImpl implements PdfExportService {
         int bottom = m != null ? m.getBottom() : 20;
         int left = m != null ? m.getLeft() : 30;
 
-        String rawFont = f.getDefaultFont() != null ? f.getDefaultFont() : FONT_FAMILY;
-        // Ensure Noto Serif is always in the fallback chain for Cyrillic support
-        String font = rawFont.equals(FONT_FAMILY) ? rawFont : rawFont + ", \"" + FONT_FAMILY + "\"";
+        String font = resolveFontStack(f.getDefaultFont());
 
         int fontSize = f.getDefaultFontSize() > 0 ? f.getDefaultFontSize() : 14;
         double lineH = f.getLineSpacing() > 0 ? f.getLineSpacing() : 1.5;
 
-        return String.format("""
+        // Locale.US обязателен: на ru_RU "%.2f" даёт "1,50", и openhtmltopdf
+        // молча выбрасывает line-height (lineSpacing игнорировался).
+        return String.format(java.util.Locale.US, """
                 @page {
                   size: %dmm %dmm;
                   margin: %dmm %dmm %dmm %dmm;
@@ -127,6 +159,31 @@ public class PdfExportServiceImpl implements PdfExportService {
                 font, fontSize, lineH,
                 fontSize * 1.71, fontSize * 1.43, fontSize * 1.21
         );
+    }
+
+    /**
+     * Строит CSS-стек {@code font-family} так, чтобы кириллица гарантированно
+     * резолвилась в приложенное NotoSerif (BUG-077): известные имена (generic
+     * {@code serif}/{@code sans-serif}/{@code monospace}, base-14 Times/Helvetica/Courier
+     * и их варианты написания) заменяются на {@code "Noto Serif"}, неизвестные
+     * (например {@code Arial}) сохраняются как есть, а {@code "Noto Serif"} всегда
+     * добавляется последним fallback-ом. {@code defaultFont} может быть как одним
+     * именем, так и целым стеком ({@code "Times New Roman, serif"}).
+     */
+    private String resolveFontStack(String rawFont) {
+        String quotedFamily = "\"" + FONT_FAMILY + "\"";
+        List<String> families = new ArrayList<>();
+        if (rawFont != null) {
+            for (String part : rawFont.split(",")) {
+                String name = part.replace("\"", "").trim();
+                if (name.isEmpty()) continue;
+                String family = BUNDLED_ALIASES.contains(name.toLowerCase(Locale.ROOT)) ? FONT_FAMILY : name;
+                String quoted = "\"" + family + "\"";
+                if (!families.contains(quoted)) families.add(quoted);
+            }
+        }
+        if (!families.contains(quotedFamily)) families.add(quotedFamily);
+        return String.join(", ", families);
     }
 
     private int[] pageDimensions(String pageSize, boolean landscape) {
