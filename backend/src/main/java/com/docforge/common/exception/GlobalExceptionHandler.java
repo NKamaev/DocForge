@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
@@ -42,12 +43,36 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
+        // merge-функция обязательна: две нарушенных валидации на одном поле
+        // дают два FieldError с одним ключом, иначе здесь падал бы
+        // IllegalStateException -> 500 вместо 400 (BUG-067).
         Map<String, String> errors = ex.getBindingResult().getFieldErrors().stream()
                 .collect(Collectors.toMap(FieldError::getField,
-                        fe -> fe.getDefaultMessage() != null ? fe.getDefaultMessage() : "invalid"));
+                        fe -> fe.getDefaultMessage() != null ? fe.getDefaultMessage() : "invalid",
+                        (first, second) -> first));
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Ошибка валидации");
         problem.setProperty("errors", errors);
         return problem;
+    }
+
+    /**
+     * Нечитаемое тело запроса (невалидный JSON, неизвестное значение enum,
+     * неверный тип поля) — ошибка клиента: 400, а не 500 (BUG-067).
+     *
+     * <p>В detail попадает причина без внутренних имён Jackson/JVM
+     * (полные имена классов вырезаются).
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ProblemDetail handleMessageNotReadable(HttpMessageNotReadableException ex) {
+        // Стектрейс — чтобы маскированный баг десериализатора был виден в логах.
+        log.debug("Нечитаемое тело запроса", ex);
+        Throwable cause = ex.getMostSpecificCause();
+        String reason = cause != null ? cause.getMessage() : null;
+        String detail = (reason == null || reason.isBlank())
+                ? "Некорректное тело запроса"
+                : "Некорректное тело запроса: " + reason.replaceAll(
+                        "\\b[a-z][a-z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)+\\b", "…");
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
     }
 
     /**
