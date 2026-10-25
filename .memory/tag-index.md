@@ -85,7 +85,7 @@
 | `BUG-063` | `tickets/BUG-063.md` | `current_body` без валидации: CCE/500 при экспорте — закрыт (`75748cd`) |
 | `BUG-064` | `tickets/BUG-064.md` | Единая семантика условий: генерация и экспорт — закрыт (`15718cf`) |
 | `BUG-065` | `tickets/BUG-065.md` | `NodeResolver` читал `clauseId` вместо `id`/`refId` — закрыт (`6840dd9`) |
-| `BUG-066` | — (только tracker) | Экспорт теряет текст видимого `numberedClause` — TODO |
+| `BUG-066` | `tickets/BUG-066.md` | Экспорт терял текст видимого `numberedClause` — закрыт (`a063827`) |
 | `BUG-067` | — (только tracker) | `HttpMessageNotReadableException` → 500 вместо 400 — TODO |
 | `TASK-066` | — (только tracker) | Вынести пайплайн экспорта из `DocumentController` в сервис — TODO |
 | `TASK-067` | — (только tracker) | Нарушения границ модулей: permission-сервисы импортируют `user.UserRepository` — TODO |
@@ -99,6 +99,8 @@
 | `BUG-074` | — (только tracker) | Невалидные тела в экспортёрах: generate()/тела шаблонов/Yjs + глубокая терпимость — TODO |
 | `BUG-075` | — (только tracker) | TipTapTreeWalker не переприменяет трансформер к заменённым узлам — TODO |
 | `BUG-076` | — (только tracker) | previewRenderer: семантика условий отличается от backend — TODO |
+| `BUG-077` | — (только tracker) | PDF: кириллица рендерится как `#` (base-14 Times-Roman вместо NotoSerif) — TODO |
+| `BUG-078` | — (только tracker) | `numberedClause` теряет текст в ячейках/списках; clauseRef в шаблон-экспорте — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
 | `BUG-039` | `tickets/BUG-039.md` | Белый экран при создании документа — невоспроизводим (устарел после миграции UI) |
 | `BUG-044` | `tickets/BUG-044.md` | Счётчик шаблонов за неделю на главной (был hardcoded `+2`) — закрыт (`a3e4f2b`) |
