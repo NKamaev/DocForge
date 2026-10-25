@@ -99,7 +99,7 @@
 | `BUG-074` | — (только tracker) | Невалидные тела в экспортёрах: generate()/тела шаблонов/Yjs + глубокая терпимость — TODO |
 | `BUG-075` | — (только tracker) | TipTapTreeWalker не переприменяет трансформер к заменённым узлам — TODO |
 | `BUG-076` | — (только tracker) | previewRenderer: семантика условий отличается от backend — TODO |
-| `BUG-077` | — (только tracker) | PDF: кириллица рендерится как `#` (base-14 Times-Roman вместо NotoSerif) — TODO |
+| `BUG-077` | `tickets/BUG-077.md` | PDF: кириллица рендерится как `#` (base-14 вместо NotoSerif) — закрыт (`d0134c2`) |
 | `BUG-078` | — (только tracker) | `numberedClause` теряет текст в ячейках/списках; clauseRef в шаблон-экспорте — TODO |
 | `BUG-079` | — (только tracker) | Spring MVC client errors (405/415/406/404/413) падают в 500 — TODO |
 | `TASK-065` | — (только tracker) | Удалить legacy participants API — TODO |
